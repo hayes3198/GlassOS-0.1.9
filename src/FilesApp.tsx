@@ -76,10 +76,11 @@ export function FilesApp({
   accentColor
 }: FilesAppProps) {
   const [currentPath, setCurrentPath] = useState<string[]>(['Documents']);
-  const [selectedItemName, setSelectedItemName] = useState<string | null>(null);
+  const [selectedItemNames, setSelectedItemNames] = useState<string[]>([]);
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
   const [editingItem, setEditingItem] = useState<{ path: string[], name: string } | null>(null);
   const [newName, setNewName] = useState('');
-  const [draggedItem, setDraggedItem] = useState<{ name: string, path: string[] } | null>(null);
+  const [draggedItems, setDraggedItems] = useState<{ name: string, path: string[] }[]>([]);
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
   const [dropSuccessFolder, setDropSuccessFolder] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -143,18 +144,20 @@ export function FilesApp({
     setPropertiesItem(prev => prev ? { ...prev, permissions: newPermissions } : null);
   };
 
-  const handleDelete = (name: string) => {
-    const itemPath = currentPath.join('/') + '/' + name;
+  const handleDelete = (names: string[]) => {
     try {
-      if (currentPath[0] === 'Trash') {
-        fsLib.delete(itemPath);
-        addNotification('File Explorer', `Permanently deleted: ${name}`, 'warning');
-      } else {
-        fsLib.move(itemPath, 'Trash');
-        addNotification('File Explorer', `Moved to Trash: ${name}`, 'warning');
-      }
+      names.forEach(name => {
+        const itemPath = currentPath.join('/') + '/' + name;
+        if (currentPath[0] === 'Trash') {
+          fsLib.delete(itemPath);
+        } else {
+          fsLib.move(itemPath, 'Trash');
+        }
+      });
+      addNotification('File Explorer', `Successfully processed ${names.length} items`, 'warning');
+      setSelectedItemNames([]);
     } catch (e) {
-      addNotification('File Explorer', 'Error during delete', 'error');
+      addNotification('File Explorer', 'Error during batch delete', 'error');
     }
   };
 
@@ -181,9 +184,17 @@ export function FilesApp({
     }
   };
 
-  const onDragStart = (e: React.DragEvent, name: string) => {
-    setDraggedItem({ name, path: currentPath });
-    e.dataTransfer.setData('text/plain', name);
+  const onDragStart = (e: React.DragEvent, name: string, idx: number) => {
+    let itemsToDrag = [];
+    if (selectedItemNames.includes(name)) {
+      itemsToDrag = selectedItems.map(item => ({ name: item.name, path: item.displayPath || currentPath }));
+    } else {
+      itemsToDrag = [{ name, path: currentPath }];
+      setSelectedItemNames([name]);
+      setLastSelectedIndex(idx);
+    }
+    setDraggedItems(itemsToDrag);
+    e.dataTransfer.setData('text/plain', JSON.stringify(itemsToDrag.map(i => i.name)));
     e.dataTransfer.effectAllowed = 'move';
   };
 
@@ -203,9 +214,11 @@ export function FilesApp({
     e.preventDefault();
     const folderName = isBackground ? 'root' : (targetPath[targetPath.length - 1] || 'root');
     setDragOverFolder(null);
-    if (draggedItem) {
-      handleMove(draggedItem.name, draggedItem.path, targetPath);
-      setDraggedItem(null);
+    if (draggedItems.length > 0) {
+      draggedItems.forEach(item => {
+        handleMove(item.name, item.path, targetPath);
+      });
+      setDraggedItems([]);
       setDropSuccessFolder(folderName);
       setTimeout(() => setDropSuccessFolder(null), 1000);
     }
@@ -268,68 +281,105 @@ export function FilesApp({
     }
   };
 
-  const selectedItem = useMemo(() => 
-    currentFolder.find(item => item.name === selectedItemName),
-  [currentFolder, selectedItemName]);
+  const selectedItems = useMemo(() => 
+    currentFolder.filter(item => selectedItemNames.includes(item.name)),
+  [currentFolder, selectedItemNames]);
 
   const handleCopy = () => {
-    const itemToCopy = selectedItem;
-    if (!itemToCopy) return;
-    const fileData = `FILE_JSON:${JSON.stringify(itemToCopy)}`;
+    if (selectedItemNames.length === 0) return;
+    const fileData = `FILES_JSON:${JSON.stringify(selectedItems)}`;
     setClipboardHistory((prev: string[]) => [fileData, ...prev.filter(i => i !== fileData)].slice(0, 50));
-    addNotification('File Explorer', `Copied ${itemToCopy.name} to clipboard`, 'info');
+    addNotification('File Explorer', `Copied ${selectedItemNames.length} items to clipboard`, 'info');
     setActiveMenu(null);
   };
 
   const handleCut = () => {
-    const itemToCut = selectedItem;
-    if (!itemToCut) return;
-    const fileData = `FILE_CUT_JSON:${JSON.stringify({ item: itemToCut, sourcePath: currentPath })}`;
+    if (selectedItemNames.length === 0) return;
+    const fileData = `FILES_CUT_JSON:${JSON.stringify({ items: selectedItems, sourcePath: currentPath })}`;
     setClipboardHistory((prev: string[]) => [fileData, ...prev.filter(i => i !== fileData)].slice(0, 50));
-    addNotification('File Explorer', `Cut ${itemToCut.name} to clipboard`, 'info');
+    addNotification('File Explorer', `Cut ${selectedItemNames.length} items to clipboard`, 'info');
     setActiveMenu(null);
   };
 
   const handlePaste = () => {
-    const pasteItemData = clipboardHistory.find((i: string) => i.startsWith('FILE_JSON:') || i.startsWith('FILE_CUT_JSON:'));
-    if (!pasteItemData) {
-      addNotification('File Explorer', 'No file in clipboard to paste', 'warning');
+    const pasteItemsData = clipboardHistory.find((i: string) => i.startsWith('FILES_JSON:') || i.startsWith('FILES_CUT_JSON:'));
+    if (!pasteItemsData) {
+      addNotification('File Explorer', 'No files in clipboard to paste', 'warning');
       return;
     }
 
-    if (pasteItemData.startsWith('FILE_JSON:')) {
-      const item: FileSystemItem = JSON.parse(pasteItemData.replace('FILE_JSON:', ''));
-      duplicateItem(item);
-    } else {
-      const data = JSON.parse(pasteItemData.replace('FILE_CUT_JSON:', ''));
-      handleMove(data.item.name, data.sourcePath, currentPath);
-      setClipboardHistory((prev: string[]) => prev.filter(i => i !== pasteItemData));
+    try {
+      if (pasteItemsData.startsWith('FILES_JSON:')) {
+        const items: FileSystemItem[] = JSON.parse(pasteItemsData.replace('FILES_JSON:', ''));
+        items.forEach(item => duplicateItem(item));
+      } else {
+        const data = JSON.parse(pasteItemsData.replace('FILES_CUT_JSON:', ''));
+        data.items.forEach((item: FileSystemItem) => {
+          handleMove(item.name, data.sourcePath, currentPath);
+        });
+        setClipboardHistory((prev: string[]) => prev.filter(i => i !== pasteItemsData));
+      }
+      addNotification('File Explorer', 'Items pasted successfully', 'success');
+    } catch (e) {
+      addNotification('File Explorer', 'Error during paste', 'error');
     }
     setActiveMenu(null);
   };
 
+  const handleItemClick = (e: React.MouseEvent, item: FileSystemItem, index: number) => {
+    e.stopPropagation();
+    
+    if (e.ctrlKey || e.metaKey) {
+      // Toggle
+      setSelectedItemNames(prev => 
+        prev.includes(item.name) 
+          ? prev.filter(name => name !== item.name) 
+          : [...prev, item.name]
+      );
+      setLastSelectedIndex(index);
+    } else if (e.shiftKey && lastSelectedIndex !== null) {
+      // Select range
+      const start = Math.min(lastSelectedIndex, index);
+      const end = Math.max(lastSelectedIndex, index);
+      const range = filteredFolder.slice(start, end + 1).map(i => i.name);
+      
+      setSelectedItemNames(prev => {
+        const otherFolderItems = prev.filter(name => !filteredFolder.some(fi => fi.name === name));
+        const newSelection = Array.from(new Set([...otherFolderItems, ...range]));
+        return newSelection;
+      });
+    } else {
+      // Single select
+      setSelectedItemNames([item.name]);
+      setLastSelectedIndex(index);
+    }
+  };
+
   const handlePrint = () => {
-    if (!selectedItem || selectedItem.type !== 'file') {
-      addNotification('File Explorer', 'Please select a file to print', 'warning');
+    if (selectedItems.length === 0 || selectedItems.some(i => i.type !== 'file')) {
+      addNotification('File Explorer', 'Please select only files to print', 'warning');
       return;
     }
-    const filename = selectedItem.name;
-    const newJob: PrintJob = {
-      id: Math.random().toString(36).substr(2, 9),
-      filename,
-      status: 'printing',
-      timestamp: new Date().toLocaleTimeString(),
-      owner: userName
-    };
-    setPrintQueue((prev: PrintJob[]) => [...prev, newJob]);
-    addNotification('Print Manager', `Sending "${filename}" to printer...`, 'info');
     
-    setTimeout(() => {
-      setPrintQueue((prev: PrintJob[]) => 
-        prev.map(job => job.id === newJob.id ? { ...job, status: 'completed' } : job)
-      );
-      addNotification('Print Manager', `Finished printing "${filename}"`, 'success');
-    }, 5000);
+    selectedItems.forEach(item => {
+      const filename = item.name;
+      const newJob: PrintJob = {
+        id: Math.random().toString(36).substr(2, 9),
+        filename,
+        status: 'printing',
+        timestamp: new Date().toLocaleTimeString(),
+        owner: userName
+      };
+      setPrintQueue((prev: PrintJob[]) => [...prev, newJob]);
+      addNotification('Print Manager', `Sending "${filename}" to printer...`, 'info');
+      
+      setTimeout(() => {
+        setPrintQueue((prev: PrintJob[]) => 
+          prev.map(job => job.id === newJob.id ? { ...job, status: 'completed' } : job)
+        );
+        addNotification('Print Manager', `Finished printing "${filename}"`, 'success');
+      }, 5000);
+    });
     setActiveMenu(null);
   };
 
@@ -340,7 +390,7 @@ export function FilesApp({
     }
     if (item.type === 'folder') {
       setCurrentPath([...currentPath, item.name]);
-      setSelectedItemName(null);
+      setSelectedItemNames([]);
     } else {
       const ext = item.name.split('.').pop()?.toLowerCase();
       if (ext === 'txt' || ext === 'b' || ext === 'json') {
@@ -413,22 +463,25 @@ export function FilesApp({
                    </button>
                    <div className="h-px bg-white/10 my-1" />
                    <button 
-                     onClick={() => selectedItem && openItem(selectedItem)}
-                     disabled={!selectedItem}
+                     onClick={() => {
+                        selectedItems.forEach(item => openItem(item));
+                        setActiveMenu(null);
+                     }}
+                     disabled={selectedItems.length === 0}
                      className="w-full text-left px-4 py-1.5 text-[11px] hover:bg-blue-500/20 flex items-center justify-between group disabled:opacity-30 disabled:cursor-not-allowed"
                    >
-                     <span>Open File...</span>
+                     <span>Open Selected</span>
                      <span className="text-white/20 group-hover:text-white/40">Enter</span>
                    </button>
                    <button 
                      onClick={() => {
-                        if(selectedItem) {
-                            setPropertiesItem(selectedItem);
+                        if(selectedItems.length > 0) {
+                            setPropertiesItem(selectedItems[selectedItems.length - 1]);
                             setPropertiesTab('permissions');
                             setActiveMenu(null);
                         }
                      }}
-                     disabled={!selectedItem}
+                     disabled={selectedItems.length === 0}
                      className="w-full text-left px-4 py-1.5 text-[11px] hover:bg-blue-500/20 flex items-center justify-between group disabled:opacity-30 disabled:cursor-not-allowed"
                    >
                      <span>File Information</span>
@@ -437,7 +490,7 @@ export function FilesApp({
                    <div className="h-px bg-white/10 my-1" />
                    <button 
                      onClick={handlePrint}
-                     disabled={!selectedItem || selectedItem.type !== 'file'}
+                     disabled={selectedItems.length === 0 || selectedItems.some(i => i.type !== 'file')}
                      className="w-full text-left px-4 py-1.5 text-[11px] hover:bg-blue-500/20 flex items-center justify-between group disabled:opacity-30 disabled:cursor-not-allowed"
                    >
                      <span>Print</span>
@@ -466,34 +519,34 @@ export function FilesApp({
                    className="absolute top-full left-0 w-48 glass-dark border border-white/10 rounded-lg shadow-2xl py-1 mt-1 z-[70]"
                  >
                    <button 
-                    onClick={handleCut}
-                    disabled={!selectedItem}
-                    className="w-full text-left px-4 py-1.5 text-[11px] hover:bg-blue-500/20 flex items-center justify-between group disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    <span>Cut</span>
-                    <span className="text-white/20 group-hover:text-white/40">Ctrl+X</span>
-                  </button>
-                  <button 
-                    onClick={handleCopy}
-                    disabled={!selectedItem}
-                    className="w-full text-left px-4 py-1.5 text-[11px] hover:bg-blue-500/20 flex items-center justify-between group disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    <span>Copy</span>
-                    <span className="text-white/20 group-hover:text-white/40">Ctrl+C</span>
-                  </button>
-                  <button 
-                    onClick={handlePaste}
-                    className="w-full text-left px-4 py-1.5 text-[11px] hover:bg-blue-500/20 flex items-center justify-between group"
-                  >
-                    <span>Paste</span>
-                    <span className="text-white/20 group-hover:text-white/40">Ctrl+V</span>
-                  </button>
-                  <div className="h-px bg-white/10 my-1" />
-                  <button 
-                    onClick={() => selectedItem && handleDelete(selectedItem.name)}
-                    disabled={!selectedItem}
-                    className="w-full text-left px-4 py-1.5 text-[11px] hover:bg-red-500/20 text-red-400 disabled:text-red-400/30 flex items-center justify-between group disabled:cursor-not-allowed"
-                  >
+                     onClick={handleCut}
+                     disabled={selectedItems.length === 0}
+                     className="w-full text-left px-4 py-1.5 text-[11px] hover:bg-blue-500/20 flex items-center justify-between group disabled:opacity-30 disabled:cursor-not-allowed"
+                   >
+                     <span>Cut</span>
+                     <span className="text-white/20 group-hover:text-white/40">Ctrl+X</span>
+                   </button>
+                   <button 
+                     onClick={handleCopy}
+                     disabled={selectedItems.length === 0}
+                     className="w-full text-left px-4 py-1.5 text-[11px] hover:bg-blue-500/20 flex items-center justify-between group disabled:opacity-30 disabled:cursor-not-allowed"
+                   >
+                     <span>Copy</span>
+                     <span className="text-white/20 group-hover:text-white/40">Ctrl+C</span>
+                   </button>
+                   <button 
+                     onClick={handlePaste}
+                     className="w-full text-left px-4 py-1.5 text-[11px] hover:bg-blue-500/20 flex items-center justify-between group"
+                   >
+                     <span>Paste</span>
+                     <span className="text-white/20 group-hover:text-white/40">Ctrl+V</span>
+                   </button>
+                   <div className="h-px bg-white/10 my-1" />
+                   <button 
+                     onClick={() => handleDelete(selectedItemNames)}
+                     disabled={selectedItemNames.length === 0}
+                     className="w-full text-left px-4 py-1.5 text-[11px] hover:bg-red-500/20 text-red-400 disabled:text-red-400/30 flex items-center justify-between group disabled:cursor-not-allowed"
+                   >
                     <span>Delete File</span>
                     <span className="text-red-400/20 group-hover:text-red-400/40">Del</span>
                   </button>
@@ -713,7 +766,7 @@ export function FilesApp({
             dragOverFolder === 'root' && "bg-blue-500/5 ring-4 ring-inset ring-blue-500/20",
             dropSuccessFolder === 'root' && "bg-emerald-500/5 ring-4 ring-inset ring-emerald-500/20"
           )}
-          onClick={() => setSelectedItemName(null)}
+          onClick={() => setSelectedItemNames([])}
           onDragOver={(e) => onDragOver(e, 'root')}
           onDragLeave={onDragLeave}
           onDrop={(e) => onDrop(e, currentPath, true)}
@@ -727,6 +780,7 @@ export function FilesApp({
                 { label: 'New File', icon: <FileText size={14} />, onClick: () => createNewItem('file') },
                 { label: 'Refresh', icon: <RefreshCw size={14} />, onClick: () => addNotification('System', 'Folder refreshed', 'success') },
                 { label: 'Paste', icon: <Clipboard size={14} />, onClick: handlePaste },
+                { label: 'Select All', icon: <Check size={14} />, onClick: () => setSelectedItemNames(filteredFolder.map(i => i.name)) },
               ]
             });
           }}
@@ -742,7 +796,7 @@ export function FilesApp({
                 <div 
                   key={`${item.name}-${item.type}-${idx}`}
                   draggable
-                  onDragStart={(e) => onDragStart(e, item.name)}
+                  onDragStart={(e) => onDragStart(e, item.name, idx)}
                   onDragOver={(e) => item.type === 'folder' ? onDragOver(e, item.name) : undefined}
                   onDragLeave={onDragLeave}
                   onDrop={item.type === 'folder' ? (e) => {
@@ -751,17 +805,17 @@ export function FilesApp({
                   } : undefined}
                   className={cn(
                     "group relative glass p-4 rounded-xl flex flex-col items-center gap-2 hover:bg-white/10 transition-all cursor-pointer border border-transparent select-none",
-                    draggedItem?.name === item.name && "opacity-50 scale-95",
+                    draggedItems.some(i => i.name === item.name) && "opacity-50 scale-95",
                     isCut && "opacity-30 grayscale-[0.5] border-dashed border-white/20",
                     dropSuccessFolder === item.name && item.type === 'folder' && "bg-emerald-500/20 border-emerald-500/50 ring-2 ring-emerald-500/50"
                   )}
                   style={{
-                    backgroundColor: selectedItemName === item.name 
+                    backgroundColor: selectedItemNames.includes(item.name) 
                       ? `${accentColor}33` 
                       : (dragOverFolder === item.name && item.type === 'folder') 
                         ? `${accentColor}66` 
                         : undefined,
-                    borderColor: selectedItemName === item.name 
+                    borderColor: selectedItemNames.includes(item.name) 
                       ? `${accentColor}80` 
                       : (dragOverFolder === item.name && item.type === 'folder') 
                         ? accentColor 
@@ -770,7 +824,7 @@ export function FilesApp({
                       ? `0 0 15px ${accentColor}40`
                       : undefined
                   }}
-                  onClick={(e) => { e.stopPropagation(); setSelectedItemName(item.name); }}
+                  onClick={(e) => handleItemClick(e, item, idx)}
                   onDoubleClick={() => {
                     if (searchQuery.trim() && item.displayPath) {
                       if (item.type === 'folder') {
@@ -786,7 +840,13 @@ export function FilesApp({
                   onContextMenu={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    setSelectedItemName(item.name);
+                    
+                    // If the item right-clicked is not in the selection, clear selection and select this item
+                    if (!selectedItemNames.includes(item.name)) {
+                      setSelectedItemNames([item.name]);
+                      setLastSelectedIndex(idx);
+                    }
+
                     setContextMenu({
                       x: e.clientX,
                       y: e.clientY,
@@ -802,11 +862,11 @@ export function FilesApp({
                           }
                           else openItem(item);
                         }},
-                        { label: 'Rename', icon: <Edit2 size={14} />, onClick: () => { setEditingItem({ path: itemPath, name: item.name }); setNewName(item.name); }},
+                        { label: 'Rename', icon: <Edit2 size={14} />, onClick: () => { setEditingItem({ path: itemPath, name: item.name }); setNewName(item.name); } },
                         { label: 'Cut', icon: <Scissors size={14} />, onClick: () => handleCut() },
                         { label: 'Copy', icon: <Copy size={14} />, onClick: () => handleCopy() },
                         { label: 'Properties', icon: <Info size={14} />, onClick: () => { setPropertiesItem(item); setPropertiesTab('general'); } },
-                        { label: 'Delete', icon: <Trash size={14} />, onClick: () => handleDelete(item.name), variant: 'danger' },
+                        { label: 'Delete', icon: <Trash size={14} />, onClick: () => handleDelete(selectedItemNames.includes(item.name) ? selectedItemNames : [item.name]), variant: 'danger' },
                       ]
                     });
                   }}

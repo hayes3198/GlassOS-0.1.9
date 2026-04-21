@@ -248,6 +248,9 @@ export default function App() {
   const [activeWindow, setActiveWindow] = useState<AppId | null>(null);
   const [wallpaper, setWallpaper] = useState(WALLPAPERS[0]);
   const [accentColor, setAccentColor] = useState('#3b82f6');
+  const [systemFontFamily, setSystemFontFamily] = useState('Inter');
+  const [systemFontSize, setSystemFontSize] = useState('14');
+  const [systemFontWeight, setSystemFontWeight] = useState('400');
   const [userName, setUserName] = useState('Guest User');
   const [users, setUsers] = useState<UserAccount[]>([
     { id: '1', username: 'Guest User', avatar: 'https://cdn-icons-png.flaticon.com/512/1144/1144760.png', isAdmin: true },
@@ -367,6 +370,12 @@ export default function App() {
       if (savedWallpaper) setWallpaper(savedWallpaper);
       const savedAccentColor = localStorage.getItem('glassos_accent_color');
       if (savedAccentColor) setAccentColor(savedAccentColor);
+      const savedFontFamily = localStorage.getItem('glassos_font_family');
+      if (savedFontFamily) setSystemFontFamily(savedFontFamily);
+      const savedFontSize = localStorage.getItem('glassos_font_size');
+      if (savedFontSize) setSystemFontSize(savedFontSize);
+      const savedFontWeight = localStorage.getItem('glassos_font_weight');
+      if (savedFontWeight) setSystemFontWeight(savedFontWeight);
       const savedNotepad = localStorage.getItem('glassos_notepad');
       if (savedNotepad) setNotepadContent(savedNotepad);
       const savedBuilds = localStorage.getItem('glassos_builds');
@@ -400,11 +409,14 @@ export default function App() {
           if (cloudData.fs_v1) setFs(cloudData.fs_v1);
           if (cloudData.collections) setCollections(cloudData.collections);
           if (cloudData.settings_v1) {
-            const { username, wallpaper, accentColor, notepad } = cloudData.settings_v1;
+            const { username, wallpaper, accentColor, notepad, fontFamily, fontSize, fontWeight } = cloudData.settings_v1;
             if (username) setUserName(username);
             if (wallpaper) setWallpaper(wallpaper);
             if (accentColor) setAccentColor(accentColor);
             if (notepad) setNotepadContent(notepad);
+            if (fontFamily) setSystemFontFamily(fontFamily);
+            if (fontSize) setSystemFontSize(fontSize);
+            if (fontWeight) setSystemFontWeight(fontWeight);
           }
           addNotification('System', 'Connected to GlassOS Cloud', 'success');
         }
@@ -423,6 +435,9 @@ export default function App() {
     localStorage.setItem('glassos_username', userName);
     localStorage.setItem('glassos_wallpaper', wallpaper);
     localStorage.setItem('glassos_accent_color', accentColor);
+    localStorage.setItem('glassos_font_family', systemFontFamily);
+    localStorage.setItem('glassos_font_size', systemFontSize);
+    localStorage.setItem('glassos_font_weight', systemFontWeight);
     localStorage.setItem('glassos_notepad', notepadContent);
     localStorage.setItem('glassos_builds', JSON.stringify(builds));
     localStorage.setItem('glassos_tasks', JSON.stringify(tasks));
@@ -452,7 +467,10 @@ export default function App() {
                 username: userName,
                 wallpaper: wallpaper,
                 accentColor: accentColor,
-                notepad: notepadContent
+                notepad: notepadContent,
+                fontFamily: systemFontFamily,
+                fontSize: systemFontSize,
+                fontWeight: systemFontWeight
               }
             })
           });
@@ -783,8 +801,16 @@ export default function App() {
   return (
     <div 
       ref={desktopRef}
-      className="h-screen w-screen relative overflow-hidden select-text font-sans"
-      style={{ backgroundImage: `url(${wallpaper})` }}
+      className="h-screen w-screen relative overflow-hidden select-text font-sans transition-all duration-500"
+      style={{ 
+        backgroundImage: `url(${wallpaper})`,
+        '--system-font-family': `${systemFontFamily}, sans-serif`,
+        '--system-font-size': `${systemFontSize}px`,
+        '--system-font-weight': systemFontWeight,
+        fontFamily: 'var(--system-font-family)',
+        fontSize: 'var(--system-font-size)',
+        fontWeight: 'var(--system-font-weight)'
+      } as React.CSSProperties}
       onContextMenu={(e) => {
         if (isLockScreen) return;
         e.preventDefault();
@@ -862,6 +888,9 @@ export default function App() {
                     userName, setUserName, 
                     wallpaper, setWallpaper, 
                     accentColor, setAccentColor,
+                    systemFontFamily, setSystemFontFamily,
+                    systemFontSize, setSystemFontSize,
+                    systemFontWeight, setSystemFontWeight,
                     handleLogout,
                     networkStatus, setNetworkStatus,
                     connectedNetwork, setConnectedNetwork,
@@ -5134,6 +5163,9 @@ function SettingsApp(props: any) {
     userName, setUserName, 
     wallpaper, setWallpaper, 
     accentColor, setAccentColor,
+    systemFontFamily, setSystemFontFamily,
+    systemFontSize, setSystemFontSize,
+    systemFontWeight, setSystemFontWeight,
     handleLogout,
     networkStatus, setNetworkStatus,
     connectedNetwork, setConnectedNetwork,
@@ -5354,25 +5386,115 @@ function SettingsApp(props: any) {
         )}
 
         {view === 'personalization' && (
-          <div>
-            <h2 className="text-lg font-medium mb-4">Background</h2>
-            <div className="grid grid-cols-3 gap-4">
-              {WALLPAPERS.map((wp, i) => (
-                <div 
-                  key={i}
-                  onClick={() => {
-                    setWallpaper(wp);
-                    addNotification('Personalization', 'Wallpaper updated', 'success');
-                  }}
-                  className={cn(
-                    "aspect-video rounded-lg overflow-hidden cursor-pointer border-2 transition-all hover:scale-105",
-                    wallpaper === wp ? "border-blue-400" : "border-transparent"
-                  )}
-                >
-                  <img src={wp} alt={`Wallpaper ${i}`} className="w-full h-full object-cover" />
+          <div className="flex flex-col gap-8">
+            <section>
+              <h2 className="text-sm font-bold uppercase tracking-widest text-white/30 mb-4 px-1">Background</h2>
+              <div className="grid grid-cols-3 gap-4">
+                {WALLPAPERS.map((wp, i) => (
+                  <div 
+                    key={i}
+                    onClick={() => {
+                      setWallpaper(wp);
+                      addNotification('Personalization', 'Wallpaper updated', 'success');
+                    }}
+                    className={cn(
+                      "aspect-video rounded-xl overflow-hidden cursor-pointer border-2 shadow-lg transition-all hover:scale-105 active:scale-95",
+                      wallpaper === wp ? "border-blue-400" : "border-transparent"
+                    )}
+                  >
+                    <img src={wp} alt={`Wallpaper ${i}`} className="w-full h-full object-cover" />
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="glass p-6 rounded-2xl border border-white/10">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-blue-500/20 rounded-lg">
+                  <Type size={18} className="text-blue-400" />
                 </div>
-              ))}
-            </div>
+                <div>
+                  <h2 className="text-sm font-bold uppercase tracking-widest text-white/90">Typography</h2>
+                  <p className="text-[10px] text-white/30">Customize system-wide text rendering engine</p>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                {/* Font Family */}
+                <div>
+                  <label className="text-[10px] font-bold text-white/40 uppercase tracking-tighter mb-2 block">Font Family</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {['Inter', 'Roboto', 'Open Sans', 'Montserrat', 'Poppins', 'Playfair Display', 'JetBrains Mono'].map(font => (
+                      <button
+                        key={font}
+                        onClick={() => setSystemFontFamily(font)}
+                        style={{ fontFamily: font }}
+                        className={cn(
+                          "px-4 py-2 rounded-xl border text-sm transition-all text-left flex items-center justify-between group",
+                          systemFontFamily === font ? "bg-blue-500/20 border-blue-500/50 text-white" : "bg-white/5 border-white/5 text-white/50 hover:bg-white/10"
+                        )}
+                      >
+                        <span>{font}</span>
+                        {systemFontFamily === font && <Check size={14} className="text-blue-400" />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-6">
+                  {/* Font Size */}
+                  <div>
+                    <label className="text-[10px] font-bold text-white/40 uppercase tracking-tighter mb-2 block">Base Size ({systemFontSize}px)</label>
+                    <input 
+                      type="range" 
+                      min="12" 
+                      max="24" 
+                      step="1"
+                      value={systemFontSize}
+                      onChange={(e) => setSystemFontSize(e.target.value)}
+                      className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                    />
+                    <div className="flex justify-between mt-2 px-1 text-[9px] text-white/20 font-bold">
+                      <span>12PX</span>
+                      <span>24PX</span>
+                    </div>
+                  </div>
+
+                  {/* Font Weight */}
+                  <div>
+                    <label className="text-[10px] font-bold text-white/40 uppercase tracking-tighter mb-2 block">System Weight ({systemFontWeight})</label>
+                    <div className="flex gap-2">
+                      {['300', '400', '500', '600', '700'].map(weight => (
+                        <button
+                          key={weight}
+                          onClick={() => setSystemFontWeight(weight)}
+                          className={cn(
+                            "flex-1 py-2 rounded-lg border text-xs font-bold transition-all",
+                            systemFontWeight === weight ? "bg-blue-500/20 border-blue-500/50 text-white" : "bg-white/5 border-white/5 text-white/30 hover:bg-white/10"
+                          )}
+                        >
+                          {weight === '400' ? 'REG' : weight === '700' ? 'BOLD' : weight}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-white/5 rounded-xl border border-white/5 mt-4">
+                  <p className="text-[10px] text-white/30 mb-2 font-bold uppercase tracking-widest">Live Preview</p>
+                  <p 
+                    style={{ 
+                      fontFamily: systemFontFamily, 
+                      fontSize: `${systemFontSize}px`, 
+                      fontWeight: systemFontWeight 
+                    }}
+                    className="text-white leading-relaxed"
+                  >
+                    The quick brown fox jumps over the lazy dog. System rendering is optimized for modern high-DPI displays.
+                  </p>
+                </div>
+              </div>
+            </section>
           </div>
         )}
 
