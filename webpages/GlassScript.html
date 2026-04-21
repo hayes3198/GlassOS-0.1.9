@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GlassScript | The Definitive Guide</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        @import "tailwindcss";
+
+        @theme {
+            --font-sans: 'Inter', sans-serif;
+            --font-display: 'Space Grotesk', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        body {
+            background: radial-gradient(circle at top left, #0f172a, #020617);
+            min-height: 100vh;
+            color: #f8fafc;
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .glass-blue {
+            background: rgba(59, 130, 246, 0.05);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+        }
+
+        .code-block {
+            background: rgba(15, 23, 42, 0.8);
+            border-left: 4px solid #3b82f6;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            font-family: var(--font-mono);
+            font-size: 0.875rem;
+            line-height: 1.6;
+            margin: 1.5rem 0;
+            position: relative;
+            overflow-x: auto;
+        }
+
+        .keyword { color: #60a5fa; font-weight: bold; }
+        .string { color: #fbbf24; }
+        .comment { color: #64748b; font-style: italic; }
+        .app-target { color: #c084fc; font-weight: bold; }
+
+        .nav-link {
+            transition: all 0.3s;
+            position: relative;
+        }
+
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: #3b82f6;
+            transition: width 0.3s;
+        }
+
+        .nav-link:hover::after {
+            width: 100%;
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 0.8; }
+        }
+
+        .glow-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.05) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: -1;
+            animation: pulse-glow 8s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="font-sans antialiased selection:bg-blue-500/30">
+    <div class="glow-overlay"></div>
+
+    <nav class="sticky top-0 z-50 border-b border-white/10 glass">
+        <div class="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-600/20">
+                    <span class="font-display text-2xl font-bold text-white">G</span>
+                </div>
+                <div>
+                    <h1 class="font-display text-xl font-bold tracking-tight">GlassScript</h1>
+                    <p class="text-[10px] text-blue-400 uppercase tracking-widest font-bold">Language Specification v1.0</p>
+                </div>
+            </div>
+            <div class="hidden md:flex items-center gap-8 text-sm font-medium text-white/60">
+                <a href="#overview" class="nav-link hover:text-white">Overview</a>
+                <a href="#syntax" class="nav-link hover:text-white">Syntax</a>
+                <a href="#apps" class="nav-link hover:text-white">Apps</a>
+                <a href="#examples" class="nav-link hover:text-white">Examples</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-6 py-16 grid grid-cols-1 lg:grid-cols-12 gap-12">
+        <!-- Sidebar Navigation -->
+        <aside class="lg:col-span-3 hidden lg:block">
+            <div class="sticky top-36 space-y-8">
+                <div>
+                    <h5 class="text-xs font-bold text-white/30 truncate uppercase tracking-widest mb-4">The Basics</h5>
+                    <ul class="space-y-3 text-sm text-white/60">
+                        <li><a href="#intro" class="hover:text-blue-400 transition-colors">Philosophy</a></li>
+                        <li><a href="#comments" class="hover:text-blue-400 transition-colors">Comments</a></li>
+                        <li><a href="#tell" class="hover:text-blue-400 transition-colors">Tell Block</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h5 class="text-xs font-bold text-white/30 truncate uppercase tracking-widest mb-4">App Targets</h5>
+                    <ul class="space-y-3 text-sm text-white/60">
+                        <li><a href="#notepad" class="hover:text-blue-400 transition-colors">Notepad & GlassWord</a></li>
+                        <li><a href="#sheets" class="hover:text-blue-400 transition-colors">Sheets</a></li>
+                        <li><a href="#calendar" class="hover:text-blue-400 transition-colors">Calendar</a></li>
+                        <li><a href="#mail" class="hover:text-blue-400 transition-colors">Mail</a></li>
+                        <li><a href="#database" class="hover:text-blue-400 transition-colors">Database</a></li>
+                    </ul>
+                </div>
+                <div class="p-6 rounded-2xl glass-blue">
+                    <p class="text-xs leading-relaxed text-blue-400/80">
+                        <strong>Pro Tip:</strong> Use the <code>TIMESTAMP</code> command inside of blocks to log system-level execution times.
+                    </p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <div class="lg:col-span-9 space-y-24">
+            <!-- Section: Overview -->
+            <section id="overview" class="space-y-6">
+                <h2 class="text-4xl font-display font-bold text-white tracking-tight">Introduction to GlassScript</h2>
+                <p class="text-lg text-slate-400 leading-relaxed max-w-3xl">
+                    GlassScript is a high-level, human-readable automation language designed for <strong>GlassOS</strong>. It bridges the gap between natural language and system commands, allowing you to orchestrate complex workflows across multiple applications with zero boilerplate.
+                </p>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 pt-8">
+                    <div class="p-6 rounded-2xl glass border-white/5 space-y-3">
+                        <div class="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_10px_#3b82f6]"></div>
+                        <h4 class="font-bold text-sm">Contextual</h4>
+                        <p class="text-xs text-slate-500">Automatically detects which app is in focus to provide smart defaults.</p>
+                    </div>
+                    <div class="p-6 rounded-2xl glass border-white/5 space-y-3">
+                        <div class="w-2 h-2 rounded-full bg-purple-500 shadow-[0_0_10px_#a855f7]"></div>
+                        <h4 class="font-bold text-sm">Synchronous</h4>
+                        <p class="text-xs text-slate-500">Commands execute in perfect sequence, adhering to system timing.</p>
+                    </div>
+                    <div class="p-6 rounded-2xl glass border-white/5 space-y-3">
+                        <div class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981]"></div>
+                        <h4 class="font-bold text-sm">Non-Destructive</h4>
+                        <p class="text-xs text-slate-500">Atomic operations ensure your data is always safe even in failed runs.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section: Syntax -->
+            <section id="syntax" class="space-y-8">
+                <div class="flex items-center gap-4">
+                    <div class="h-[1px] flex-1 bg-gradient-to-r from-transparent to-white/10"></div>
+                    <h2 class="text-2xl font-display font-bold uppercase tracking-widest text-white/40">Basic Syntax</h2>
+                    <div class="h-[1px] flex-1 bg-gradient-to-l from-transparent to-white/10"></div>
+                </div>
+
+                <div id="intro" class="space-y-4">
+                    <h3 class="text-xl font-bold text-white">The Core Philosophy</h3>
+                    <p class="text-slate-400">GlassScript uses the <code>tell app</code> pattern. You define a target application, and all commands inside that block are interpreted by that app's specific runtime.</p>
+                </div>
+
+                <div id="tell" class="space-y-4">
+                    <h4 class="text-lg font-bold text-blue-400">The "Tell" Block</h4>
+                    <div class="code-block">
+                        <span class="keyword">tell app</span> <span class="app-target">"Notepad"</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="string">-- Your commands go here</span><br>
+                        <span class="keyword">end tell</span>
+                    </div>
+                </div>
+
+                <div id="comments" class="space-y-4">
+                    <h4 class="text-lg font-bold text-white">Comments</h4>
+                    <p class="text-slate-400">Use double dashes for single-line comments.</p>
+                    <div class="code-block">
+                        <span class="comment">-- This is a GlassScript comment</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section: Apps -->
+            <section id="apps" class="space-y-16">
+                <div class="flex items-center gap-4">
+                    <div class="h-[1px] flex-1 bg-gradient-to-r from-transparent to-white/10"></div>
+                    <h2 class="text-2xl font-display font-bold uppercase tracking-widest text-white/40">Application Specifics</h2>
+                    <div class="h-[1px] flex-1 bg-gradient-to-l from-transparent to-white/10"></div>
+                </div>
+
+                <!-- Notepad & GlassWord -->
+                <div id="notepad" class="space-y-6">
+                    <h3 class="text-2xl font-bold text-white flex items-center gap-3">
+                        <svg class="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                        Notepad & GlassWord
+                    </h3>
+                    <p class="text-slate-400">Handle rich text manipulation, formatting, and layout control.</p>
+                    <div class="code-block">
+                        <span class="keyword">tell app</span> <span class="app-target">"GlassWord"</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">set</span> font size <span class="keyword">to</span> <span class="string">16</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">set</span> style <span class="keyword">to</span> <span class="keyword">bold</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">align</span> center<br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">write</span> <span class="string">"GlassOS Status Report"</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">insert newline</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">set</span> style <span class="keyword">to</span> <span class="keyword">normal</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">align</span> left<br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">write</span> <span class="string">"Generated via GlassScript"</span><br>
+                        <span class="keyword">end tell</span>
+                    </div>
+                </div>
+
+                <!-- Sheets -->
+                <div id="sheets" class="space-y-6">
+                    <h3 class="text-2xl font-bold text-white flex items-center gap-3">
+                        <svg class="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        Sheets
+                    </h3>
+                    <p class="text-slate-400">Target cells, ranges, and formulas for data analysis.</p>
+                    <div class="code-block">
+                        <span class="keyword">tell app</span> <span class="app-target">"Sheets"</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">select</span> cell <span class="string">"A1"</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">set</span> value <span class="keyword">to</span> <span class="string">"Revenue"</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">select</span> range <span class="string">"A2:A10"</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">fill</span> <span class="string">random 100 500</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">set</span> formula <span class="keyword">at</span> <span class="string">"A11"</span> <span class="keyword">to</span> <span class="string">"=SUM(A2:A10)"</span><br>
+                        <span class="keyword">end tell</span>
+                    </div>
+                </div>
+
+                <!-- Calendar -->
+                <div id="calendar" class="space-y-6">
+                    <h3 class="text-2xl font-bold text-white flex items-center gap-3">
+                        <svg class="w-6 h-6 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                        Calendar
+                    </h3>
+                    <p class="text-slate-400">Automate event creation and schedule management.</p>
+                    <div class="code-block">
+                        <span class="keyword">tell app</span> <span class="app-target">"Calendar"</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">create event</span> <span class="keyword">with</span> title <span class="string">"Neural Sync Meeting"</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">set</span> start time <span class="keyword">to</span> <span class="string">"14:00"</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">set</span> end time <span class="keyword">to</span> <span class="string">"15:00"</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">invite</span> <span class="string">"admin@glass-os.sys"</span><br>
+                        <span class="keyword">end tell</span>
+                    </div>
+                </div>
+
+                <!-- Mail -->
+                <div id="mail" class="space-y-6">
+                    <h3 class="text-2xl font-bold text-white flex items-center gap-3">
+                        <svg class="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                        Mail
+                    </h3>
+                    <p class="text-slate-400">Compose, reply, and send messages through the mail protocol.</p>
+                    <div class="code-block">
+                        <span class="keyword">tell app</span> <span class="app-target">"Mail"</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">compose email</span> <span class="keyword">to</span> <span class="string">"client@neural.link"</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">set</span> subject <span class="keyword">to</span> <span class="string">"System Update Log"</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">set</span> body <span class="keyword">to</span> <span class="string">"The system migration is complete."</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">send message</span><br>
+                        <span class="keyword">end tell</span>
+                    </div>
+                </div>
+
+                <!-- Database -->
+                <div id="database" class="space-y-6">
+                    <h3 class="text-2xl font-bold text-white flex items-center gap-3">
+                        <svg class="w-6 h-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.58 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.58 4 8 4s8-1.79 8-4M4 7c0-2.21 3.58-4 8-4s8 1.79 8 4m0 5c0 2.21-3.58 4-8 4s-8-1.79-8-4"></path></svg>
+                        Database
+                    </h3>
+                    <p class="text-slate-400">Direct query access to System and User nodes.</p>
+                    <div class="code-block">
+                        <span class="keyword">tell app</span> <span class="app-target">"Database"</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">query</span> <span class="string">"users"</span> <span class="keyword">where</span> <span class="string">"status=active"</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">sync</span> shard <span class="string">"messaging_primary"</span><br>
+                        &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">backup</span> records <span class="keyword">locally</span><br>
+                        <span class="keyword">end tell</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section: System Commands -->
+            <section id="system" class="space-y-8">
+                <h2 class="text-2xl font-display font-bold text-white tracking-tight">System Global Commands</h2>
+                <p class="text-slate-400">These commands work outside of app blocks and control the execution flow.</p>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="p-6 rounded-2xl glass border-white/5 space-y-4">
+                        <code class="text-blue-400 font-bold">notify "Message"</code>
+                        <p class="text-xs text-slate-500">Triggers a system-wide toast notification.</p>
+                    </div>
+                    <div class="p-6 rounded-2xl glass border-white/5 space-y-4">
+                        <code class="text-purple-400 font-bold">wait 1000</code>
+                        <p class="text-xs text-slate-500">Pauses execution for N milliseconds.</p>
+                    </div>
+                    <div class="p-6 rounded-2xl glass border-white/5 space-y-4">
+                        <code class="text-amber-400 font-bold">system.date</code>
+                        <p class="text-xs text-slate-500">Injected variable for current system time.</p>
+                    </div>
+                    <div class="p-6 rounded-2xl glass border-white/5 space-y-4">
+                        <code class="text-emerald-400 font-bold">run "app_id"</code>
+                        <p class="text-xs text-slate-500">Force opens a background application.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section: Examples -->
+            <section id="examples" class="space-y-8">
+                <h2 class="text-3xl font-display font-bold text-white tracking-tight">The Example Gallery</h2>
+                
+                <div class="space-y-12">
+                    <div class="space-y-4">
+                        <h4 class="text-sm font-bold uppercase tracking-widest text-slate-500">Cross-App Workflow</h4>
+                        <div class="code-block">
+                            <span class="comment">-- Orchestrate a daily summary</span><br>
+                            <span class="keyword">tell app</span> <span class="app-target">"Sheets"</span><br>
+                            &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">select</span> cell <span class="string">"B12"</span><br>
+                            &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">copy</span> value<br>
+                            <span class="keyword">end tell</span><br><br>
+                            <span class="keyword">tell app</span> <span class="app-target">"Notepad"</span><br>
+                            &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">write</span> <span class="string">"Total Profit: "</span> &amp; <span class="keyword">clipboard</span><br>
+                            &nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">notify</span> <span class="string">"Summary Created!"</span><br>
+                            <span class="keyword">end tell</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <footer class="border-t border-white/10 glass py-12 mt-24">
+        <div class="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-6">
+            <div class="text-[10px] text-white/20 uppercase tracking-widest font-bold">
+                GlassOS Ecosystem &copy; 2026 // Neural Data Processing High
+            </div>
+            <div class="flex gap-8 text-[11px] text-white/40 uppercase font-bold tracking-widest">
+                <a href="#" class="hover:text-blue-400 transition-colors">Documentation</a>
+                <a href="#" class="hover:text-blue-400 transition-colors">Security</a>
+                <a href="#" class="hover:text-blue-400 transition-colors">Nodes</a>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

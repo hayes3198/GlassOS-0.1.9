@@ -1,5 +1,5 @@
 {
   "name": "GlassOS",
-  "description": "A sleek, glassmorphism-inspired simulated operating system with a functional terminal, browser, and Brainscript IDE.",
+  "description": "A sleek glassmorphism OS with functional terminal, browser, IDE, and robust IndexedDB persistence for files and settings.",
   "requestFramePermissions": []
 }
