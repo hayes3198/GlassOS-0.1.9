@@ -134,12 +134,21 @@ export function FilesApp({
     }
   };
 
-  const handleRename = (oldName: string) => {
-    if (!newName.trim()) return;
-    const oldPath = currentPath.join('/') + '/' + oldName;
+  const handleRename = () => {
+    if (!editingItem || !newName.trim()) {
+      setEditingItem(null);
+      return;
+    }
+
+    if (newName.trim() === editingItem.name) {
+      setEditingItem(null);
+      return;
+    }
+
+    const oldPath = (editingItem.path.length === 0 ? '' : editingItem.path.join('/') + '/') + editingItem.name;
     try {
       fsLib.rename(oldPath, newName.trim());
-      addNotification('File Explorer', `Renamed ${oldName} to ${newName.trim()}`, 'success');
+      addNotification('File Explorer', `Renamed ${editingItem.name} to ${newName.trim()}`, 'success');
       setEditingItem(null);
       setNewName('');
     } catch (e) {
@@ -478,7 +487,43 @@ export function FilesApp({
 
       const searchRecursive = (items: FileSystemItem[], path: string[]) => {
         items.forEach(item => {
-          if (item.name.toLowerCase().includes(lowerQuery)) {
+          const name = item.name.toLowerCase();
+          const ext = (item.name.split('.').pop() || '').toLowerCase();
+          const type = item.type;
+          const size = item.size || 0;
+          const date = item.dateModified ? new Date(item.dateModified).toLocaleDateString().toLowerCase() : '';
+
+          let isMatch = false;
+
+          // Check if user is using explicit filters or broad keyword
+          if (lowerQuery.includes(':')) {
+            const tokens = lowerQuery.split(/\s+/);
+            isMatch = tokens.every(token => {
+              if (token.startsWith('type:')) {
+                const t = token.split(':')[1];
+                return ext === t || type === t;
+              }
+              if (token.startsWith('size:')) {
+                const s = token.split(':')[1];
+                if (s.startsWith('>')) return size > (parseInt(s.slice(1)) || 0);
+                if (s.startsWith('<')) return size < (parseInt(s.slice(1)) || 0);
+                return size === parseInt(s);
+              }
+              if (token.startsWith('date:')) {
+                const d = token.split(':')[1];
+                return date.includes(d);
+              }
+              return name.includes(token);
+            });
+          } else {
+            // Broad search across name, extension, date and size
+            isMatch = name.includes(lowerQuery) || 
+                      ext.includes(lowerQuery) || 
+                      date.includes(lowerQuery) ||
+                      size.toString().includes(lowerQuery);
+          }
+
+          if (isMatch) {
             results.push({ ...item, displayPath: path });
           }
           if (item.type === 'folder' && item.children) {
@@ -752,7 +797,7 @@ export function FilesApp({
             <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/30" />
             <input 
               type="text"
-              placeholder="Search files..."
+              placeholder="Search (type: gdoc, size: >100)..."
               className="w-full bg-white/5 border border-white/10 rounded-full py-1 pl-8 pr-3 text-[10px] outline-none focus:bg-white/10 transition-all font-mono"
               style={{ borderBottomColor: searchQuery ? accentColor : undefined }}
               value={searchQuery}
@@ -902,6 +947,18 @@ export function FilesApp({
                   onDragOver={(e) => onDragOver(e, folder.name)}
                   onDragLeave={onDragLeave}
                   onDrop={(e) => onDrop(e, [folder.name])}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setContextMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      items: [
+                        { label: 'Open', icon: <Play size={14} />, onClick: () => setCurrentPath([folder.name]) },
+                        { label: 'Properties', icon: <Info size={14} />, onClick: () => { setPropertiesItem(folder); setPropertiesTab('general'); } },
+                      ]
+                    });
+                  }}
                   className={cn(
                     "w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-all relative",
                     currentPath[0] === folder.name ? "bg-red-500/10 text-red-400" : "text-white/40 hover:bg-white/5",
@@ -942,6 +999,15 @@ export function FilesApp({
                 { label: 'Refresh', icon: <RefreshCw size={14} />, onClick: () => addNotification('System', 'Folder refreshed', 'success') },
                 { label: 'Paste', icon: <Clipboard size={14} />, onClick: handlePaste },
                 { label: 'Select All', icon: <Check size={14} />, onClick: () => setSelectedItemNames(filteredFolder.map(i => i.name)) },
+                { label: 'Properties', icon: <Info size={14} />, onClick: () => {
+                  const item = fsLib.getItem(currentPath.join('/'));
+                  if (item) {
+                    setPropertiesItem(item);
+                    setPropertiesTab('general');
+                  } else {
+                    addNotification('File Explorer', 'Cannot view properties for root', 'warning');
+                  }
+                }},
               ]
             });
           }}
@@ -1057,11 +1123,24 @@ export function FilesApp({
                         style={{ borderColor: `${accentColor}80` }}
                         value={newName}
                         onChange={(e) => setNewName(e.target.value)}
-                        onBlur={() => handleRename(item.name)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleRename(item.name)}
+                        onBlur={handleRename}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleRename();
+                          if (e.key === 'Escape') setEditingItem(null);
+                        }}
+                        onClick={(e) => e.stopPropagation()}
                       />
                     ) : (
-                      <span className="text-[11px] text-center truncate w-full group-hover:whitespace-normal group-hover:overflow-visible group-hover:bg-black/40 group-hover:rounded px-1">{item.name}</span>
+                      <span 
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          setEditingItem({ path: itemPath, name: item.name });
+                          setNewName(item.name);
+                        }}
+                        className="text-[11px] text-center truncate w-full group-hover:whitespace-normal group-hover:overflow-visible group-hover:bg-black/40 group-hover:rounded px-1 cursor-text"
+                      >
+                        {item.name}
+                      </span>
                     )}
                     {searchQuery.trim() && item.displayPath && (
                       <span className="text-[8px] text-white/30 truncate w-full text-center">
@@ -1188,17 +1267,37 @@ export function FilesApp({
                     <div className="space-y-4 bg-white/5 rounded-2xl p-4 border border-white/5">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-bold text-white/20 uppercase">Location</span>
-                        <span className="text-[10px] text-white/60 font-mono">/{currentPath.join('/')}</span>
+                        <span className="text-[10px] text-white/60 font-mono">
+                          /{((propertiesItem as any).displayPath || currentPath).join('/')}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-white/20 uppercase">Permissions</span>
+                        <span className="text-[10px] text-white/60 font-mono">
+                          {(() => {
+                            const p = propertiesItem.permissions || DEFAULT_PERMISSIONS;
+                            const r = (g: any) => (g.r ? 'r' : '-') + (g.w ? 'w' : '-') + (g.x ? 'x' : '-');
+                            return r(p.owner) + r(p.group) + r(p.others);
+                          })()}
+                        </span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-bold text-white/20 uppercase">Size</span>
                         <span className="text-[10px] text-white/60 font-mono">
-                          {propertiesItem.type === 'file' ? `${(propertiesItem.content?.length || 0)} bytes` : '--'}
+                          {propertiesItem.type === 'file' ? `${(propertiesItem.size || propertiesItem.content?.length || 0)} bytes` : '--'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-white/20 uppercase">Created</span>
+                        <span className="text-[10px] text-white/60 font-mono">
+                          {propertiesItem.dateCreated ? new Date(propertiesItem.dateCreated).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Apr 18 2026, 14:20'}
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-bold text-white/20 uppercase">Last Modified</span>
-                        <span className="text-[10px] text-white/60 font-mono">Apr 19 2026, 09:59</span>
+                        <span className="text-[10px] text-white/60 font-mono">
+                          {propertiesItem.dateModified ? new Date(propertiesItem.dateModified).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Apr 19 2026, 09:59'}
+                        </span>
                       </div>
                     </div>
 

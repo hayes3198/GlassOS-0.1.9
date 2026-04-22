@@ -94,7 +94,7 @@ export const INITIAL_FS: FileSystemItem[] = [
                 children: [
                   { 
                     name: 'main.b', 
-                    content: '@@global.main\nStart\n  REM Welcome to Brainscript v1.0\n  LET $msg \'Hello GlassOS\'\n  PRINT $msg\n  TIMESTAMP\nEnd\n\n##parseconfig\nStart\n  REM Configuration Parser Module\n  REM Expects Key=Value pairs\n  LET $config \'theme=frosted;mode=performance;security=high\'\n  PRINT \'System: Initializing parseconfig routine...\'\n  PRINT $config\n  TIMESTAMP\nEnd', 
+                    content: '@@global.system.init\nStart\n  SET $0000 0x4000\n  SET $0001 0x01\n  SET $0002 \'BOOT SUCCESS\'\nEnd\n\n###mainrun.boot\nStart\n  PRINT \'Initializing Brainscript V3.0...\'\n  TIMESTAMP\n  \n  LET $math 100° * 2 + ABS -50\n  PRINT \'Kernel Math: \' && $math\n  \n  BRANCH ##user_auth\n  QUIT\nEnd\n\n##user_auth\nStart\n  PRINT \'Address Check: \' && $0000\n  INPUT $input_pass\n  LET $expected \'1234\'\n  \n  COMPARE $input_pass $expected : PRINT \'AUTH OK\' && $0002 : PRINT \'INVALID PASSWORD\' BRANCH ##halt_sequence\nEnd\n\n##halt_sequence\nStart\n  PRINT \'System Lockdown...\'\n  QUIT\nEnd', 
                     type: 'file', 
                     permissions: DEFAULT_PERMISSIONS 
                   },

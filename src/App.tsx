@@ -37,6 +37,7 @@ import {
   Cpu,
   HardDrive,
   Code,
+  Code2,
   Package,
   Check,
   RefreshCw,
@@ -92,6 +93,7 @@ import {
   Command,
   Unlock,
   ArrowLeftRight,
+  ArrowUpRight,
   Radio,
   Zap,
   Bold,
@@ -109,8 +111,12 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence, useDragControls } from 'motion/react';
 import { GlassScriptInterpreter } from './lib/glassScript';
+import { BrainscriptInterpreter } from './lib/brainscript';
 import { FilesApp } from './FilesApp';
 import { FileSystemLib } from './lib/FileSystem.lib';
+import { AuthLib } from './lib/Auth.lib';
+import { BridgeLib } from './lib/Bridge.lib';
+import { DisplayLib } from './lib/Display.lib';
 import { INITIAL_FS, DEFAULT_PERMISSIONS } from './constants/initialFs';
 import { FilePicker } from './components/FilePicker';
 import { nativeBridge, SystemInfo } from './lib/NativeBridge.lib';
@@ -303,6 +309,7 @@ export default function App() {
   const [activeFileInSheets, setActiveFileInSheets] = useState<{name: string, path: string[]} | null>(null);
   const [notepadStyle, setNotepadStyle] = useState<any>({ fontSize: '14px', fontWeight: 'normal', textAlign: 'left' });
   const [glassScriptLine, setGlassScriptLine] = useState<number>(-1);
+  const [brainscriptLine, setBrainscriptLine] = useState<number>(-1);
   const [activeFileInNotepad, setActiveFileInNotepad] = useState<{name: string, path: string[]} | null>(null);
   const [calendarEvents, setCalendarEvents] = useState<any[]>([
     { id: '1', title: 'System Review', date: new Date().toISOString().split('T')[0], time: '10:00', type: 'meeting' },
@@ -332,6 +339,29 @@ export default function App() {
   const [isAltTabOpen, setIsAltTabOpen] = useState(false);
   const [isQuickSettingsOpen, setIsQuickSettingsOpen] = useState(false);
   const desktopRef = useRef<HTMLDivElement>(null);
+
+  const [isAdmin, setIsAdmin] = useState(AuthLib.getSession().isAdmin);
+  const [isSandboxed, setIsSandboxed] = useState(AuthLib.getSession().isSandboxed);
+  const [sudoTarget, setSudoTarget] = useState<{ onVerified: () => void } | null>(null);
+
+  const requestSudo = useCallback((onVerified: () => void) => {
+    if (AuthLib.checkAccess(true)) {
+      onVerified();
+    } else {
+      setSudoTarget({ onVerified });
+    }
+  }, []);
+
+  const handleSudoVerify = (password: string) => {
+    if (AuthLib.verifySudo(password)) {
+      setIsAdmin(true);
+      sudoTarget?.onVerified();
+      setSudoTarget(null);
+      addNotification('Security', 'Gatekeeper: Access Granted', 'success');
+    } else {
+      addNotification('Security', 'Gatekeeper: Access Denied', 'error');
+    }
+  };
 
   // NOC Mock Traffic & Kernel Calls
   useEffect(() => {
@@ -741,8 +771,30 @@ export default function App() {
       getNotepadContent: () => notepadContent,
       setNotepadStyle: (style) => setNotepadStyle((prev: any) => ({ ...prev, ...style })),
       openWindow: (id, title) => openWindow(id, title),
-      systemDate: () => new Date().toLocaleDateString()
+      systemDate: () => new Date().toLocaleDateString(),
+      db: {
+        getCollections: () => collections,
+        setCollections: (next: any) => setCollections(next)
+      }
     }, (line) => setGlassScriptLine(line));
+
+    await interpreter.execute(script);
+  };
+
+  const runBrainscript = async (script: string, onPrint: (msg: string) => void) => {
+    const interpreter = new BrainscriptInterpreter({
+      print: onPrint,
+      notify: (msg, type) => addNotification('Brainscript', msg, type),
+      systemDate: () => new Date().toLocaleDateString(),
+      readFile: async (path: string) => {
+          const item = fsLib.findItemByPath(fs, path.split('/'));
+          return item && item.type === 'file' ? item.content : null;
+      },
+      prompt: async (message: string) => {
+          const result = window.prompt(message);
+          return result;
+      }
+    }, (line) => setBrainscriptLine(line));
 
     await interpreter.execute(script);
   };
@@ -907,6 +959,7 @@ export default function App() {
                     activeFileInGlassWord, setActiveFileInGlassWord,
                     notepadStyle, setNotepadStyle,
                     glassScriptLine, runGlassScript,
+                    brainscriptLine, runBrainscript,
                     calendarEvents, setCalendarEvents,
                     sheetData, setSheetData,
                     activeFileInSheets, setActiveFileInSheets,
@@ -935,12 +988,85 @@ export default function App() {
                     setCollections,
                     serverStatus,
                     networkNodes, setNetworkNodes, kernelCalls, setKernelCalls, networkTraffic, setNetworkTraffic,
-                    authorizedTokens, setAuthorizedTokens
+                    authorizedTokens, setAuthorizedTokens,
+                    isAdmin, setIsAdmin, isSandboxed, setIsSandboxed, requestSudo,
                   })}
                 </Window>
               ))}
             </AnimatePresence>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Gatekeeper Sudo Modal */}
+      <AnimatePresence>
+        {sudoTarget && (
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+              onClick={() => setSudoTarget(null)}
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-sm glass-dark rounded-3xl border border-red-500/30 p-8 shadow-[0_0_50px_rgba(239,68,68,0.2)] overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-red-500 to-transparent opacity-50" />
+              <div className="flex flex-col items-center gap-6">
+                <div className="w-16 h-16 rounded-2xl bg-red-500/10 flex items-center justify-center border border-red-500/20 shadow-[0_0_20px_rgba(239,68,68,0.1)]">
+                  <Shield size={32} className="text-red-500 animate-pulse" />
+                </div>
+                <div className="text-center">
+                  <h2 className="text-xl font-bold tracking-tight mb-2">Gatekeeper Auth</h2>
+                  <p className="text-xs text-white/40 uppercase tracking-widest leading-relaxed">
+                    Administrative credentials required to <br/>modify kernel parameters
+                  </p>
+                </div>
+                
+                <div className="w-full space-y-4">
+                  <div className="relative">
+                    <Lock size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" />
+                    <input 
+                      autoFocus
+                      type="password"
+                      placeholder="Enter Admin Password"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-sm focus:outline-none focus:border-red-500/50 transition-all font-mono"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSudoVerify(e.currentTarget.value);
+                      }}
+                    />
+                  </div>
+                  <div className="flex gap-3">
+                    <button 
+                      onClick={() => setSudoTarget(null)}
+                      className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold uppercase tracking-widest transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={(e) => {
+                        const input = e.currentTarget.parentElement?.previousElementSibling?.querySelector('input');
+                        if (input) handleSudoVerify(input.value);
+                      }}
+                      className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold uppercase tracking-widest shadow-lg shadow-red-500/20 transition-all overflow-hidden relative group"
+                    >
+                      Authorize
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-white/5 w-full text-center">
+                  <p className="text-[9px] text-white/20 uppercase font-bold tracking-tighter">
+                    Kernel Session: Sudo Mode Active
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
@@ -2122,8 +2248,41 @@ function getAppIcon(id: AppId, size: number, color?: string) {
 // --- Specialized Apps ---
 
 function GlassDatabase(props: any) {
-  const { collections, setCollections, addNotification, calendarEvents, sheetData, notepadContent } = props;
-  const [activeTab, setActiveTab] = useState<'status' | 'tables' | 'import' | 'scripts'>('status');
+  const { 
+    collections, setCollections, addNotification, 
+    calendarEvents, sheetData, notepadContent, 
+    openWindow, fsLib, setFs 
+  } = props;
+
+  const [activeTab, setActiveTab] = useState<'status' | 'tables' | 'import' | 'scripts' | 'search'>('status');
+  const [dbSearchQuery, setDbSearchQuery] = useState('');
+
+  useEffect(() => {
+    BridgeLib.registerApp('glassdatabase', {
+      getData: () => JSON.stringify(collections),
+      query: (filter: string) => {
+        // Simple headless query provider
+        const results: any[] = [];
+        Object.keys(collections).forEach(table => {
+          if (table.startsWith('_')) return;
+          const matched = collections[table].filter((rec: any) => 
+            JSON.stringify(rec).toLowerCase().includes(filter.toLowerCase())
+          );
+          if (matched.length > 0) results.push({ table, data: matched });
+        });
+        return JSON.stringify(results);
+      }
+    });
+    return () => BridgeLib.unregisterApp('glassdatabase');
+  }, [collections]);
+
+  const pipeToWord = (tableName: string) => {
+    const data = collections[tableName];
+    if (!data) return;
+    const bridgeData = `\n--- DATABASE PIPE: ${tableName} ---\n${JSON.stringify(data, null, 2)}\n---\n`;
+    BridgeLib.setAppData('glassword', bridgeData);
+    addNotification('Database', `Piped ${tableName} to Bridge [Target: GlassWord]`, 'success');
+  };
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [showNewTableDialog, setShowNewTableDialog] = useState(false);
   const [newTableName, setNewTableName] = useState('');
@@ -2287,7 +2446,7 @@ function GlassDatabase(props: any) {
         </div>
         <div className="flex items-center gap-4">
           <nav className="flex items-center gap-1 glass p-1 rounded-xl border border-white/10">
-            {['status', 'tables', 'import', 'scripts'].map((tab) => (
+            {['status', 'tables', 'import', 'scripts', 'search'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => {
@@ -2497,6 +2656,21 @@ function GlassDatabase(props: any) {
                     </div>
                   )}
                 </div>
+                <div className="p-4 bg-white/5 border-t border-white/10 flex gap-4">
+                  <button 
+                    onClick={() => pipeToWord(selectedTable!)}
+                    className="flex-1 py-3 glass-button text-xs text-blue-400 border-blue-500/20 hover:bg-blue-500/10 flex items-center justify-center gap-2"
+                  >
+                    <ArrowUpRight size={14} />
+                    PIPE TO WORD ENGINE
+                  </button>
+                  <button 
+                    onClick={() => deleteTable(selectedTable!)} 
+                    className="px-6 py-3 text-xs text-red-500/50 hover:text-red-500 font-bold uppercase tracking-widest transition-all"
+                  >
+                    Drop Table
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -2654,6 +2828,102 @@ function GlassDatabase(props: any) {
                     )}
                 </div>
             </div>
+        )}
+
+        {activeTab === 'search' && (
+          <div className="flex flex-col gap-6 h-full">
+            <div className="glass p-8 rounded-3xl border border-white/10 flex flex-col gap-8 bg-gradient-to-br from-blue-500/5 to-transparent">
+              <div className="flex flex-col gap-4">
+                <h2 className="text-xl font-bold tracking-tight flex items-center gap-3">
+                  <Search size={22} className="text-blue-400" />
+                  Global Shard Search
+                </h2>
+                <p className="text-xs text-white/40 max-w-2xl leading-relaxed">
+                  Perform cross-relational queries across all localized shards. Results are piped via Bridge to active OLE listeners.
+                </p>
+              </div>
+
+              <div className="flex gap-4">
+                <div className="flex-1 relative group">
+                  <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-blue-400 transition-colors" />
+                  <input 
+                    type="text"
+                    placeholder="Query by record content, ID, or metadata fingerprint..."
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm focus:border-blue-500/50 outline-none transition-all placeholder:text-white/10"
+                    value={dbSearchQuery}
+                    onChange={(e) => setDbSearchQuery(e.target.value)}
+                  />
+                  {dbSearchQuery && (
+                    <button 
+                      onClick={() => setDbSearchQuery('')}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 hover:text-white"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+                <button 
+                  onClick={() => {
+                    setDbSearchQuery('Epstein Files');
+                    addNotification('Database', 'Applying high-priority investigation filter', 'warning');
+                  }}
+                  className="px-6 py-4 glass-button text-xs font-bold text-red-400 border-red-500/20 hover:bg-red-500/10 flex items-center gap-2"
+                >
+                  <Shield size={14} className="animate-pulse" />
+                  EPSTEIN_FILTER.SCR
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="text-[10px] font-bold text-white/20 uppercase tracking-[0.2em] px-2 flex items-center gap-2">
+                  <Activity size={12} />
+                  Live Match Buffer
+                </h3>
+                
+                <div className="grid grid-cols-1 gap-3">
+                  {(() => {
+                    const results: any[] = [];
+                    if (!dbSearchQuery) return <div className="py-20 text-center text-white/10 text-xs font-mono">STANDBY: Enter query parameters to engage crawler</div>;
+                    
+                    Object.keys(collections).forEach(table => {
+                      if (table.startsWith('_')) return;
+                      const matched = collections[table].filter((rec: any) => 
+                        JSON.stringify(rec).toLowerCase().includes(dbSearchQuery.toLowerCase())
+                      );
+                      matched.forEach((m: any) => results.push({ table, data: m }));
+                    });
+
+                    if (results.length === 0) return <div className="py-20 text-center text-red-500/30 text-xs font-bold uppercase tracking-widest">ZERO MATCHES IN LOCAL SHARDS</div>;
+
+                    return results.map((res, i) => (
+                      <div key={i} className="glass p-4 rounded-2xl border border-white/5 flex items-center justify-between group hover:bg-white/5 transition-all">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400">
+                             <TableIcon size={18} />
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[10px] text-white/30 uppercase font-bold tracking-tighter">Table: {res.table}</span>
+                            <span className="text-xs text-white/80 font-mono truncate max-w-[400px]">{JSON.stringify(res.data)}</span>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            const bridgeData = `\n--- SOURCE: ${res.table} ---\n${JSON.stringify(res.data, null, 2)}\n---\n`;
+                            BridgeLib.setAppData('glassword', bridgeData);
+                            addNotification('Database', 'Record piped to Bridge', 'success');
+                          }}
+                          className="px-4 py-2 bg-blue-500/10 text-blue-400 rounded-xl text-[10px] font-bold hover:bg-blue-500/20 transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2"
+                        >
+                          <Send size={12} />
+                          PIPE
+                        </button>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
 
@@ -3161,6 +3431,29 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
       setActiveFile(activeFileInSheets);
     }
   }, [activeFileInSheets]);
+
+  useEffect(() => {
+    // Global state mapping for GlassScript
+    (window as any).GlassSheets = {
+      state: sheetData,
+      update: (newData: string[][]) => setSheetData(newData)
+    };
+    return () => { delete (window as any).GlassSheets; };
+  }, [sheetData, setSheetData]);
+
+  useEffect(() => {
+    BridgeLib.registerApp('glasssheets', {
+      getData: () => JSON.stringify(sheetData),
+      setData: (data: string) => {
+        try {
+          const parsed = JSON.parse(data);
+          setSheetData(parsed);
+          addNotification('GlassSheets', 'Grid synced from Bridge', 'info');
+        } catch (e) {}
+      }
+    });
+    return () => BridgeLib.unregisterApp('glasssheets');
+  }, [sheetData, setSheetData, addNotification]);
 
   const updateCell = (r: number, c: number, val: string) => {
     const newData = [...sheetData];
@@ -4358,10 +4651,31 @@ function SystemMonitorApp({
   );
 }
 
-function PrinterApp({ printQueue, setPrintQueue, addNotification }: { printQueue: PrintJob[], setPrintQueue: React.Dispatch<React.SetStateAction<PrintJob[]>>, addNotification: any }) {
+function PrinterApp({ printQueue, setPrintQueue, addNotification, fsLib }: { printQueue: PrintJob[], setPrintQueue: React.Dispatch<React.SetStateAction<PrintJob[]>>, addNotification: any, fsLib: any }) {
   const clearJobs = () => {
     setPrintQueue([]);
     addNotification('Print Manager', 'Print queue cleared', 'info');
+  };
+
+  const handlePrintScript = (job: PrintJob) => {
+    const scriptContent = `##printjob_${job.id}
+Start
+PRINT 'Initiating physical raster...'
+PRINT 'Job: ${job.documentName}'
+PRINT 'Source: ${job.sourceApp}'
+PRINT 'Payload Hash: ${Math.random().toString(16).slice(2)}'
+End
+`;
+    const folderPath = '/GlassDrive/Documents/System/Spooler';
+    const filePath = `${folderPath}/${job.documentName.replace(/\s+/g, '_')}_${Date.now()}.scr`;
+    
+    try {
+      if (!fsLib.exists(folderPath)) fsLib.mkdir(folderPath);
+      fsLib.write(filePath, scriptContent);
+      addNotification('Printer', 'Generated GlassScript spooler file', 'success');
+    } catch (e) {
+      addNotification('Printer', 'Failed to generate spooler script', 'error');
+    }
   };
 
   return (
@@ -5384,6 +5698,37 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
   const [saveFileName, setSaveFileName] = useState('');
   const editorRef = useRef<HTMLDivElement>(null);
   const lastContent = useRef(content);
+  const lastSelection = useRef('');
+
+  useEffect(() => {
+    const updateSelection = () => {
+      const sel = window.getSelection();
+      if (sel && editorRef.current?.contains(sel.anchorNode)) {
+        lastSelection.current = sel.toString();
+      }
+    };
+    document.addEventListener('mouseup', updateSelection);
+    document.addEventListener('keyup', updateSelection);
+    return () => {
+      document.removeEventListener('mouseup', updateSelection);
+      document.removeEventListener('keyup', updateSelection);
+    };
+  }, []);
+
+  useEffect(() => {
+    BridgeLib.registerApp('glassword', {
+      getData: () => content,
+      setData: (data: string) => {
+        setContent(data);
+        setGlassWordContent(data);
+        addNotification('GlassWord', 'Data synced from Bridge', 'info');
+      },
+      getSelection: () => {
+        return lastSelection.current;
+      }
+    });
+    return () => BridgeLib.unregisterApp('glassword');
+  }, [content, setGlassWordContent, addNotification]);
 
   useEffect(() => {
     if (glassWordContent !== undefined && glassWordContent !== content) {
@@ -5905,10 +6250,12 @@ function SettingsApp(props: any) {
     tasks,
     builds,
     serverStatus,
-    networkNodes, setNetworkNodes
+    networkNodes, setNetworkNodes,
+    isAdmin, setIsAdmin, isSandboxed, setIsSandboxed, requestSudo,
   } = props;
-  const [view, setView] = useState<'main' | 'personalization' | 'network' | 'control-panel' | 'extensions' | 'accounts'>('main');
+  const [view, setView] = useState<'main' | 'personalization' | 'network' | 'control-panel' | 'extensions' | 'accounts' | 'hardware'>('main');
   const [activeControl, setActiveControl] = useState<string | null>(null);
+  const [displayConfig, setDisplayConfig] = useState(DisplayLib.getConfig());
   const [extensions, setExtensions] = useState([
     { id: '1', name: 'Dark Mode Pro', version: '1.2.0', enabled: true, description: 'Enhanced dark mode for all system apps.' },
     { id: '2', name: 'AdBlocker Plus', version: '3.4.1', enabled: false, description: 'Block annoying ads in the browser.' },
@@ -5922,6 +6269,51 @@ function SettingsApp(props: any) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState(userName);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [hardwareStats, setHardwareStats] = useState({
+    screen: {
+      resolution: `${window.screen.width}x${window.screen.height}`,
+      pixelRatio: window.devicePixelRatio,
+      colorDepth: window.screen.colorDepth,
+      orientation: window.screen.orientation?.type || 'unknown'
+    },
+    network: {
+      type: (navigator as any).connection?.effectiveType || 'unknown',
+      downlink: (navigator as any).connection?.downlink || 0,
+      rtt: (navigator as any).connection?.rtt || 0,
+      saveData: (navigator as any).connection?.saveData || false
+    }
+  });
+
+  useEffect(() => {
+    const updateHardware = () => {
+      setHardwareStats({
+        screen: {
+          resolution: `${window.screen.width}x${window.screen.height}`,
+          pixelRatio: window.devicePixelRatio,
+          colorDepth: window.screen.colorDepth,
+          orientation: window.screen.orientation?.type || 'unknown'
+        },
+        network: {
+          type: (navigator as any).connection?.effectiveType || 'unknown',
+          downlink: (navigator as any).connection?.downlink || 0,
+          rtt: (navigator as any).connection?.rtt || 0,
+          saveData: (navigator as any).connection?.saveData || false
+        }
+      });
+    };
+
+    window.addEventListener('resize', updateHardware);
+    if ((navigator as any).connection) {
+      (navigator as any).connection.addEventListener('change', updateHardware);
+    }
+
+    return () => {
+      window.removeEventListener('resize', updateHardware);
+      if ((navigator as any).connection) {
+        (navigator as any).connection.removeEventListener('change', updateHardware);
+      }
+    };
+  }, []);
 
   const networks = ['GlassFiber_5G', 'Starlink_Guest', 'Neighbor_WiFi', 'Public_Hotspot'];
 
@@ -5972,16 +6364,36 @@ function SettingsApp(props: any) {
           Personalization
         </button>
         <button 
-          onClick={() => setView('network')}
-          className={cn("w-full text-left px-3 py-2 rounded-lg transition-all text-sm", view === 'network' ? "bg-white/10" : "hover:bg-white/5")}
+          onClick={() => setView('hardware')}
+          className={cn("w-full text-left px-3 py-2 rounded-lg transition-all text-sm", view === 'hardware' ? "bg-white/10" : "hover:bg-white/5")}
         >
-          Network
+          Hardware
         </button>
         <button 
-          onClick={() => setView('control-panel')}
-          className={cn("w-full text-left px-3 py-2 rounded-lg transition-all text-sm", view === 'control-panel' ? "bg-white/10" : "hover:bg-white/5")}
+          onClick={() => {
+            if (isAdmin) setView('network');
+            else requestSudo(() => setView('network'));
+          }}
+          className={cn(
+            "w-full text-left px-3 py-2 rounded-lg transition-all text-sm flex items-center justify-between group",
+            view === 'network' ? "bg-white/10 text-white" : "text-white/40 hover:bg-white/5 hover:text-white"
+          )}
         >
-          Control Panel
+          <span>Network</span>
+          {!isAdmin && <Lock size={12} className="text-red-500/50 group-hover:text-red-500 transition-all drop-shadow-[0_0_8px_rgba(239,68,68,0.3)]" />}
+        </button>
+        <button 
+          onClick={() => {
+            if (isAdmin) setView('control-panel');
+            else requestSudo(() => setView('control-panel'));
+          }}
+          className={cn(
+            "w-full text-left px-3 py-2 rounded-lg transition-all text-sm flex items-center justify-between group",
+            view === 'control-panel' ? "bg-white/10 text-white" : "text-white/40 hover:bg-white/5 hover:text-white"
+          )}
+        >
+          <span>Control Panel</span>
+          {!isAdmin && <Lock size={12} className="text-red-500/50 group-hover:text-red-500 transition-all drop-shadow-[0_0_8px_rgba(239,68,68,0.3)]" />}
         </button>
         <button 
           onClick={() => setView('extensions')}
@@ -6219,6 +6631,94 @@ function SettingsApp(props: any) {
                   >
                     The quick brown fox jumps over the lazy dog. System rendering is optimized for modern high-DPI displays.
                   </p>
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {view === 'hardware' && (
+          <div className="flex flex-col gap-8">
+            <section className="glass p-6 rounded-2xl border border-white/10">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-purple-500/20 rounded-lg">
+                  <Monitor size={18} className="text-purple-400" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold uppercase tracking-widest text-white/90">Monitor Engine</h2>
+                  <p className="text-[10px] text-white/30">Optical persistence and virtual display mapping</p>
+                </div>
+              </div>
+
+              <div className="space-y-8">
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="text-[10px] font-bold text-white/40 uppercase tracking-tighter">Blur Persistence ({(displayConfig.blurPersistence * 100).toFixed(0)}%)</label>
+                    <span className="text-[10px] text-purple-400 font-mono tracking-widest">LAYER: FROST_GLASS</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max="1" 
+                    step="0.05"
+                    value={displayConfig.blurPersistence}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      setDisplayConfig(prev => ({ ...prev, blurPersistence: val }));
+                      DisplayLib.updateConfig({ blurPersistence: val });
+                    }}
+                    className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <button 
+                    onClick={() => {
+                      const next = !displayConfig.motionBlur;
+                      setDisplayConfig(prev => ({ ...prev, motionBlur: next }));
+                      DisplayLib.updateConfig({ motionBlur: next });
+                    }}
+                    className={cn(
+                      "flex items-center justify-between p-4 rounded-xl border transition-all",
+                      displayConfig.motionBlur ? "bg-purple-500/10 border-purple-500/30" : "bg-white/5 border-white/5 opacity-50"
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Zap size={16} className={displayConfig.motionBlur ? "text-purple-400" : "text-white/20"} />
+                      <span className="text-xs font-bold">Motion Blur</span>
+                    </div>
+                    {displayConfig.motionBlur && <Check size={12} className="text-purple-400" />}
+                  </button>
+
+                  <button 
+                    onClick={() => {
+                      const next = !displayConfig.ghostingEnabled;
+                      setDisplayConfig(prev => ({ ...prev, ghostingEnabled: next }));
+                      DisplayLib.updateConfig({ ghostingEnabled: next });
+                    }}
+                    className={cn(
+                      "flex items-center justify-between p-4 rounded-xl border transition-all",
+                      displayConfig.ghostingEnabled ? "bg-purple-500/10 border-purple-500/30" : "bg-white/5 border-white/5 opacity-50"
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Eye size={16} className={displayConfig.ghostingEnabled ? "text-purple-400" : "text-white/20"} />
+                      <span className="text-xs font-bold">Ghosting</span>
+                    </div>
+                    {displayConfig.ghostingEnabled && <Check size={12} className="text-purple-400" />}
+                  </button>
+                </div>
+
+                <div className="pt-6 border-t border-white/5">
+                  <h3 className="text-[10px] font-bold text-white/20 uppercase tracking-widest mb-4">Virtual Display Grid</h3>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[1, 2, 3].map(id => (
+                      <div key={id} className="aspect-video glass bg-black/40 rounded-lg border border-white/5 flex flex-col items-center justify-center gap-1 group cursor-pointer hover:border-purple-500/50 transition-all">
+                        <Monitor size={16} className="text-white/10 group-hover:text-purple-400 transition-colors" />
+                        <span className="text-[8px] text-white/20 font-bold tracking-tighter uppercase">Processor B{id}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </section>
@@ -6468,6 +6968,64 @@ function SettingsApp(props: any) {
                 animate={{ opacity: 1, x: 0 }}
                 className="glass p-6 rounded-2xl space-y-6"
               >
+                {activeControl === 'security' && (
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                       <h3 className="text-sm font-medium">Kernel Security & Policy</h3>
+                       <Shield size={16} className="text-red-400" />
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div className="glass p-4 rounded-xl border border-white/5 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-bold text-white/90">Script Sandboxing</p>
+                            <p className="text-[10px] text-white/30">Force .scr/.b files to request FS permissions</p>
+                          </div>
+                          <button 
+                            onClick={() => {
+                              const next = !isSandboxed;
+                              setIsSandboxed(next);
+                              AuthLib.setSandbox(next);
+                              addNotification('Security', `Script Sandboxing ${next ? 'Enforced' : 'Disabled'}`, next ? 'success' : 'warning');
+                            }}
+                            className={cn(
+                              "w-10 h-5 rounded-full relative transition-all",
+                              isSandboxed ? "bg-red-600" : "bg-white/10"
+                            )}
+                          >
+                            <div className={cn(
+                              "absolute top-1 w-3 h-3 bg-white rounded-full transition-all",
+                              isSandboxed ? "left-6" : "left-1"
+                            )} />
+                          </button>
+                        </div>
+                        
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-bold text-white/90">Gatekeeper Persistence</p>
+                            <p className="text-[10px] text-white/30">Logout triggers immediate Sudo revocation</p>
+                          </div>
+                          <div className="w-10 h-5 rounded-full bg-red-600/50 relative opacity-50 cursor-not-allowed">
+                            <div className="absolute top-1 left-6 w-3 h-3 bg-white rounded-full" />
+                          </div>
+                        </div>
+                      </div>
+
+                      <button 
+                        onClick={() => {
+                          AuthLib.revokeSudo();
+                          setIsAdmin(false);
+                          addNotification('Security', 'Administrative session revoked', 'info');
+                        }}
+                        className="w-full py-2 bg-red-600/20 text-red-400 border border-red-500/30 rounded-lg text-[10px] font-bold hover:bg-red-600/30 transition-all uppercase tracking-widest"
+                      >
+                        Revoke Sudo Access
+                      </button>
+                    </div>
+                  </div>
+                )}
+                
                 {activeControl === 'screensaver' && (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between border-b border-white/10 pb-2">
@@ -6539,17 +7097,32 @@ function SettingsApp(props: any) {
                     <h3 className="text-sm font-medium border-b border-white/10 pb-2">Monitor Settings</h3>
                     <div className="space-y-6">
                       <div className="space-y-2">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-white/70">Brightness</span>
+                        <div className="flex justify-between text-xs text-cyan-400 font-bold uppercase tracking-tighter">
+                          <span>Brightness Control</span>
                           <span>85%</span>
                         </div>
                         <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
                           <div className="h-full bg-cyan-400 w-[85%]" />
                         </div>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-white/70">Resolution</span>
-                        <span className="text-xs text-white/40">1920 x 1080 (Recommended)</span>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="glass p-3 rounded-xl border border-white/5 bg-white/5">
+                          <p className="text-[10px] text-white/30 uppercase font-bold mb-1">Resolution</p>
+                          <p className="text-xs font-mono text-cyan-400">{hardwareStats.screen.resolution}</p>
+                        </div>
+                        <div className="glass p-3 rounded-xl border border-white/5 bg-white/5">
+                          <p className="text-[10px] text-white/30 uppercase font-bold mb-1">Pixel Ratio</p>
+                          <p className="text-xs font-mono text-cyan-400">{hardwareStats.screen.pixelRatio.toFixed(2)}x</p>
+                        </div>
+                        <div className="glass p-3 rounded-xl border border-white/5 bg-white/5">
+                          <p className="text-[10px] text-white/30 uppercase font-bold mb-1">Color Depth</p>
+                          <p className="text-xs font-mono text-cyan-400">{hardwareStats.screen.colorDepth} bit</p>
+                        </div>
+                        <div className="glass p-3 rounded-xl border border-white/5 bg-white/5">
+                          <p className="text-[10px] text-white/30 uppercase font-bold mb-1">Orientation</p>
+                          <p className="text-xs font-mono text-cyan-400 truncate">{hardwareStats.screen.orientation}</p>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -6610,22 +7183,44 @@ function SettingsApp(props: any) {
                 {activeControl === 'networking' && (
                   <div className="space-y-4">
                     <h3 className="text-sm font-medium border-b border-white/10 pb-2">Advanced Networking</h3>
+                    
+                    <div className="grid grid-cols-2 gap-3">
+                       <div className="glass p-3 rounded-xl border border-white/5 bg-blue-500/5">
+                          <div className="flex items-center gap-2 mb-2">
+                             <Activity size={12} className="text-blue-400" />
+                             <span className="text-[10px] font-bold text-white/40 uppercase">Bandwidth</span>
+                          </div>
+                          <div className="text-sm font-mono text-blue-400">{hardwareStats.network.downlink} Mbps</div>
+                       </div>
+                       <div className="glass p-3 rounded-xl border border-white/5 bg-blue-500/5">
+                          <div className="flex items-center gap-2 mb-2">
+                             <Clock size={12} className="text-blue-400" />
+                             <span className="text-[10px] font-bold text-white/40 uppercase">Latency (RTT)</span>
+                          </div>
+                          <div className="text-sm font-mono text-blue-400">{hardwareStats.network.rtt} ms</div>
+                       </div>
+                    </div>
+
                     <div className="space-y-3">
                       <div className="flex items-center justify-between p-2 rounded bg-white/5 border border-white/5 group hover:bg-white/10 transition-all">
-                        <span className="text-xs">IP Address</span>
+                        <div className="flex flex-col">
+                           <span className="text-[10px] font-bold text-white/20 uppercase tracking-tighter">Connection Type</span>
+                           <span className="text-xs uppercase font-bold text-indigo-400">{hardwareStats.network.type}</span>
+                        </div>
+                        <div className="px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 text-[9px] text-green-500 font-bold uppercase tracking-tighter">Active</div>
+                      </div>
+
+                      <div className="flex items-center justify-between p-2 rounded bg-white/5 border border-white/5 group hover:bg-white/10 transition-all">
+                        <span className="text-[10px] uppercase font-bold text-white/30">IP Address</span>
                         <span className="text-xs font-mono text-white/40">{props.networkConfig.ip}</span>
                       </div>
                       <div className="flex items-center justify-between p-2 rounded bg-white/5 border border-white/5 group hover:bg-white/10 transition-all">
-                        <span className="text-xs">MAC Address</span>
+                        <span className="text-[10px] uppercase font-bold text-white/30">MAC Address</span>
                         <span className="text-xs font-mono text-white/40">{props.networkConfig.mac}</span>
                       </div>
                       <div className="flex items-center justify-between p-2 rounded bg-white/5 border border-white/5 group hover:bg-white/10 transition-all">
-                        <span className="text-xs">Gateway</span>
+                        <span className="text-[10px] uppercase font-bold text-white/30">Gateway</span>
                         <span className="text-xs font-mono text-white/40">{props.networkConfig.gateway}</span>
-                      </div>
-                      <div className="flex items-center justify-between p-2 rounded bg-white/5 border border-white/5 group hover:bg-white/10 transition-all">
-                        <span className="text-xs">DNS Server</span>
-                        <span className="text-xs font-mono text-white/40">{props.networkConfig.dns}</span>
                       </div>
                     </div>
                   </div>
@@ -6922,6 +7517,51 @@ function NotepadApp({
   const [savePath, setSavePath] = useState<string[]>(['Documents']);
   const [showPreview, setShowPreview] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+
+  useEffect(() => {
+    BridgeLib.registerApp('notepad', {
+      getData: () => notepadContent,
+      setData: (data: string) => {
+        setNotepadContent(data);
+        addNotification('Notepad', 'Data synced from Bridge', 'info');
+      }
+    });
+    return () => BridgeLib.unregisterApp('notepad');
+  }, [notepadContent, setNotepadContent, addNotification]);
+
+  const handleRenameSubmit = () => {
+    if (!activeFileInNotepad || !renameValue.trim()) {
+      setIsRenaming(false);
+      return;
+    }
+
+    const oldFullName = activeFileInNotepad.name;
+    const newName = renameValue.trim();
+    
+    if (newName === oldFullName) {
+      setIsRenaming(false);
+      return;
+    }
+
+    const path = activeFileInNotepad.path.join('/');
+    const oldPath = path + '/' + oldFullName;
+    const newPath = path + '/' + newName;
+
+    try {
+      // Renaming in FS logic
+      const fileContent = fsLib.read(oldPath);
+      fsLib.delete(oldPath);
+      fsLib.write(newPath, fileContent);
+      
+      setActiveFileInNotepad({ ...activeFileInNotepad, name: newName });
+      addNotification('System', `Renamed ${oldFullName} to ${newName}`, 'success');
+    } catch (e) {
+      addNotification('System', 'Rename failed: File already exists or error occured', 'error');
+    }
+    setIsRenaming(false);
+  };
 
   const importData = (type: 'calendar' | 'sheets') => {
     let textToInsert = '';
@@ -7176,7 +7816,28 @@ function NotepadApp({
                 exit={{ opacity: 0, y: 5 }}
                 className="absolute top-full left-0 w-56 glass-dark border border-white/20 rounded-xl shadow-2xl z-50 py-2 mt-1"
               >
-                <div className="px-4 py-1 text-[9px] font-bold text-white/20 uppercase tracking-widest">Office Integration</div>
+                <div className="px-4 py-1 text-[9px] font-bold text-white/20 uppercase tracking-widest border-b border-white/10 mb-1">Office Integration</div>
+                <MenuButton 
+                  icon={<FileText size={14} className="text-blue-400" />} 
+                  label="Pull from GlassWord" 
+                  onClick={() => {
+                    const data = BridgeLib.getAppData('glassword');
+                    if (data) setNotepadContent((prev: string) => prev + '\n' + data);
+                    else addNotification('OLE', 'GlassWord is empty or not running', 'warning');
+                    setActiveMenu(null);
+                  }} 
+                />
+                <MenuButton 
+                  icon={<Scissors size={14} className="text-pink-400" />} 
+                  label="Pull Selection (Word)" 
+                  onClick={() => {
+                    const data = BridgeLib.getSelection('glassword');
+                    if (data) setNotepadContent((prev: string) => prev + '\n' + data);
+                    else addNotification('OLE', 'No selection found in Word', 'warning');
+                    setActiveMenu(null);
+                  }} 
+                />
+                <div className="h-px bg-white/10 my-1 mx-2" />
                 <MenuButton icon={<Calendar size={14} className="text-blue-400" />} label="Import Calendar Events" onClick={() => importData('calendar')} />
                 <MenuButton icon={<TableIcon size={14} className="text-emerald-400" />} label="Import Spreadsheet Data" onClick={() => importData('sheets')} />
                 <div className="h-px bg-white/10 my-1 mx-2" />
@@ -7190,10 +7851,31 @@ function NotepadApp({
       {/* Status Bar */}
       <div className="h-6 bg-white/5 border-b border-white/10 flex items-center px-4 justify-between">
         <div className="flex items-center gap-2">
-          <FileText size={12} className="text-white/40" />
-          <span className="text-[9px] text-white/60 truncate max-w-[200px]">
-            {activeFileInNotepad ? `/${activeFileInNotepad.path.join('/')}/${activeFileInNotepad.name}` : 'Untitled.txt'}
-          </span>
+          <FileText size={12} className={cn("transition-colors", isRenaming ? "text-blue-400" : "text-white/40")} />
+          {isRenaming ? (
+            <input
+              autoFocus
+              className="bg-blue-500/10 border border-blue-500/30 text-[9px] text-white px-1 outline-none rounded"
+              value={renameValue}
+              onChange={e => setRenameValue(e.target.value)}
+              onBlur={handleRenameSubmit}
+              onKeyDown={e => e.key === 'Enter' && handleRenameSubmit()}
+            />
+          ) : (
+            <span 
+              className="text-[9px] text-white/60 truncate max-w-[200px] cursor-pointer hover:text-white transition-colors"
+              onClick={() => {
+                if (activeFileInNotepad) {
+                  setRenameValue(activeFileInNotepad.name);
+                  setIsRenaming(true);
+                } else {
+                  addNotification('Notepad', 'Save the file first to enable renaming', 'info');
+                }
+              }}
+            >
+              {activeFileInNotepad ? `/${activeFileInNotepad.path.join('/')}/${activeFileInNotepad.name}` : 'Untitled.txt'}
+            </span>
+          )}
         </div>
         <div className="text-[9px] text-white/30 uppercase tracking-widest flex items-center gap-4">
           {activeFileInNotepad?.name.endsWith('.html') && (
@@ -7728,6 +8410,8 @@ function CodeStudioApp({
   addNotification, 
   runGlassScript, 
   glassScriptLine,
+  runBrainscript,
+  brainscriptLine,
   accentColor
 }: any) {
   const projectsPath = 'home/Guest/Projects/CodeStudio';
@@ -7770,25 +8454,33 @@ function CodeStudioApp({
         let highlighted = line;
         highlighted = highlighted.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         highlighted = highlighted.replace(/'(.*?)'/g, '<span class="text-amber-400">\'$1\'</span>');
+        
         const headerMatch = highlighted.match(/^(@@|\$\$|###|##)([a-zA-Z0-9_.]+)/);
         if (headerMatch) {
           highlighted = highlighted.replace(headerMatch[0], `<span class="text-purple-400 font-bold">${headerMatch[0]}</span>`);
         } else {
           if (highlighted.includes('//')) {
             highlighted = highlighted.replace(/\/\/(.*)$/, '<span class="text-white/30 italic">//$1</span>');
-          } else if (highlighted.includes('##')) {
-            highlighted = highlighted.replace(/##(.*)$/, '<span class="text-white/30 italic">##$1</span>');
           }
         }
-        const keywords = ['Start', 'End', 'LET', 'PRINT', 'REM', 'TIMESTAMP'];
+        const keywords = ['Start', 'End', 'LET', 'SET', 'PRINT', 'REM', 'TIMESTAMP', 'BRANCH', 'DATA', 'INPUT', 'COMPARE', 'TO', 'FROM', 'IF', 'QUIT'];
+        const functions = ['ABS', 'CEL', 'FLO', 'LOG', 'RAND', 'TAN', 'SIN', 'COS'];
+        
         keywords.forEach(kw => {
           const regex = new RegExp(`\\b${kw}\\b`, 'g');
           highlighted = highlighted.replace(regex, `<span class="text-blue-400 font-bold">${kw}</span>`);
         });
-        highlighted = highlighted.replace(/(\$[a-zA-Z0-9_]+)/g, '<span class="text-emerald-400">$1</span>');
         
-        if (idx === glassScriptLine) {
-          return `<div class="bg-blue-500/20 -mx-4 px-4 border-l-2 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.3)] animate-pulse">${highlighted}</div>`;
+        functions.forEach(fn => {
+          const regex = new RegExp(`\\b${fn}\\b`, 'g');
+          highlighted = highlighted.replace(regex, `<span class="text-violet-400 italic">${fn}</span>`);
+        });
+
+        highlighted = highlighted.replace(/(&&|:| \+ | - | \* | \/ | % | <> | > | < | \^ | °)/g, `<span class="text-pink-400 font-bold">$1</span>`);
+        highlighted = highlighted.replace(/(\$[a-zA-Z0-9_.]+)/g, `<span class="text-emerald-400 font-mono italic">$1</span>`);
+        
+        if (idx === brainscriptLine) {
+          return `<div class="bg-emerald-500/20 -mx-4 px-4 border-l-2 border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse">${highlighted}</div>`;
         }
         return highlighted;
       });
@@ -8010,6 +8702,15 @@ function CodeStudioApp({
     }, 1500);
   };
 
+  const handleRunBrainscript = () => {
+    setIsOutputVisible(true);
+    setOutputLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] Executing Brainscript: ${activeFile}...`]);
+    
+    runBrainscript(code, (msg: string) => {
+      setOutputLogs(prev => [...prev, `[BS-OUT] ${msg}`]);
+    });
+  };
+
   const handleBuild = () => {
     setIsCompiling(true);
     addNotification('Code Studio', `Compiling ${activeFile}...`, 'info');
@@ -8210,7 +8911,7 @@ function CodeStudioApp({
                 onClick={() => setActiveMenu(activeMenu === 'build' ? null : 'build')}
                 className={cn("hover:text-white transition-colors py-2 flex items-center gap-1", activeMenu === 'build' && "text-white")}
               >
-                Build
+                Run / Build
                 <ChevronDown size={10} className={cn("transition-transform", activeMenu === 'build' && "rotate-180")} />
               </button>
               <AnimatePresence>
@@ -8221,11 +8922,20 @@ function CodeStudioApp({
                     exit={{ opacity: 0, y: 5 }}
                     className="absolute top-full left-0 w-64 glass-dark border border-white/10 rounded-lg shadow-2xl py-1 z-[3000]"
                   >
+                    {activeFile.endsWith('.b') && (
+                      <button 
+                        onClick={() => { handleRunBrainscript(); setActiveMenu(null); }}
+                        className="w-full text-left px-4 py-2 hover:bg-emerald-500/20 text-emerald-400 flex items-center gap-2 font-bold"
+                      >
+                        <Play size={14} />
+                        <span>Run Brainscript</span>
+                      </button>
+                    )}
                     <button 
                       onClick={() => { handleBuild(); setActiveMenu(null); }}
-                      className="w-full text-left px-4 py-2 hover:bg-emerald-500/20 text-emerald-400 flex items-center gap-2 font-bold"
+                      className="w-full text-left px-4 py-2 hover:bg-blue-500/20 text-blue-400 flex items-center gap-2 font-bold"
                     >
-                      <Play size={14} />
+                      <Package size={14} />
                       <span>Compile Project</span>
                     </button>
                     <div className="h-[1px] bg-white/10 my-1" />
@@ -8283,11 +8993,15 @@ function CodeStudioApp({
                   <motion.div 
                     initial={{ opacity: 0, y: 5 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 5 }}
+                    exit={{ opacity: 0, y: 0 }}
                     className="absolute top-full left-0 w-48 glass-dark border border-white/10 rounded-lg shadow-2xl py-1 z-[3000]"
                   >
                     <button 
-                      onClick={() => { handleBuild(); setActiveMenu(null); }}
+                      onClick={() => { 
+                         if (activeFile.endsWith('.b')) handleRunBrainscript();
+                         else handleBuild();
+                         setActiveMenu(null); 
+                      }}
                       className="w-full text-left px-4 py-2 hover:bg-white/10 flex items-center gap-2"
                     >
                       <Play size={14} />
@@ -8374,12 +9088,12 @@ function CodeStudioApp({
           </button>
         </div>
         <button 
-          onClick={activeFile.endsWith('.scr') ? () => runGlassScript(code) : handleBuild}
+          onClick={activeFile.endsWith('.b') ? handleRunBrainscript : activeFile.endsWith('.scr') ? () => runGlassScript(code) : handleBuild}
           disabled={isCompiling}
           className="flex items-center gap-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 px-3 py-1 rounded text-[10px] font-bold transition-all disabled:opacity-50"
         >
-          {isCompiling ? <RefreshCw size={12} className="animate-spin" /> : activeFile.endsWith('.scr') ? <Zap size={12} /> : <Play size={12} />}
-          {activeFile.endsWith('.scr') ? 'RUN SCRIPT' : 'BUILD .EXE'}
+          {isCompiling ? <RefreshCw size={12} className="animate-spin" /> : (activeFile.endsWith('.scr') || activeFile.endsWith('.b')) ? <Play size={12} fill="currentColor" /> : <Play size={12} />}
+          {(activeFile.endsWith('.scr') || activeFile.endsWith('.b')) ? 'RUN CODE' : 'BUILD .EXE'}
         </button>
       </div>
 

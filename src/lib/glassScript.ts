@@ -1,5 +1,6 @@
 
 import { AppId } from '../types';
+import { BridgeLib } from './Bridge.lib';
 
 export interface GlassScriptContext {
   activeApp: AppId | null;
@@ -123,6 +124,66 @@ export class GlassScriptInterpreter {
         this.activeTable = queryMatch[1];
       }
       return;
+    }
+
+    // GlassWord: Get Selection
+    const selectionMatch = line.match(/^get selection(?: to ([^ ]+))?$/i);
+    if (selectionMatch) {
+        const targetVar = (selectionMatch[1] || 'selection').toLowerCase();
+        const appId = (this.currentApp === 'GlassWord' || !this.currentApp) ? 'glassword' : this.currentApp.toLowerCase();
+        
+        // Explicitly get from Bridge
+        const selection = BridgeLib.getSelection(appId);
+        if (selection !== null) {
+            this.variables[targetVar] = selection;
+            if (!selectionMatch[1]) {
+                this.context.notified(`Selection captured: "${selection.substring(0, 20)}${selection.length > 20 ? '...' : ''}"`, 'OLE Bridge', 'info');
+            }
+        }
+        return;
+    }
+
+    // GlassSheets: Set Cell
+    const cellMatch = line.match(/^set value of cell ([A-Z]+[0-9]+) to (.+)$/i);
+    if (cellMatch) {
+        if (this.currentApp === 'GlassSheets') {
+            const cellId = cellMatch[1].toUpperCase();
+            const value = this.resolveValue(cellMatch[2]);
+            const data = BridgeLib.getAppData('glasssheets');
+            if (data) {
+                try {
+                    const grid = typeof data === 'string' ? JSON.parse(data) : data;
+                    const col = cellId.charCodeAt(0) - 65;
+                    const row = parseInt(cellId.slice(1)) - 1;
+                    if (grid[row] && grid[row][col] !== undefined) {
+                        grid[row][col] = value;
+                        BridgeLib.setAppData('glasssheets', JSON.stringify(grid));
+                        this.context.notified(`Cell ${cellId} set to "${value}"`, 'GlassSheets OLE', 'info');
+                    }
+                } catch(e) {}
+            }
+        }
+        return;
+    }
+
+    const getCellMatch = line.match(/^get value of cell ([A-Z]+[0-9]+) to ([^ ]+)$/i);
+    if (getCellMatch) {
+        if (this.currentApp === 'GlassSheets') {
+            const cellId = getCellMatch[1].toUpperCase();
+            const varName = getCellMatch[2].toLowerCase();
+            const data = BridgeLib.getAppData('glasssheets');
+            if (data) {
+                try {
+                    const grid = typeof data === 'string' ? JSON.parse(data) : data;
+                    const col = cellId.charCodeAt(0) - 65;
+                    const row = parseInt(cellId.slice(1)) - 1;
+                    if (grid[row] && grid[row][col] !== undefined) {
+                        this.variables[varName] = grid[row][col];
+                    }
+                } catch(e) {}
+            }
+        }
+        return;
     }
 
     // Database: Row Count to variable

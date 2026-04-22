@@ -17,6 +17,7 @@ export interface FileSystemItem {
   category?: 'local' | 'settings' | 'networking' | 'trash';
   accentColor?: string;
   size?: number;
+  dateCreated?: string;
   dateModified?: string;
 }
 
@@ -115,7 +116,8 @@ export interface NetworkConfig {
 
 export interface PrintJob {
   id: string;
-  documentName?: string;
+  documentName: string;
+  sourceApp?: string;
   status: 'printing' | 'queued' | 'completed' | 'error';
   progress?: number;
   pages?: number;
