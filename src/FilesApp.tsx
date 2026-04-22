@@ -23,6 +23,11 @@ import {
   Settings as SettingsIcon,
   Server,
   Clipboard,
+  Table as TableIcon,
+  ArrowUpAZ,
+  ArrowDownAZ,
+  SortAsc,
+  Filter,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -55,7 +60,11 @@ interface FilesAppProps {
   fsLib: FileSystemLib;
   openWindow: (id: string, title?: string) => void;
   setNotepadContent: (content: string) => void;
+  setGlassWordContent: (content: string) => void;
+  setSheetData: (data: string[][]) => void;
   setActiveFileInNotepad: (file: { name: string, path: string[] } | null) => void;
+  setActiveFileInGlassWord: (file: { name: string, path: string[] } | null) => void;
+  setActiveFileInSheets: (file: { name: string, path: string[] } | null) => void;
   setContextMenu: (menu: { x: number, y: number, items: any[] } | null) => void;
   addNotification: (title: string, message: string, type: 'info' | 'success' | 'warning' | 'error') => void;
   clipboardHistory: string[];
@@ -68,8 +77,8 @@ interface FilesAppProps {
 }
 
 export function FilesApp({ 
-  fs, setFs, fsLib, openWindow, setNotepadContent, 
-  setActiveFileInNotepad, setContextMenu, addNotification,
+  fs, setFs, fsLib, openWindow, setNotepadContent, setGlassWordContent, setSheetData,
+  setActiveFileInNotepad, setActiveFileInGlassWord, setActiveFileInSheets, setContextMenu, addNotification,
   clipboardHistory, setClipboardHistory, userName, setPrintQueue,
   currentUser,
   networkNodes,
@@ -87,6 +96,8 @@ export function FilesApp({
   const [propertiesItem, setPropertiesItem] = useState<FileSystemItem | null>(null);
   const [propertiesTab, setPropertiesTab] = useState<'general' | 'permissions' | 'sharing'>('general');
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const [sortType, setSortType] = useState<'name' | 'date' | 'size' | 'type'>('name');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   const cutItemInfo = useMemo(() => {
     const cutData = clipboardHistory.find((i: string) => i.startsWith('FILE_CUT_JSON:'));
@@ -117,6 +128,8 @@ export function FilesApp({
       case 'sys': return <Cpu size={20} className="text-red-400" />;
       case 'b': return <FileCode size={20} className="text-green-400" />;
       case 'json': return <FileJson size={20} className="text-yellow-400" />;
+      case 'gdoc': return <FileText size={20} className="text-blue-400 font-bold" />;
+      case 'gsheet': return <TableIcon size={20} className="text-emerald-400 font-bold" />;
       default: return <FileText size={20} className="text-white/40" />;
     }
   };
@@ -399,32 +412,99 @@ export function FilesApp({
         openWindow('notepad', 'Notepad');
       } else if (ext === 'jpg' || ext === 'png') {
         openWindow('photos', 'Photos');
+      } else if (ext === 'gdoc') {
+        setGlassWordContent(item.content || '');
+        setActiveFileInGlassWord({ name: item.name, path: currentPath });
+        openWindow('glassword', 'GlassWord 2026');
+      } else if (ext === 'gsheet') {
+        try {
+          const data = JSON.parse(item.content || '[]');
+          setSheetData(data);
+          setActiveFileInSheets({ name: item.name, path: currentPath });
+          openWindow('spreadsheet', 'Glass Sheets');
+        } catch (e) {
+          addNotification('File Explorer', 'Failed to parse .gsheet file', 'error');
+        }
       } else {
         addNotification('File Explorer', `No application associated with .${ext} files`, 'warning');
       }
     }
   };
 
+  const sortedFolder = useMemo(() => {
+    let items = [...currentFolder];
+
+    items.sort((a, b) => {
+      // Folders always come first regardless of sort type? 
+      // Usually yes, but let's just sort purely by the requested criteria for now 
+      // or keep folders first if they are both folders/files.
+      if (a.type !== b.type) {
+        return a.type === 'folder' ? -1 : 1;
+      }
+
+      let comparison = 0;
+      switch (sortType) {
+        case 'date':
+          const dateA = new Date(a.dateModified || 0).getTime();
+          const dateB = new Date(b.dateModified || 0).getTime();
+          comparison = dateA - dateB;
+          break;
+        case 'size':
+          const sizeA = a.size || (a.content?.length || 0);
+          const sizeB = b.size || (b.content?.length || 0);
+          comparison = sizeA - sizeB;
+          break;
+        case 'type':
+          const extA = a.name.split('.').pop()?.toLowerCase() || '';
+          const extB = b.name.split('.').pop()?.toLowerCase() || '';
+          comparison = extA.localeCompare(extB);
+          break;
+        case 'name':
+        default:
+          comparison = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+          break;
+      }
+
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
+
+    return items;
+  }, [currentFolder, sortType, sortOrder]);
+
   const filteredFolder = useMemo(() => {
-    if (!searchQuery.trim()) return currentFolder;
-    
-    const results: (FileSystemItem & { displayPath?: string[] })[] = [];
-    const lowerQuery = searchQuery.toLowerCase();
+    let baseItems = searchQuery.trim() ? (() => {
+      const results: (FileSystemItem & { displayPath?: string[] })[] = [];
+      const lowerQuery = searchQuery.toLowerCase();
 
-    const searchRecursive = (items: FileSystemItem[], path: string[]) => {
-      items.forEach(item => {
-        if (item.name.toLowerCase().includes(lowerQuery)) {
-          results.push({ ...item, displayPath: path });
-        }
-        if (item.type === 'folder' && item.children) {
-          searchRecursive(item.children, [...path, item.name]);
-        }
+      const searchRecursive = (items: FileSystemItem[], path: string[]) => {
+        items.forEach(item => {
+          if (item.name.toLowerCase().includes(lowerQuery)) {
+            results.push({ ...item, displayPath: path });
+          }
+          if (item.type === 'folder' && item.children) {
+            searchRecursive(item.children, [...path, item.name]);
+          }
+        });
+      };
+
+      searchRecursive(fs, []);
+      return results;
+    })() : sortedFolder;
+
+    // Apply sort to search results if searching, otherwise it's already sortedFolder
+    if (searchQuery.trim()) {
+      baseItems.sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+        let comp = 0;
+        if (sortType === 'name') comp = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+        else if (sortType === 'size') comp = (a.size || 0) - (b.size || 0);
+        else if (sortType === 'date') comp = new Date(a.dateModified || 0).getTime() - new Date(b.dateModified || 0).getTime();
+        return sortOrder === 'asc' ? comp : -comp;
       });
-    };
+    }
 
-    searchRecursive(fs, []);
-    return results;
-  }, [fs, currentFolder, searchQuery]);
+    return baseItems;
+  }, [fs, sortedFolder, searchQuery, sortType, sortOrder]);
 
   return (
     <div className="h-full flex flex-col relative">
@@ -555,7 +635,57 @@ export function FilesApp({
              )}
            </AnimatePresence>
         </div>
-        <button className="text-[11px] text-white/40 cursor-default">View</button>
+        <div className="relative">
+          <button 
+            onClick={() => setActiveMenu(activeMenu === 'view' ? null : 'view')}
+            className={cn("text-[11px] hover:text-white transition-colors h-full px-2", activeMenu === 'view' && "bg-white/10 text-white")}
+          >
+            View
+          </button>
+          <AnimatePresence>
+            {activeMenu === 'view' && (
+              <>
+                <div className="fixed inset-0" onClick={() => setActiveMenu(null)} />
+                <motion.div 
+                   initial={{ opacity: 0, y: 5 }}
+                   animate={{ opacity: 1, y: 0 }}
+                   exit={{ opacity: 0, y: 5 }}
+                   className="absolute top-full left-0 w-48 glass-dark border border-white/10 rounded-lg shadow-2xl py-1 mt-1 z-[70]"
+                 >
+                   <div className="px-4 py-1.5 text-[9px] font-bold text-white/20 uppercase tracking-widest border-b border-white/5 mb-1">Sort By</div>
+                   {[
+                     { id: 'name', label: 'Name' },
+                     { id: 'date', label: 'Date Modified' },
+                     { id: 'size', label: 'Size' },
+                     { id: 'type', label: 'Type' }
+                   ].map(opt => (
+                     <button 
+                       key={opt.id}
+                       onClick={() => {
+                         if (sortType === opt.id) {
+                           setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                         } else {
+                           setSortType(opt.id as any);
+                           setSortOrder('asc');
+                         }
+                         setActiveMenu(null);
+                       }}
+                       className="w-full text-left px-4 py-1.5 text-[11px] hover:bg-blue-500/20 flex items-center justify-between group"
+                     >
+                       <div className="flex items-center gap-2">
+                         {sortType === opt.id && <Check size={12} className="text-blue-400" />}
+                         <span className={cn(sortType === opt.id ? "text-blue-400" : "text-white/70")}>{opt.label}</span>
+                       </div>
+                       {sortType === opt.id && (
+                         <span className="text-[9px] text-white/30">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                       )}
+                     </button>
+                   ))}
+                 </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+        </div>
         <button className="text-[11px] text-white/40 cursor-default">Go</button>
       </div>
 
@@ -582,6 +712,33 @@ export function FilesApp({
         </div>
 
         <div className="flex items-center gap-4">
+          <div className="flex bg-white/5 rounded-lg border border-white/10 p-0.5">
+            <button 
+              onClick={() => {
+                setSortType('name');
+                setSortOrder('asc');
+                addNotification('Files', 'Sorted by Name: Ascending', 'info');
+              }}
+              className={cn("p-1.5 rounded-md transition-all", sortType === 'name' && sortOrder === 'asc' ? "bg-blue-500 text-white shadow-lg" : "text-white/40 hover:text-white")}
+              title="Sort Name Ascending"
+            >
+              <ArrowUpAZ size={14} />
+            </button>
+            <button 
+              onClick={() => {
+                setSortType('name');
+                setSortOrder('desc');
+                addNotification('Files', 'Sorted by Name: Descending', 'info');
+              }}
+              className={cn("p-1.5 rounded-md transition-all", sortType === 'name' && sortOrder === 'desc' ? "bg-blue-500 text-white shadow-lg" : "text-white/40 hover:text-white")}
+              title="Sort Name Descending"
+            >
+              <ArrowDownAZ size={14} />
+            </button>
+          </div>
+
+          <div className="h-6 w-[1px] bg-white/10 mx-1" />
+
           {currentPath[0] === 'Trash' && currentPath.length === 1 && (
             <button 
               onClick={handleEmptyTrash}
@@ -778,6 +935,10 @@ export function FilesApp({
               items: [
                 { label: 'New Folder', icon: <Folder size={14} />, onClick: () => createNewItem('folder') },
                 { label: 'New File', icon: <FileText size={14} />, onClick: () => createNewItem('file') },
+                { label: 'Sort by Name', icon: <ChevronRight size={14} />, onClick: () => { setSortType('name'); setSortOrder(sortType === 'name' ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'asc'); } },
+                { label: 'Sort by Date', icon: <ChevronRight size={14} />, onClick: () => { setSortType('date'); setSortOrder(sortType === 'date' ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'asc'); } },
+                { label: 'Sort by Size', icon: <ChevronRight size={14} />, onClick: () => { setSortType('size'); setSortOrder(sortType === 'size' ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'asc'); } },
+                { label: 'Sort by Type', icon: <ChevronRight size={14} />, onClick: () => { setSortType('type'); setSortOrder(sortType === 'type' ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'asc'); } },
                 { label: 'Refresh', icon: <RefreshCw size={14} />, onClick: () => addNotification('System', 'Folder refreshed', 'success') },
                 { label: 'Paste', icon: <Clipboard size={14} />, onClick: handlePaste },
                 { label: 'Select All', icon: <Check size={14} />, onClick: () => setSelectedItemNames(filteredFolder.map(i => i.name)) },

@@ -188,6 +188,19 @@ const WALLPAPERS = [
   'https://images.unsplash.com/photo-1635776062127-d379bfcba9f8?q=80&w=1920&auto=format&fit=crop',
 ];
 
+const DEFAULT_GLASSWORD_CONTENT = `<h1>The Future of GlassOS</h1><p>Welcome to <b>GlassWord</b>, the premier word processing suite for the modern frosted era. This document celebrates the intersection of classical Microsoft Word 4.0 layout logic with the shimmering aesthetics of glassmorphism.</p><p><i>"Vision is the art of seeing things invisible." - Jonathan Swift</i></p><h2>System Requirements</h2><ul><li>GlassOS 2.0 or higher</li><li>Frosted Glass rendering engine</li><li>16TB Neural Memory</li></ul>`;
+
+const DEFAULT_SHEET_DATA = (() => {
+    const data = Array(20).fill(0).map(() => Array(10).fill(''));
+    data[0][0] = 'Revenue Q1'; data[0][1] = '12000';
+    data[1][0] = 'Revenue Q2'; data[1][1] = '15500';
+    data[2][0] = 'Revenue Q3'; data[2][1] = '18200';
+    data[3][0] = 'TOTAL';      data[3][1] = '=SUM(B1:B3)';
+    data[4][0] = 'AVERAGE';    data[4][1] = '=AVG(B1:B3)';
+    data[6][0] = 'Growth %';   data[6][1] = '=(B2-B1)/B1';
+    return data;
+})();
+
 // Removed local DEFAULT_PERMISSIONS as it is now imported from constants/initialFs.ts
 // Removed local INITIAL_FS as it is now imported from constants/initialFs.ts
 
@@ -285,6 +298,9 @@ export default function App() {
   const [connectedNetwork, setConnectedNetwork] = useState('GlassFiber_5G');
   const [installedApps, setInstalledApps] = useState<AppId[]>(['terminal', 'settings', 'notepad', 'browser', 'photos', 'music', 'appfolder', 'codestudio', 'files', 'systemmonitor', 'glassword']);
   const [notepadContent, setNotepadContent] = useState('');
+  const [glassWordContent, setGlassWordContent] = useState(DEFAULT_GLASSWORD_CONTENT);
+  const [activeFileInGlassWord, setActiveFileInGlassWord] = useState<{name: string, path: string[]} | null>(null);
+  const [activeFileInSheets, setActiveFileInSheets] = useState<{name: string, path: string[]} | null>(null);
   const [notepadStyle, setNotepadStyle] = useState<any>({ fontSize: '14px', fontWeight: 'normal', textAlign: 'left' });
   const [glassScriptLine, setGlassScriptLine] = useState<number>(-1);
   const [activeFileInNotepad, setActiveFileInNotepad] = useState<{name: string, path: string[]} | null>(null);
@@ -292,16 +308,7 @@ export default function App() {
     { id: '1', title: 'System Review', date: new Date().toISOString().split('T')[0], time: '10:00', type: 'meeting' },
     { id: '2', title: 'Database Migration', date: new Date().toISOString().split('T')[0], time: '14:30', type: 'work' },
   ]);
-  const [sheetData, setSheetData] = useState<string[][]>(() => {
-    const data = Array(20).fill(0).map(() => Array(10).fill(''));
-    data[0][0] = 'Revenue Q1'; data[0][1] = '12000';
-    data[1][0] = 'Revenue Q2'; data[1][1] = '15500';
-    data[2][0] = 'Revenue Q3'; data[2][1] = '18200';
-    data[3][0] = 'TOTAL';      data[3][1] = '=SUM(B1:B3)';
-    data[4][0] = 'AVERAGE';    data[4][1] = '=AVG(B1:B3)';
-    data[6][0] = 'Growth %';   data[6][1] = '=(B2-B1)/B1';
-    return data;
-  });
+  const [sheetData, setSheetData] = useState<string[][]>(DEFAULT_SHEET_DATA);
   const [builds, setBuilds] = useState<BrainscriptBuild[]>([]);
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [collections, setCollections] = useState<DBCollections>({
@@ -854,7 +861,7 @@ export default function App() {
               <DesktopIcon icon={<Globe />} label="Browser" onClick={() => openWindow('browser', 'Web Browser')} />
               <DesktopIcon icon={<ImageIcon />} label="Photos" onClick={() => openWindow('photos', 'Photos')} />
               <DesktopIcon icon={<FileText />} label="Notepad" onClick={() => openWindow('notepad', 'Notepad')} />
-              <DesktopIcon icon={<FileTextIcon />} label="GlassWord" onClick={() => openWindow('glassword', 'GlassWord 2026')} />
+              <DesktopIcon icon={<FileTextIcon className="text-blue-400" />} label="GlassWord" onClick={() => openWindow('glassword', 'GlassWord 2026')} />
               <DesktopIcon icon={<Music />} label="Music" onClick={() => openWindow('music', 'Media Player')} />
               <DesktopIcon icon={<Package />} label="App Folder" onClick={() => openWindow('appfolder', 'App Folder')} />
               <DesktopIcon icon={<Code />} label="Code Studio" onClick={() => openWindow('codestudio', 'Code Studio - main.b')} />
@@ -896,10 +903,13 @@ export default function App() {
                     connectedNetwork, setConnectedNetwork,
                     networkConfig, setNetworkConfig,
                     notepadContent, setNotepadContent,
+                    glassWordContent, setGlassWordContent,
+                    activeFileInGlassWord, setActiveFileInGlassWord,
                     notepadStyle, setNotepadStyle,
                     glassScriptLine, runGlassScript,
                     calendarEvents, setCalendarEvents,
                     sheetData, setSheetData,
+                    activeFileInSheets, setActiveFileInSheets,
                     activeFileInNotepad, setActiveFileInNotepad,
                     builds, setBuilds,
                     openWindow,
@@ -2097,7 +2107,9 @@ function getAppIcon(id: AppId, size: number, color?: string) {
     case 'music': return <Music size={size} />;
     case 'appfolder': return <Package size={size} />;
     case 'codestudio': return <Code size={size} />;
+    case 'spreadsheet': return <TableIcon size={size} className="text-emerald-400" />;
     case 'taskscheduler': return <Clock size={size} />;
+    case 'glassword': return <FileText size={size} className="text-blue-400" />;
     case 'glassmail': return <Mail size={size} />;
     case 'glassdatabase': return <Database size={size} />;
     case 'glassmessaging': return <MessageSquare size={size} />;
@@ -2111,7 +2123,15 @@ function getAppIcon(id: AppId, size: number, color?: string) {
 
 function GlassDatabase(props: any) {
   const { collections, setCollections, addNotification, calendarEvents, sheetData, notepadContent } = props;
-  const [activeTab, setActiveTab] = useState<'status' | 'tables' | 'import'>('status');
+  const [activeTab, setActiveTab] = useState<'status' | 'tables' | 'import' | 'scripts'>('status');
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [showNewTableDialog, setShowNewTableDialog] = useState(false);
+  const [newTableName, setNewTableName] = useState('');
+  const [isEditingRecord, setIsEditingRecord] = useState<number | null>(null);
+  const [selectedScript, setSelectedScript] = useState<string | null>(null);
+  const [activeExecutionLine, setActiveExecutionLine] = useState(-1);
+
+  const scripts = Array.isArray(collections._scripts) ? collections._scripts : [];
 
   const importFromApp = (source: 'calendar' | 'sheets' | 'notepad') => {
     let dataToImport: any = null;
@@ -2121,7 +2141,11 @@ function GlassDatabase(props: any) {
       dataToImport = calendarEvents;
       tableName = 'calendar_backup_' + new Date().getTime();
     } else if (source === 'sheets') {
-      dataToImport = sheetData;
+      dataToImport = sheetData.map((row: any) => {
+        const obj: any = {};
+        row.forEach((cell: any, i: number) => obj[`col_${i}`] = cell);
+        return obj;
+      });
       tableName = 'sheets_backup_' + new Date().getTime();
     } else if (source === 'notepad') {
       dataToImport = [{ content: notepadContent, timestamp: new Date().toISOString() }];
@@ -2137,9 +2161,115 @@ function GlassDatabase(props: any) {
     }
   };
 
+  const createTable = () => {
+    if (!newTableName.trim()) return;
+    if (collections[newTableName]) {
+      addNotification('Database', 'Table already exists', 'error');
+      return;
+    }
+    setCollections((prev: any) => ({ ...prev, [newTableName]: [] }));
+    setNewTableName('');
+    setShowNewTableDialog(false);
+    addNotification('Database', `Table "${newTableName}" created`, 'success');
+  };
+
+  const deleteTable = (name: string) => {
+    const next = { ...collections };
+    delete next[name];
+    setCollections(next);
+    if (selectedTable === name) setSelectedTable(null);
+    addNotification('Database', `Table "${name}" dropped`, 'warning');
+  };
+
+  const addRecord = (tableName: string) => {
+    const table = collections[tableName] || [];
+    const firstRecord = table[0] || {};
+    const newRecord: any = {};
+    Object.keys(firstRecord).forEach(key => newRecord[key] = '');
+    if (Object.keys(newRecord).length === 0) newRecord['id'] = Math.random().toString(36).substr(2, 5);
+
+    setCollections((prev: any) => ({
+      ...prev,
+      [tableName]: [...table, newRecord]
+    }));
+    setIsEditingRecord(table.length);
+  };
+
+  const updateRecord = (tableName: string, index: number, field: string, value: any) => {
+    setCollections((prev: any) => {
+      const table = [...prev[tableName]];
+      table[index] = { ...table[index], [field]: value };
+      return { ...prev, [tableName]: table };
+    });
+  };
+
+  const deleteRecord = (tableName: string, index: number) => {
+    setCollections((prev: any) => {
+      const table = prev[tableName].filter((_: any, i: number) => i !== index);
+      return { ...prev, [tableName]: table };
+    });
+  };
+
+  const runScript = async (content: string) => {
+    const interpreter = new GlassScriptInterpreter({
+      activeApp: 'glassdatabase',
+      notified: addNotification,
+      updateNotepad: () => {},
+      getNotepadContent: () => '',
+      setNotepadStyle: () => {},
+      openWindow: () => {},
+      systemDate: () => new Date().toLocaleString(),
+      db: {
+        getCollections: () => collections,
+        setCollections: (next: any) => setCollections(next)
+      }
+    }, (line) => setActiveExecutionLine(line));
+
+    addNotification('Database', 'Starting script execution...', 'info');
+    await interpreter.execute(content);
+    addNotification('Database', 'Script execution finished', 'success');
+  };
+
+  const scheduleScript = (scriptId: string) => {
+      const script = scripts.find((s: any) => s.id === scriptId);
+      if (!script) return;
+      
+      const nextScripts = scripts.map((s: any) => 
+        s.id === scriptId ? { ...s, isScheduled: !s.isScheduled } : s
+      );
+      setCollections((prev: any) => ({ ...prev, _scripts: nextScripts }));
+      
+      if (!script.isScheduled) {
+          addNotification('Database', `Script "${script.name}" scheduled for background execution`, 'success');
+          // Simulate background run in 30 seconds for demo purposes
+          setTimeout(() => runScript(script.content), 30000);
+      } else {
+          addNotification('Database', `Background schedule removed for "${script.name}"`, 'warning');
+      }
+  };
+
+  const saveScript = (name: string, content: string) => {
+    const nextScripts = [...scripts];
+    const idx = nextScripts.findIndex(s => s.name === name);
+    if (idx >= 0) nextScripts[idx] = { ...nextScripts[idx], content };
+    else nextScripts.push({ id: Math.random().toString(36).substr(2, 5), name, content });
+
+    setCollections((prev: any) => ({ ...prev, _scripts: nextScripts }));
+    addNotification('Database', `Script "${name}" saved`, 'success');
+  };
+
+  const deleteScript = (id: string) => {
+    const nextScripts = scripts.filter((s: any) => s.id !== id);
+    setCollections((prev: any) => ({ ...prev, _scripts: nextScripts }));
+    if (selectedScript === id) setSelectedScript(null);
+    addNotification('Database', 'Script deleted', 'warning');
+  };
+
   const dbInfo = {
-    collections: Object.keys(collections).length,
-    documents: Object.values(collections).reduce((acc: number, val: any[]) => acc + val.length, 0),
+    collections: Object.keys(collections).filter(k => !k.startsWith('_')).length,
+    documents: Object.entries(collections)
+      .filter(([k]) => !k.startsWith('_'))
+      .reduce((acc: number, [_, val]: [any, any]) => acc + (Array.isArray(val) ? val.length : 0), 0),
     storage: (Object.keys(collections).length * 1.2 + 0.5).toFixed(1) + ' MB',
     lastSync: new Date().toLocaleTimeString()
   };
@@ -2157,10 +2287,14 @@ function GlassDatabase(props: any) {
         </div>
         <div className="flex items-center gap-4">
           <nav className="flex items-center gap-1 glass p-1 rounded-xl border border-white/10">
-            {['status', 'tables', 'import'].map((tab) => (
+            {['status', 'tables', 'import', 'scripts'].map((tab) => (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab as any)}
+                onClick={() => {
+                  setActiveTab(tab as any);
+                  setSelectedTable(null);
+                  setSelectedScript(null);
+                }}
                 className={`px-4 py-1.5 rounded-lg text-xs capitalize transition-all ${activeTab === tab ? 'bg-blue-500 text-white shadow-lg' : 'text-white/40 hover:text-white'}`}
               >
                 {tab}
@@ -2186,7 +2320,7 @@ function GlassDatabase(props: any) {
                 <div key={i} className="glass p-5 rounded-3xl border border-white/10 relative overflow-hidden group">
                   <div className="absolute top-4 right-4 text-white/10 group-hover:text-white/20 transition-colors">{stat.icon}</div>
                   <span className="text-[10px] text-white/40 uppercase font-bold tracking-wider">{stat.label}</span>
-                  <p className={`text-2xl font-mono mt-2 ${stat.color}`}>{stat.val}</p>
+                  <p className={`text-2xl font-mono mt-2 ${stat.color}`}>{stat.val.toString()}</p>
                 </div>
               ))}
             </div>
@@ -2220,47 +2354,151 @@ function GlassDatabase(props: any) {
         )}
 
         {activeTab === 'tables' && (
-          <div className="glass rounded-3xl border border-white/10 overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-white/10 bg-white/5 flex items-center justify-between">
-              <h3 className="text-sm font-bold">SQL Relational Shards</h3>
-              <div className="flex gap-2">
-                <button className="text-[10px] glass-button h-8 px-4" onClick={() => addNotification('Database', 'Vacuuming dead tuples...', 'info')}>Vacuum DB</button>
-                <button className="text-[10px] bg-blue-500 hover:bg-blue-400 text-white rounded-lg h-8 px-4 font-bold transition-all shadow-lg shadow-blue-500/20">New Table</button>
+          <div className="flex flex-col gap-6 h-full">
+            {!selectedTable ? (
+              <div className="glass rounded-3xl border border-white/10 overflow-hidden flex flex-col">
+                <div className="p-4 border-b border-white/10 bg-white/5 flex items-center justify-between">
+                  <h3 className="text-sm font-bold">SQL Relational Shards</h3>
+                  <div className="flex gap-2">
+                    <button className="text-[10px] glass-button h-8 px-4" onClick={() => addNotification('Database', 'Vacuuming dead tuples...', 'info')}>Vacuum DB</button>
+                    <button className="text-[10px] bg-blue-500 hover:bg-blue-400 text-white rounded-lg h-8 px-4 font-bold transition-all shadow-lg shadow-blue-500/20" onClick={() => setShowNewTableDialog(true)}>New Table</button>
+                  </div>
+                </div>
+                <div className="p-0 overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-white/5 text-white/40">
+                      <tr>
+                        <th className="px-6 py-4 font-medium uppercase tracking-widest text-[10px]">Table Name</th>
+                        <th className="px-6 py-4 font-medium uppercase tracking-widest text-[10px]">Type</th>
+                        <th className="px-6 py-4 font-medium uppercase tracking-widest text-[10px]">Rows</th>
+                        <th className="px-6 py-4 font-medium uppercase tracking-widest text-[10px]">Status</th>
+                        <th className="px-6 py-4 font-medium uppercase tracking-widest text-[10px]">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5 text-slate-300">
+                      {Object.entries(collections).map(([key, val]: [string, any]) => (
+                        <tr key={key} className="hover:bg-white/5 transition-colors group cursor-pointer" onClick={() => setSelectedTable(key)}>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3 font-bold text-white group-hover:text-blue-400 transition-colors">
+                              <TableIcon size={14} />
+                              {key}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-white/40 font-mono">B-Tree Relational</td>
+                          <td className="px-6 py-4 font-mono">{Array.isArray(val) ? val.length : 0}</td>
+                          <td className="px-6 py-4">
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold border border-emerald-500/20">Optimized</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                               <button 
+                                onClick={(e) => { e.stopPropagation(); setSelectedTable(key); }}
+                                className="p-1 hover:text-blue-400 text-white/20 transition-colors"
+                              >
+                                <LayoutGrid size={14} />
+                              </button>
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); deleteTable(key); }}
+                                className="p-1 hover:text-red-400 text-white/20 transition-colors"
+                              >
+                                <Trash size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-            <div className="p-0">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-white/5 text-white/40">
-                  <tr>
-                    <th className="px-6 py-4 font-medium uppercase tracking-widest text-[10px]">Table Name</th>
-                    <th className="px-6 py-4 font-medium uppercase tracking-widest text-[10px]">Type</th>
-                    <th className="px-6 py-4 font-medium uppercase tracking-widest text-[10px]">Rows</th>
-                    <th className="px-6 py-4 font-medium uppercase tracking-widest text-[10px]">Status</th>
-                    <th className="px-6 py-4 font-medium uppercase tracking-widest text-[10px]">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {Object.entries(collections).map(([key, val]: [string, any]) => (
-                    <tr key={key} className="hover:bg-white/5 transition-colors group">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3 font-bold text-white group-hover:text-blue-400 transition-colors">
-                          <TableIcon size={14} />
-                          {key}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-white/40 font-mono">B-Tree Relational</td>
-                      <td className="px-6 py-4 font-mono">{Array.isArray(val) ? val.length : 0}</td>
-                      <td className="px-6 py-4">
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold border border-emerald-500/20">Optimized</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <button className="text-white/20 hover:text-white transition-colors"><MoreVertical size={14} /></button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            ) : (
+              <div className="glass rounded-3xl border border-white/10 overflow-hidden flex flex-col h-full">
+                <div className="p-4 border-b border-white/10 bg-white/5 flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <button onClick={() => setSelectedTable(null)} className="p-2 hover:bg-white/10 rounded-lg text-white/40 hover:text-white transition-colors">
+                      <ChevronLeft size={16} />
+                    </button>
+                    <div>
+                        <h3 className="text-sm font-bold flex items-center gap-2">
+                            <TableIcon size={14} className="text-blue-400" />
+                            {selectedTable}
+                        </h3>
+                        <p className="text-[9px] text-white/20 uppercase tracking-widest font-mono">Shard Location: US-EAST-MASTER</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button className="text-[10px] bg-blue-500 hover:bg-blue-400 text-white rounded-lg h-8 px-4 font-bold transition-all" onClick={() => addRecord(selectedTable)}>+ Add Record</button>
+                    <button className="text-[10px] glass-button h-8 px-4" onClick={() => setSelectedTable(null)}>Exit View</button>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-auto p-0 min-h-[400px]">
+                  {collections[selectedTable]?.length > 0 ? (
+                    <table className="w-full text-left text-[11px] border-collapse">
+                      <thead className="bg-white/5 text-white/40 sticky top-0 z-10">
+                        <tr>
+                          <th className="px-4 py-3 border-b border-white/5 w-12">#</th>
+                          {Object.keys(collections[selectedTable][0]).map(col => (
+                            <th key={col} className="px-4 py-3 border-b border-white/5 font-bold uppercase tracking-wider text-[9px]">{col}</th>
+                          ))}
+                          <th className="px-4 py-3 border-b border-white/5 w-20">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5 bg-black/20">
+                        {collections[selectedTable].map((record: any, rIdx: number) => (
+                          <tr key={rIdx} className="hover:bg-white/5 group transition-colors">
+                            <td className="px-4 py-3 text-white/20 font-mono italic">{rIdx + 1}</td>
+                            {Object.entries(record).map(([key, val]: [string, any], cIdx: number) => (
+                              <td key={cIdx} className="px-4 py-3">
+                                {isEditingRecord === rIdx ? (
+                                    <input 
+                                        autoFocus={cIdx === 0}
+                                        type="text"
+                                        value={val?.toString() || ''}
+                                        onChange={(e) => updateRecord(selectedTable, rIdx, key, e.target.value)}
+                                        className="bg-white/5 border border-blue-500/30 rounded px-2 py-1 w-full text-sm outline-none focus:border-blue-500"
+                                        onBlur={() => setIsEditingRecord(null)}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') setIsEditingRecord(null); }}
+                                    />
+                                ) : (
+                                    <span 
+                                        onDoubleClick={() => setIsEditingRecord(rIdx)}
+                                        className="block truncate max-w-[200px] text-white/80"
+                                    >
+                                        {val?.toString() || <span className="text-white/10 italic">NULL</span>}
+                                    </span>
+                                )}
+                              </td>
+                            ))}
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button 
+                                    onClick={() => setIsEditingRecord(rIdx)}
+                                    className="p-1 hover:text-blue-400 text-white/20 transition-colors"
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+                                <button 
+                                    onClick={() => deleteRecord(selectedTable, rIdx)}
+                                    className="p-1 hover:text-red-400 text-white/20 transition-colors"
+                                >
+                                  <Trash size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center opacity-20 p-20">
+                        <Database size={48} className="mb-4" />
+                        <p className="text-sm uppercase tracking-widest font-bold">No records found for this shard</p>
+                        <button className="mt-4 glass-button text-[10px]" onClick={() => addRecord(selectedTable)}>Populate Table</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2289,6 +2527,134 @@ function GlassDatabase(props: any) {
             ))}
           </div>
         )}
+
+        {activeTab === 'scripts' && (
+            <div className="grid grid-cols-[300px,1fr] gap-6 h-full">
+                <div className="glass rounded-3xl border border-white/10 overflow-hidden flex flex-col">
+                    <div className="p-4 border-b border-white/10 bg-white/5 flex items-center justify-between">
+                        <h3 className="text-xs font-bold uppercase tracking-widest text-white/40">Object Scripts</h3>
+                        <button 
+                            onClick={() => {
+                                const name = 'Script_' + (scripts.length + 1);
+                                saveScript(name, '-- Shard Integrity Script\ntell app "GlassDatabase"\n  query table "users"\n  get count to total_users\n\n  if total_users is "0"\n    notify "Warning: Users table is empty!"\n    insert record "username: system_admin, status: active"\n  else\n    notify "Database Check: " & total_users & " users found"\n  end if\nend tell');
+                            }}
+                            className="p-1 hover:text-blue-400 text-white/20 transition-colors"
+                        >
+                            <Plus size={16} />
+                        </button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                        {scripts.map((script: any) => (
+                            <div 
+                                key={script.id}
+                                onClick={() => setSelectedScript(script.id)}
+                                className={cn(
+                                    "p-3 rounded-xl border transition-all cursor-pointer group",
+                                    selectedScript === script.id ? "bg-blue-500/10 border-blue-500/30 text-blue-400" : "bg-white/5 border-transparent text-white/60 hover:bg-white/10"
+                                )}
+                            >
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2 truncate">
+                                        <Code2 size={14} />
+                                        <span className="text-xs font-semibold truncate">{script.name}</span>
+                                    </div>
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); deleteScript(script.id); }}
+                                        className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-all"
+                                    >
+                                        <Trash size={12} />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                        {scripts.length === 0 && (
+                            <div className="py-20 text-center opacity-20 flex flex-col items-center">
+                                <Code size={32} className="mb-2" />
+                                <p className="text-[10px] uppercase font-bold tracking-tighter">No Automation Found</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="glass rounded-3xl border border-white/10 flex flex-col overflow-hidden">
+                    {selectedScript ? (
+                        (() => {
+                            const script = scripts.find((s: any) => s.id === selectedScript);
+                            return (
+                                <>
+                                    <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/5">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
+                                                <Code2 size={16} />
+                                            </div>
+                                            <span className="text-sm font-bold">{script?.name}</span>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button 
+                                                onClick={() => scheduleScript(script?.id)}
+                                                className={cn(
+                                                    "h-8 px-4 text-[10px] font-bold rounded-lg transition-all flex items-center gap-2 border",
+                                                    script?.isScheduled ? "bg-amber-500/20 border-amber-500/40 text-amber-500" : "glass-button"
+                                                )}
+                                                title="Schedule Background Run"
+                                            >
+                                                <Clock size={12} />
+                                                {script?.isScheduled ? 'SCHEDULED' : 'SCHEDULE'}
+                                            </button>
+                                            <button 
+                                                onClick={() => runScript(script?.content || '')}
+                                                className="h-8 px-4 bg-green-600 hover:bg-green-500 text-white text-[10px] font-bold rounded-lg transition-all flex items-center gap-2 shadow-lg shadow-green-500/20"
+                                            >
+                                                <Play size={12} fill="currentColor" />
+                                                RUN SCRIPT
+                                            </button>
+                                            <button 
+                                                className="h-8 px-4 glass-button text-[10px]"
+                                                onClick={() => setSelectedScript(null)}
+                                            >
+                                                Close
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {script?.isScheduled && (
+                                        <div className="px-4 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-[9px] text-amber-500 font-bold uppercase tracking-widest flex items-center gap-2">
+                                            <Activity size={10} className="animate-pulse" />
+                                            Background Daemon Active: Executing on 30s interval
+                                        </div>
+                                    )}
+                                    <div className="flex-1 relative font-mono text-sm">
+                                        <textarea 
+                                            className="absolute inset-0 w-full h-full bg-transparent p-6 outline-none resize-none text-blue-100/90 leading-relaxed selection:bg-blue-500/30"
+                                            spellCheck={false}
+                                            value={script?.content}
+                                            onChange={(e) => saveScript(script?.name || '', e.target.value)}
+                                        />
+                                        {/* Execution line indicator */}
+                                        <div className="absolute left-0 w-1 bg-blue-500 transition-all pointer-events-none" 
+                                             style={{ 
+                                                top: activeExecutionLine * 1.5 + 'rem', 
+                                                height: activeExecutionLine >= 0 ? '1.5rem' : '0',
+                                                opacity: activeExecutionLine >= 0 ? 1 : 0
+                                             }} 
+                                        />
+                                    </div>
+                                    <div className="p-4 bg-white/5 border-t border-white/10 flex items-center justify-between text-[10px] text-white/30 uppercase tracking-widest font-mono">
+                                        <span>Syntax: GlassScript Engine v1.0</span>
+                                        <span>Lines: {script?.content.split('\n').length}</span>
+                                    </div>
+                                </>
+                            );
+                        })()
+                    ) : (
+                        <div className="h-full flex flex-col items-center justify-center text-white/10 bg-black/20">
+                            <Zap size={64} className="mb-4" />
+                            <h3 className="text-lg font-bold tracking-tighter uppercase">Automation Console</h3>
+                            <p className="text-xs mt-2 font-mono">Select or create a script to begin sharding automation.</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        )}
       </div>
 
       <div className="p-4 bg-[#050505] border-t border-white/10 flex items-center justify-between text-[10px] font-mono text-white/20">
@@ -2298,6 +2664,40 @@ function GlassDatabase(props: any) {
           <span>UPTIME: 14:42:01</span>
         </div>
       </div>
+
+      {/* New Table Dialog */}
+      <AnimatePresence>
+        {showNewTableDialog && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="w-96 glass-dark rounded-3xl border border-white/20 p-8 shadow-2xl"
+            >
+              <div className="flex items-center gap-3 mb-6 text-blue-400">
+                <TableIcon size={24} />
+                <h3 className="text-lg font-bold tracking-tight">Create Relational Shard</h3>
+              </div>
+              <p className="text-xs text-white/40 mb-6 leading-relaxed">
+                Define a new collection name. You can populate it manually or import from external system buffers.
+              </p>
+              <input 
+                autoFocus
+                type="text" 
+                placeholder="table_name_alpha"
+                className="w-full glass-input h-14 mb-8 text-sm placeholder:text-white/10"
+                value={newTableName}
+                onChange={(e) => setNewTableName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && createTable()}
+              />
+              <div className="flex justify-end gap-4">
+                <button onClick={() => setShowNewTableDialog(false)} className="px-6 py-2 text-[11px] font-bold text-white/30 hover:text-white uppercase tracking-widest">Cancel</button>
+                <button onClick={createTable} className="px-8 py-2 bg-blue-600 text-white rounded-xl text-[11px] font-bold shadow-lg shadow-blue-500/20 hover:bg-blue-500 transition-all uppercase tracking-widest">Provision</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -2747,15 +3147,129 @@ function CalendarApp({ calendarEvents, setCalendarEvents, addNotification }: any
   );
 }
 
-function SpreadsheetApp({ sheetData, setSheetData, addNotification }: any) {
+function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets, setActiveFileInSheets, addNotification, currentUser, openWindow, setPrintQueue, userName }: any) {
   const [activeCell, setActiveCell] = useState<[number, number] | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const [activeFile, setActiveFile] = useState<{ name: string, path: string[] } | null>(activeFileInSheets);
+  const [showOpenDialog, setShowOpenDialog] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveFileName, setSaveFileName] = useState('');
+  
+  useEffect(() => {
+    if (activeFileInSheets) {
+      setActiveFile(activeFileInSheets);
+    }
+  }, [activeFileInSheets]);
 
   const updateCell = (r: number, c: number, val: string) => {
     const newData = [...sheetData];
     newData[r][c] = val;
     setSheetData(newData);
+  };
+
+  const handleSave = () => {
+    if (activeFile) {
+      const fileObj = findItemByPath(fs, activeFile.path.concat(activeFile.name));
+      if (fileObj && !checkPermission(fileObj, 'w', currentUser?.isAdmin)) {
+        addNotification('Sheets', 'Permission denied: Cannot overwrite this file', 'error');
+        return;
+      }
+
+      const updateFileContent = (items: FileSystemItem[], path: string[], fileName: string, content: string): FileSystemItem[] => {
+        if (path.length === 0) {
+          return items.map(item => item.name === fileName ? { ...item, content } : item);
+        }
+        const [first, ...rest] = path;
+        return items.map(item => {
+          if (item.name === first && item.type === 'folder' && item.children) {
+            return { ...item, children: updateFileContent(item.children, rest, fileName, content) };
+          }
+          return item;
+        });
+      };
+
+      const serializedData = JSON.stringify(sheetData);
+      setFs((prev: FileSystemItem[]) => updateFileContent(prev, activeFile.path, activeFile.name, serializedData));
+      setActiveFileInSheets(activeFile);
+      addNotification('Sheets', `Saved ${activeFile.name}`, 'success');
+    } else {
+      setShowSaveDialog(true);
+    }
+    setActiveMenu(null);
+  };
+
+  const handleSaveAs = () => {
+    if (!saveFileName.trim()) return;
+    let fileName = saveFileName.endsWith('.gsheet') ? saveFileName : `${saveFileName}.gsheet`;
+    const savePath = ['Documents'];
+
+    const targetFolder = findItemByPath(fs, savePath);
+    if (!targetFolder || !targetFolder.children) {
+      addNotification('Sheets', 'Documents directory not found', 'error');
+      return;
+    }
+
+    const serializedData = JSON.stringify(sheetData);
+    const newFile: FileSystemItem = {
+      name: fileName,
+      type: 'file',
+      content: serializedData,
+      permissions: DEFAULT_PERMISSIONS
+    };
+
+    const updateFsRecursive = (items: FileSystemItem[], path: string[]): FileSystemItem[] => {
+      if (path.length === 0) return [...items, newFile];
+      const [first, ...rest] = path;
+      return items.map(item => {
+        if (item.name === first && item.type === 'folder' && item.children) {
+          return { ...item, children: updateFsRecursive(item.children || [], rest) };
+        }
+        return item;
+      });
+    };
+
+    setFs((prev: FileSystemItem[]) => updateFsRecursive(prev, savePath));
+    setActiveFile({ name: fileName, path: savePath });
+    setActiveFileInSheets({ name: fileName, path: savePath });
+    setShowSaveDialog(false);
+    addNotification('Sheets', `Document saved as ${fileName} in Documents`, 'success');
+  };
+
+  const handleOpen = (file: FileSystemItem, path: string[]) => {
+    if (file.type === 'file' && file.content) {
+      try {
+        const data = JSON.parse(file.content);
+        setSheetData(data);
+        setActiveFile({ name: file.name, path });
+        setActiveFileInSheets({ name: file.name, path });
+        setShowOpenDialog(false);
+        addNotification('Sheets', `Opened ${file.name}`, 'info');
+      } catch (e) {
+        addNotification('Sheets', 'Failed to parse .gsheet file', 'error');
+      }
+    }
+  };
+
+  const handlePrint = () => {
+    const filename = activeFile ? activeFile.name : 'Untitled Sheet.gsheet';
+    const newJob: PrintJob = {
+      id: Math.random().toString(36).substr(2, 9),
+      filename,
+      status: 'printing',
+      timestamp: new Date().toLocaleTimeString(),
+      owner: userName || 'Guest'
+    };
+    setPrintQueue((prev: PrintJob[]) => [...prev, newJob]);
+    addNotification('Print Manager', `Sending "${filename}" to printer...`, 'info');
+    
+    setTimeout(() => {
+      setPrintQueue((prev: PrintJob[]) => 
+        prev.map(job => job.id === newJob.id ? { ...job, status: 'completed' } : job)
+      );
+      addNotification('Print Manager', `Finished printing "${filename}"`, 'success');
+    }, 5000);
+    setActiveMenu(null);
   };
 
   const headers = Array(10).fill(0).map((_, i) => String.fromCharCode(65 + i));
@@ -2843,9 +3357,16 @@ function SpreadsheetApp({ sheetData, setSheetData, addNotification }: any) {
       // Basic Math Evaluation (using Function for simple safety)
       // Only allows digits, operators, and decimal points
       if (/^[0-9+\-*/().]+$/.test(f)) {
-        // eslint-disable-next-line no-eval
-        const result = eval(f);
-        return typeof result === 'number' ? result : 0;
+        try {
+          // eslint-disable-next-line no-eval
+          const result = eval(f);
+          if (typeof result === 'number' && !isNaN(result) && isFinite(result)) {
+            return result;
+          }
+          return 0;
+        } catch (e) {
+          return 0;
+        }
       }
       return 0;
     } catch (e) {
@@ -2855,10 +3376,14 @@ function SpreadsheetApp({ sheetData, setSheetData, addNotification }: any) {
 
   const getDisplayValue = (r: number, c: number) => {
     const content = sheetData[r][c];
-    if (content.startsWith('=')) {
+    if (content && content.toString().startsWith('=')) {
       // Don't evaluate if we are currently editing the cell
       if (activeCell?.[0] === r && activeCell?.[1] === c) return content;
       const val = evaluateFormula(content.substring(1), sheetData);
+      
+      // If evaluateFormula somehow returns NaN or the result is invalid
+      if (typeof val !== 'number' || isNaN(val)) return '#ERROR!';
+      
       return val === 0 && content !== '=0' && !content.includes('0') ? '0' : val.toString();
     }
     return content;
@@ -2887,40 +3412,33 @@ function SpreadsheetApp({ sheetData, setSheetData, addNotification }: any) {
 
   const menuItems = {
     file: [
-      { label: 'New Sheet', shortcut: 'Ctrl+N' },
-      { label: 'Open...', shortcut: 'Ctrl+O' },
-      { label: 'Save', shortcut: 'Ctrl+S' },
-      { label: 'Import Data', shortcut: 'Alt+I' },
-      { label: 'Export XML', icon: <Download size={14} /> },
-      { label: 'Print', shortcut: 'Ctrl+P' },
+      { label: 'New Sheet', shortcut: 'Ctrl+N', action: () => { setSheetData(DEFAULT_SHEET_DATA); setActiveFile(null); setActiveFileInSheets(null); } },
+      { label: 'Open...', shortcut: 'Ctrl+O', action: () => setShowOpenDialog(true) },
+      { label: 'Save', shortcut: 'Ctrl+S', action: handleSave },
+      { label: 'Save As...', action: () => setShowSaveDialog(true) },
+      { label: 'Print', shortcut: 'Ctrl+P', action: handlePrint },
     ],
     edit: [
-      { label: 'Undo', shortcut: 'Ctrl+Z' },
-      { label: 'Redo', shortcut: 'Ctrl+Y' },
-      { label: 'Cut', shortcut: 'Ctrl+X' },
-      { label: 'Copy', shortcut: 'Ctrl+C' },
-      { label: 'Paste', shortcut: 'Ctrl+V' },
-      { label: 'Clear All' },
+      { label: 'Undo', shortcut: 'Ctrl+Z', action: () => addNotification('Sheets', 'Undo not yet implemented', 'info') },
+      { label: 'Redo', shortcut: 'Ctrl+Y', action: () => addNotification('Sheets', 'Redo not yet implemented', 'info') },
+      { label: 'Cut', shortcut: 'Ctrl+X', action: () => addNotification('Sheets', 'Cut not yet implemented', 'info') },
+      { label: 'Copy', shortcut: 'Ctrl+C', action: () => addNotification('Sheets', 'Copy not yet implemented', 'info') },
+      { label: 'Paste', shortcut: 'Ctrl+V', action: () => addNotification('Sheets', 'Paste not yet implemented', 'info') },
+      { label: 'Clear All', action: () => setSheetData(DEFAULT_SHEET_DATA.map(row => row.map(() => ''))) },
     ],
     format: [
       { label: 'Bold', shortcut: 'Ctrl+B' },
       { label: 'Italic', shortcut: 'Ctrl+I' },
       { label: 'Underline', shortcut: 'Ctrl+U' },
-      { label: 'Text Color' },
-      { label: 'Cell Color' },
       { label: 'Number Format' },
     ],
     tools: [
-      { label: 'Create Filter' },
-      { label: 'Pivot Table' },
-      { label: 'Validate Data' },
-      { label: 'Solver' },
-      { label: 'Script Editor' },
+      { label: 'Script Editor', action: () => openWindow('codestudio', 'Code Studio') },
     ]
   };
 
   return (
-    <div className="h-full flex flex-col bg-white text-[#1a1a1a] font-sans selection:bg-emerald-100">
+    <div className="h-full flex flex-col bg-white text-[#1a1a1a] font-sans selection:bg-emerald-100 relative">
       {/* App Header */}
       <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-white z-10 shrink-0 shadow-sm">
         <div className="flex items-center gap-4">
@@ -2928,18 +3446,18 @@ function SpreadsheetApp({ sheetData, setSheetData, addNotification }: any) {
             <TableIcon size={20} />
           </div>
           <div>
-            <h2 className="text-xl font-bold tracking-tight text-gray-900">Glass Sheets Pro</h2>
+            <h2 className="text-xl font-bold tracking-tight text-gray-900">{activeFile ? activeFile.name : 'Glass Sheets Pro'}</h2>
             <div className="flex items-center gap-2 text-[9px] uppercase font-bold tracking-widest text-emerald-600">
               <Activity size={10} /> Live Relational Link
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2 border-l border-gray-100 pl-4">
-          <button className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors"><Rows size={18} /></button>
-          <button className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors"><Columns size={18} /></button>
-          <button className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors"><Calculator size={18} /></button>
-          <button className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold ml-2 shadow-lg shadow-emerald-200 flex items-center gap-2 hover:bg-emerald-700 transition-all">
-            <Download size={14} /> Export XML
+          <button className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors" title="Add Row" onClick={() => setSheetData([...sheetData, Array(headers.length).fill('')])}><Rows size={18} /></button>
+          <button className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors" title="Add Column" onClick={() => setSheetData(sheetData.map(row => [...row, '']))}><Columns size={18} /></button>
+          <button className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors" onClick={handleSave}><Save size={18} /></button>
+          <button className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold ml-2 shadow-lg shadow-emerald-200 flex items-center gap-2 hover:bg-emerald-700 transition-all" onClick={handlePrint}>
+            <Printer size={14} /> Print
           </button>
         </div>
       </div>
@@ -2972,7 +3490,8 @@ function SpreadsheetApp({ sheetData, setSheetData, addNotification }: any) {
                       <button 
                         key={idx}
                         onClick={() => {
-                          addNotification('Sheets', `Action triggered: ${item.label}`, 'info');
+                          if (item.action) item.action();
+                          else addNotification('Sheets', `Action triggered: ${item.label}`, 'info');
                           setActiveMenu(null);
                         }}
                         className="w-full text-left px-4 py-2 text-[11px] font-medium text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 flex items-center justify-between group transition-colors"
@@ -3012,8 +3531,8 @@ function SpreadsheetApp({ sheetData, setSheetData, addNotification }: any) {
       <div className="flex-1 overflow-auto bg-gray-100 relative custom-scrollbar">
         <table className="border-collapse table-fixed w-full bg-white select-none">
           <thead>
-            <tr className="sticky top-0 z-20 shadow-sm">
-              <th className="w-12 bg-gray-200 border-r border-b border-gray-300 text-[10px] text-gray-500 font-bold p-1 italic-font">#</th>
+            <tr className="sticky top-0 z-20 shadow-sm text-left">
+              <th className="w-12 bg-gray-200 border-r border-b border-gray-300 text-[10px] text-gray-500 font-bold p-1 italic-font text-center">#</th>
               {headers.map((h, i) => (
                 <th key={h} className="w-32 bg-gray-100 border-r border-b border-gray-300 text-[10px] text-gray-500 font-bold p-2 uppercase tracking-tight">{h}</th>
               ))}
@@ -3063,7 +3582,7 @@ function SpreadsheetApp({ sheetData, setSheetData, addNotification }: any) {
                           }}
                           className="w-full h-full px-3 text-xs flex items-center font-medium outline-none cursor-cell select-text overflow-hidden"
                         >
-                          <span className={cn("truncate", cell.startsWith('=') && "text-emerald-700 font-bold")}>
+                          <span className={cn("truncate", cell && cell.toString().startsWith('=') && "text-emerald-700 font-bold")}>
                             {getDisplayValue(rIdx, cIdx)}
                           </span>
                         </div>
@@ -3076,14 +3595,90 @@ function SpreadsheetApp({ sheetData, setSheetData, addNotification }: any) {
           </tbody>
         </table>
       </div>
-      
-      <div className="p-2 border-t border-gray-200 bg-white flex items-center justify-between text-[10px] font-bold text-gray-400 uppercase tracking-widest px-6">
-        <div className="flex items-center gap-6">
-          <span className="text-emerald-600">Sheet1</span>
-          <span className="cursor-pointer hover:text-gray-600">+ Add Sheet</span>
+
+      {/* Sheets Meta Bar */}
+      <div className="h-10 bg-gray-50 border-t border-gray-200 px-6 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[9px] font-bold uppercase tracking-widest">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            Connected
+          </div>
+          <span className="text-[10px] text-gray-400 font-medium">Auto-calculating Cell Cluster Alpha</span>
         </div>
-        <div>Ready</div>
+        <div className="flex items-center gap-4 text-[10px] text-gray-400 font-medium">
+          <span>Row: {activeCell ? activeCell[0] + 1 : '-'}</span>
+          <span>Col: {activeCell ? String.fromCharCode(65 + activeCell[1]) : '-'}</span>
+          <span className="text-gray-300">|</span>
+          <span>Total Cells: {(sheetData.length * (headers.length || 0)).toString()}</span>
+        </div>
       </div>
+
+      {/* Save Dialog */}
+      <AnimatePresence>
+        {showSaveDialog && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/40 backdrop-blur-[2px]">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="w-96 glass-dark rounded-2xl border border-white/20 p-6 shadow-2xl"
+            >
+              <h3 className="text-sm font-bold text-white mb-4 uppercase tracking-widest">Save Sheet</h3>
+              <input 
+                autoFocus
+                type="text"
+                placeholder="filename.gsheet"
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white mb-6 outline-none focus:border-emerald-500/50"
+                value={saveFileName}
+                onChange={(e) => setSaveFileName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSaveAs()}
+              />
+              <div className="flex justify-end gap-3">
+                <button onClick={() => setShowSaveDialog(false)} className="px-4 py-2 text-xs font-bold text-white/40 hover:text-white transition-colors uppercase tracking-widest">Cancel</button>
+                <button onClick={handleSaveAs} className="px-6 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-emerald-900/20 hover:bg-emerald-500 transition-all uppercase tracking-widest">Save</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Open Dialog */}
+      <AnimatePresence>
+        {showOpenDialog && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/40 backdrop-blur-[2px]">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="w-[480px] glass-dark rounded-2xl border border-white/20 p-6 shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-sm font-bold text-white uppercase tracking-widest">Open Spreadsheet</h3>
+                <button onClick={() => setShowOpenDialog(false)} className="text-white/20 hover:text-white"><X size={18} /></button>
+              </div>
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-2 no-scrollbar">
+                {(() => {
+                  const docs = findItemByPath(fs, ['Documents'])?.children?.filter(i => i.name.endsWith('.gsheet'));
+                  if (!docs || docs.length === 0) return <div className="py-12 text-center text-white/20 text-xs">No stylesheets found in /Documents</div>;
+                  return docs.map(file => (
+                    <button 
+                      key={file.name}
+                      onClick={() => handleOpen(file, ['Documents'])}
+                      className="w-full flex items-center gap-4 p-3 rounded-xl hover:bg-white/5 border border-transparent hover:border-white/10 transition-all text-left group"
+                    >
+                      <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+                        <TableIcon size={20} />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium text-white/80 group-hover:text-emerald-400 transition-colors uppercase tracking-tight">{file.name}</span>
+                        <span className="text-[10px] text-white/20 truncate max-w-[280px]">Sheet Schema V1 • Last Modified recently</span>
+                      </div>
+                    </button>
+                  ));
+                })()}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -3450,7 +4045,7 @@ function SystemMonitorApp({
                     <Cpu size={14} className="text-purple-500" />
                   </div>
                   <div className="flex items-end gap-2">
-                    <span className="text-2xl font-bold text-white">{cpuUsage}%</span>
+                    <span className="text-2xl font-bold text-white">{cpuUsage.toString()}%</span>
                   </div>
                   <div className="h-1 bg-white/5 rounded-full overflow-hidden">
                     <div className="h-full bg-purple-500 transition-all duration-500" style={{ width: `${cpuUsage}%` }} />
@@ -3463,7 +4058,7 @@ function SystemMonitorApp({
                     <Activity size={14} className="text-emerald-500" />
                   </div>
                   <div className="flex items-end gap-2">
-                    <span className="text-2xl font-bold text-white">{ramUsage}%</span>
+                    <span className="text-2xl font-bold text-white">{ramUsage.toString()}%</span>
                   </div>
                   <div className="h-1 bg-white/5 rounded-full overflow-hidden">
                     <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${ramUsage}%` }} />
@@ -3574,7 +4169,7 @@ function SystemMonitorApp({
                     <div className="flex items-center gap-6">
                       <div className="flex flex-col items-end">
                         <span className="text-[9px] text-white/20 uppercase font-bold">Latency</span>
-                        <span className="text-[11px] font-mono text-white/50">{call.latency}ms</span>
+                        <span className="text-[11px] font-mono text-white/50">{call.latency.toString()}ms</span>
                       </div>
                       <div className={cn(
                         "px-2 py-1 rounded text-[9px] font-bold uppercase",
@@ -3702,7 +4297,7 @@ function SystemMonitorApp({
                         <div className="pt-4 border-t border-white/5 flex items-center justify-between">
                           <div className="flex flex-col gap-1">
                             <span className="text-[10px] text-white/20 uppercase font-bold">Kernel Uptime</span>
-                            <span className="text-sm font-bold text-emerald-400">{Math.floor(hwInfo.uptime / 60)} minutes</span>
+                            <span className="text-sm font-bold text-emerald-400">{(hwInfo && !isNaN(hwInfo.uptime)) ? (Math.floor(hwInfo.uptime / 60)).toString() : '0'} minutes</span>
                           </div>
                           <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/10">
                             <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
@@ -3858,6 +4453,8 @@ function PrinterApp({ printQueue, setPrintQueue, addNotification }: { printQueue
 function TerminalApp({ 
   fs, setFs, fsLib, addNotification, currentUser,
   openWindow, setNotepadContent, setActiveFileInNotepad,
+  setGlassWordContent, setActiveFileInGlassWord,
+  setSheetData, setActiveFileInSheets,
   setNetworkNodes, runGlassScript 
 }: any) {
   interface TerminalSession {
@@ -4219,7 +4816,30 @@ function TerminalApp({
            const targetPathStr = arg.startsWith('/') ? arg : (pathString === '/' ? `/${arg}` : `${pathString}/${arg}`);
            const content = fsLib.read(targetPathStr);
            if (content !== null) {
-             results.push(content);
+             const ext = targetPathStr.split('.').pop()?.toLowerCase();
+             if (ext === 'gsheet') {
+               try {
+                 const data = JSON.parse(content);
+                 if (Array.isArray(data)) {
+                   // Truncate for display
+                   const rows = data.slice(0, 5).map((row: string[], rIdx: number) => {
+                     return `${rIdx + 1} | ${row.slice(0, 5).map(c => (c || '').toString().padEnd(10)).join(' | ')}`;
+                   });
+                   const header = `  | ${Array(Math.min(5, data[0]?.length || 0)).fill(0).map((_, i) => String.fromCharCode(65 + i).padEnd(10)).join(' | ')}`;
+                   results.push(`Preview of ${arg}:\n${header}\n${'-'.repeat(header.length)}\n${rows.join('\n')}${data.length > 5 ? '\n...' : ''}`);
+                 } else {
+                   results.push(content);
+                 }
+               } catch (e) {
+                 results.push(content);
+               }
+             } else if (ext === 'gdoc') {
+               // Strip HTML tags for preview
+               const plain = content.replace(/<[^>]*>?/gm, '');
+               results.push(`Preview of ${arg}:\n${plain.substring(0, 500)}${plain.length > 500 ? '...' : ''}`);
+             } else {
+               results.push(content);
+             }
            } else {
              results.push(`cat: ${arg}: No such file`);
            }
@@ -4409,6 +5029,19 @@ function TerminalApp({
             setNotepadContent(content);
             setActiveFileInNotepad({ name: fileName, path: parts.slice(0, -1) });
             openWindow('notepad', 'Notepad');
+          } else if (ext === 'gdoc') {
+            setGlassWordContent(content);
+            setActiveFileInGlassWord({ name: fileName, path: parts.slice(0, -1) });
+            openWindow('glassword', 'GlassWord 2026');
+          } else if (ext === 'gsheet') {
+            try {
+              const data = JSON.parse(content);
+              setSheetData(data);
+              setActiveFileInSheets({ name: fileName, path: parts.slice(0, -1) });
+              openWindow('spreadsheet', 'Glass Sheets Pro');
+            } catch (e) {
+              updateActiveSession({ history: [...newHistory, `open: error parsing ${fileName}`] });
+            }
           } else if (ext === 'jpg' || ext === 'png') {
             openWindow('photos', 'Photos');
           } else {
@@ -4429,6 +5062,7 @@ function TerminalApp({
           'settings': 'Settings',
           'notepad': 'Notepad',
           'glassword': 'GlassWord 2026',
+          'spreadsheet': 'Glass Sheets Pro',
           'browser': 'Web Browser',
           'photos': 'Photos',
           'music': 'Media Player',
@@ -4436,10 +5070,12 @@ function TerminalApp({
           'codestudio': 'Code Studio',
           'files': 'File Explorer',
           'systemmonitor': 'NOC Center',
-          'printers': 'Print Manager',
-          'glassmail': 'GlassMail Professional',
-          'glassdatabase': 'GlassDatabase Engine',
-          'glassmessaging': 'Systems Messaging'
+          'taskscheduler': 'Task Scheduler',
+          'printers': 'Printers',
+          'calendar': 'Calendar',
+          'glassmail': 'GlassMail',
+          'glassdatabase': 'Glass Database',
+          'glassmessaging': 'Glass Messaging'
         };
         
         if (titles[appId]) {
@@ -4738,11 +5374,11 @@ function Screensaver({ type, onDismiss }: { type: string, onDismiss: () => void 
   );
 }
 
-function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindow }: any) {
-  const [content, setContent] = useState('<h1>The Future of GlassOS</h1><p>Welcome to <b>GlassWord</b>, the premier word processing suite for the modern frosted era. This document celebrates the intersection of classical Microsoft Word 4.0 layout logic with the shimmering aesthetics of glassmorphism.</p><p><i>"Vision is the art of seeing things invisible." - Jonathan Swift</i></p><h2>System Requirements</h2><ul><li>GlassOS 2.0 or higher</li><li>Frosted Glass rendering engine</li><li>16TB Neural Memory</li></ul>');
+function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindow, setPrintQueue, userName, glassWordContent, setGlassWordContent, activeFileInGlassWord, setActiveFileInGlassWord }: any) {
+  const [content, setContent] = useState(glassWordContent || DEFAULT_GLASSWORD_CONTENT);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState(new Date().toLocaleTimeString());
-  const [activeFile, setActiveFile] = useState<{ name: string, path: string[] } | null>(null);
+  const [activeFile, setActiveFile] = useState<{ name: string, path: string[] } | null>(activeFileInGlassWord);
   const [showOpenDialog, setShowOpenDialog] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveFileName, setSaveFileName] = useState('');
@@ -4750,11 +5386,56 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
   const lastContent = useRef(content);
 
   useEffect(() => {
+    if (glassWordContent !== undefined && glassWordContent !== content) {
+      setContent(glassWordContent);
+      if (activeFileInGlassWord) {
+        setActiveFile(activeFileInGlassWord);
+      }
+    }
+  }, [glassWordContent, activeFileInGlassWord]);
+
+  useEffect(() => {
     if (content !== lastContent.current && editorRef.current) {
       editorRef.current.innerHTML = content;
       lastContent.current = content;
     }
   }, [content]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'p') {
+        e.preventDefault();
+        handlePrint();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+        e.preventDefault();
+        exec('bold');
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'i') {
+        e.preventDefault();
+        exec('italic');
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'u') {
+        e.preventDefault();
+        exec('underline');
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+        e.preventDefault();
+        exec('undo');
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'y') {
+        e.preventDefault();
+        exec('redo');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [content, activeFile]);
 
   const exec = (command: string, value: string = '') => {
     document.execCommand(command, false, value);
@@ -4764,6 +5445,42 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
       const html = editorRef.current.innerHTML;
       lastContent.current = html;
       setContent(html);
+    }
+  };
+
+  const handlePrint = () => {
+    const filename = activeFile ? activeFile.name : 'Untitled Document.gdoc';
+    const newJob: PrintJob = {
+      id: Math.random().toString(36).substr(2, 9),
+      filename,
+      status: 'printing',
+      timestamp: new Date().toLocaleTimeString(),
+      owner: userName || 'Guest'
+    };
+    setPrintQueue((prev: PrintJob[]) => [...prev, newJob]);
+    addNotification('Print Manager', `Sending "${filename}" to printer...`, 'info');
+    
+    setTimeout(() => {
+      setPrintQueue((prev: PrintJob[]) => 
+        prev.map(job => job.id === newJob.id ? { ...job, status: 'completed' } : job)
+      );
+      addNotification('Print Manager', `Finished printing "${filename}"`, 'success');
+    }, 5000);
+    setActiveMenu(null);
+  };
+
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      exec('insertHTML', text);
+    } catch (err) {
+      // Fallback for browsers that block clipboard read
+      document.execCommand('paste');
+      if (editorRef.current) {
+        const html = editorRef.current.innerHTML;
+        lastContent.current = html;
+        setContent(html);
+      }
     }
   };
 
@@ -4790,6 +5507,8 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
 
       setFs((prev: FileSystemItem[]) => updateFileContent(prev, activeFile.path, activeFile.name, content));
       setLastSaved(new Date().toLocaleTimeString());
+      setGlassWordContent(content);
+      setActiveFileInGlassWord(activeFile);
       addNotification('GlassWord', `Saved ${activeFile.name}`, 'success');
     } else {
       setShowSaveDialog(true);
@@ -4835,6 +5554,8 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
 
     setFs((prev: FileSystemItem[]) => updateFsRecursive(prev, savePath));
     setActiveFile({ name: finalName, path: savePath });
+    setActiveFileInGlassWord({ name: finalName, path: savePath });
+    setGlassWordContent(content);
     setShowSaveDialog(false);
     setLastSaved(new Date().toLocaleTimeString());
     addNotification('GlassWord', `Document saved as ${finalName} in Documents`, 'success');
@@ -4843,7 +5564,9 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
   const handleOpen = (file: FileSystemItem, path: string[]) => {
     if (file.type === 'file') {
       setContent(file.content || '');
+      setGlassWordContent(file.content || '');
       setActiveFile({ name: file.name, path });
+      setActiveFileInGlassWord({ name: file.name, path });
       setShowOpenDialog(false);
       addNotification('GlassWord', `Opened ${file.name}`, 'info');
     }
@@ -4853,11 +5576,11 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
     { 
       label: 'File', 
       items: [
-        { label: 'New', action: () => { setContent(''); setActiveFile(null); } },
+        { label: 'New', action: () => { setContent(''); setActiveFile(null); setGlassWordContent(''); setActiveFileInGlassWord(null); } },
         { label: 'Open...', action: () => setShowOpenDialog(true) },
         { label: 'Save', action: handleSave, shortcut: 'Cmd+S' },
         { label: 'Save As...', action: () => setShowSaveDialog(true) },
-        { label: 'Print...', action: () => window.print() },
+        { label: 'Print...', action: handlePrint, shortcut: 'Cmd+P' },
         { label: 'Exit', action: () => addNotification('System', 'Use window controls to exit', 'info') }
       ] 
     },
@@ -4868,7 +5591,7 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
         { label: 'Redo', action: () => exec('redo'), shortcut: 'Cmd+Y' },
         { label: 'Cut', action: () => { document.execCommand('cut'); if (editorRef.current) { const html = editorRef.current.innerHTML; lastContent.current = html; setContent(html); } }, shortcut: 'Cmd+X' },
         { label: 'Copy', action: () => document.execCommand('copy'), shortcut: 'Cmd+C' },
-        { label: 'Paste', action: () => { document.execCommand('paste'); if (editorRef.current) { const html = editorRef.current.innerHTML; lastContent.current = html; setContent(html); } }, shortcut: 'Cmd+V' },
+        { label: 'Paste', action: handlePaste, shortcut: 'Cmd+V' },
         { label: 'Clear', action: () => { setContent(''); } }
       ] 
     },
@@ -4881,15 +5604,20 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
         { label: 'Strikethrough', action: () => exec('strikeThrough') },
         { label: 'Heading 1', action: () => exec('formatBlock', 'H1') },
         { label: 'Heading 2', action: () => exec('formatBlock', 'H2') },
-        { label: 'Paragraph', action: () => exec('formatBlock', 'P') }
+        { label: 'Heading 3', action: () => exec('formatBlock', 'H3') },
+        { label: 'Paragraph', action: () => exec('formatBlock', 'P') },
+        { label: 'Bullet List', action: () => exec('insertUnorderedList') },
+        { label: 'Numbered List', action: () => exec('insertOrderedList') }
       ] 
     },
     { 
       label: 'Font', 
       items: [
         { label: 'Inter', action: () => exec('fontName', 'Inter') },
-        { label: 'Space Grotesk', action: () => exec('fontName', 'Space Grotesk') },
-        { label: 'Outfit', action: () => exec('fontName', 'Outfit') },
+        { label: 'Roboto', action: () => exec('fontName', 'Roboto') },
+        { label: 'Open Sans', action: () => exec('fontName', 'Open Sans') },
+        { label: 'Montserrat', action: () => exec('fontName', 'Montserrat') },
+        { label: 'Poppins', action: () => exec('fontName', 'Poppins') },
         { label: 'JetBrains Mono', action: () => exec('fontName', 'JetBrains Mono') },
         { label: 'Playfair Display', action: () => exec('fontName', 'Playfair Display') }
       ] 
@@ -4957,10 +5685,9 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
             onChange={(e) => exec('fontName', e.target.value)}
             className="bg-transparent text-[11px] text-white/80 border border-white/10 rounded px-1 py-0.5 outline-none focus:border-blue-500/50 transition-all w-32 cursor-pointer hover:bg-white/5"
           >
-            <option className="bg-slate-900" value="Inter">Inter</option>
-            <option className="bg-slate-900" value="Space Grotesk">Space Grotesk</option>
-            <option className="bg-slate-900" value="Outfit">Outfit</option>
-            <option className="bg-slate-900" value="JetBrains Mono">JetBrains Mono</option>
+            {['Inter', 'Roboto', 'Open Sans', 'Montserrat', 'Poppins', 'JetBrains Mono', 'Playfair Display'].map(font => (
+              <option key={font} className="bg-slate-900" value={font}>{font}</option>
+            ))}
           </select>
           <select 
             onChange={(e) => exec('fontSize', e.target.value)}
@@ -4993,7 +5720,7 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
         
         <div className="ml-auto flex items-center gap-1 pr-2">
            <ToolbarButton icon={<Save size={14} />} onClick={handleSave} tooltip="Save (Documents)" />
-           <ToolbarButton icon={<Printer size={14} />} onClick={() => window.print()} tooltip="Print" />
+           <ToolbarButton icon={<Printer size={14} />} onClick={handlePrint} tooltip="Print" />
         </div>
       </div>
 

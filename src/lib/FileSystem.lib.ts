@@ -126,17 +126,20 @@ export class FileSystemLib {
     const fileName = parts[parts.length - 1];
     const dirParts = parts.slice(0, -1);
     
+    const now = new Date().toISOString();
+    const size = content.length;
+
     const existing = this.findRecursive(this.fs, parts);
     if (existing) {
-      const updatedFs = this.updateRecursive(this.fs, parts, { ...existing, content });
+      const updatedFs = this.updateRecursive(this.fs, parts, { ...existing, content, size, dateModified: now });
       this.setFs(updatedFs);
     } else {
       // Create new file
       const parentDir = dirParts.length === 0 ? null : this.findRecursive(this.fs, dirParts);
       if (dirParts.length === 0) {
-        this.setFs([...this.fs, { name: fileName, type: 'file', content, permissions: DEFAULT_PERMISSIONS }]);
+        this.setFs([...this.fs, { name: fileName, type: 'file', content, size, dateModified: now, permissions: DEFAULT_PERMISSIONS }]);
       } else if (parentDir && parentDir.type === 'folder') {
-        const newFile: FileSystemItem = { name: fileName, type: 'file', content, permissions: DEFAULT_PERMISSIONS };
+        const newFile: FileSystemItem = { name: fileName, type: 'file', content, size, dateModified: now, permissions: DEFAULT_PERMISSIONS };
         const updatedParent = { ...parentDir, children: [...(parentDir.children || []), newFile] };
         const updatedFs = this.updateRecursive(this.fs, dirParts, updatedParent);
         this.setFs(updatedFs);
@@ -156,13 +159,14 @@ export class FileSystemLib {
     const parts = this.getPathParts(path);
     const folderName = parts[parts.length - 1];
     const dirParts = parts.slice(0, -1);
+    const now = new Date().toISOString();
 
     if (dirParts.length === 0) {
-      this.setFs([...this.fs, { name: folderName, type: 'folder', children: [], permissions: DEFAULT_PERMISSIONS }]);
+      this.setFs([...this.fs, { name: folderName, type: 'folder', children: [], size: 0, dateModified: now, permissions: DEFAULT_PERMISSIONS }]);
     } else {
       const parentDir = this.findRecursive(this.fs, dirParts);
       if (parentDir && parentDir.type === 'folder') {
-        const newFolder: FileSystemItem = { name: folderName, type: 'folder', children: [], permissions: DEFAULT_PERMISSIONS };
+        const newFolder: FileSystemItem = { name: folderName, type: 'folder', children: [], size: 0, dateModified: now, permissions: DEFAULT_PERMISSIONS };
         const updatedParent = { ...parentDir, children: [...(parentDir.children || []), newFolder] };
         const updatedFs = this.updateRecursive(this.fs, dirParts, updatedParent);
         this.setFs(updatedFs);

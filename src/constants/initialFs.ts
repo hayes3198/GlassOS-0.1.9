@@ -7,19 +7,21 @@ export const DEFAULT_PERMISSIONS: Permissions = {
 };
 
 export const INITIAL_FS: FileSystemItem[] = [
-  { name: '.bashrc', type: 'file', content: 'alias ll="ls -l"\nalias la="ls -a"\nexport PATH=/sys/bin:$PATH', permissions: DEFAULT_PERMISSIONS },
+  { name: '.bashrc', type: 'file', content: 'alias ll="ls -l"\nalias la="ls -a"\nexport PATH=/sys/bin:$PATH', size: 68, dateModified: '2026-04-20T10:00:00Z', permissions: DEFAULT_PERMISSIONS },
   {
     name: 'sys',
     type: 'folder',
     category: 'local',
+    size: 0,
+    dateModified: '2026-04-20T09:00:00Z',
     permissions: {
       owner: { r: true, w: true, x: true },
       group: { r: true, w: false, x: true },
       others: { r: true, w: false, x: false },
     },
     children: [
-      { name: 'kernel.sys', type: 'file', content: 'v1.2.0-glass-kernel', permissions: DEFAULT_PERMISSIONS },
-      { name: 'init.pkg', type: 'file', content: 'bootstrap-package', permissions: DEFAULT_PERMISSIONS },
+      { name: 'kernel.sys', type: 'file', content: 'v1.2.0-glass-kernel', size: 18, dateModified: '2026-04-20T09:05:00Z', permissions: DEFAULT_PERMISSIONS },
+      { name: 'init.pkg', type: 'file', content: 'bootstrap-package', size: 17, dateModified: '2026-04-20T09:10:00Z', permissions: DEFAULT_PERMISSIONS },
       {
         name: 'bin',
         type: 'folder',
@@ -64,10 +66,12 @@ export const INITIAL_FS: FileSystemItem[] = [
           {
             name: 'Documents',
             type: 'folder',
+            size: 0,
+            dateModified: '2026-04-21T12:00:00Z',
             permissions: DEFAULT_PERMISSIONS,
             children: [
-                { name: 'notes.txt', type: 'file', content: 'My first GlassOS note!', permissions: DEFAULT_PERMISSIONS },
-                { name: 'report.gdoc', type: 'file', content: 'DOCUMENT_DATA', permissions: DEFAULT_PERMISSIONS },
+                { name: 'notes.txt', type: 'file', content: 'My first GlassOS note!', size: 23, dateModified: '2026-04-21T12:05:00Z', permissions: DEFAULT_PERMISSIONS },
+                { name: 'report.gdoc', type: 'file', content: 'DOCUMENT_DATA', size: 13, dateModified: '2026-04-21T12:10:00Z', permissions: DEFAULT_PERMISSIONS },
             ]
           },
           {
