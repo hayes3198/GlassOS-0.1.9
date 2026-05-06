@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { 
   Folder, 
   Image as ImageIcon, 
@@ -23,11 +23,14 @@ import {
   Settings as SettingsIcon,
   Server,
   Clipboard,
+  Upload,
   Table as TableIcon,
   ArrowUpAZ,
   ArrowDownAZ,
   SortAsc,
   Filter,
+  Zap,
+  Scissors,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -74,6 +77,7 @@ interface FilesAppProps {
   currentUser: any;
   networkNodes: any[];
   accentColor: string;
+  runBrainscript: (script: string, onPrint: (msg: string) => void) => void;
 }
 
 export function FilesApp({ 
@@ -82,7 +86,8 @@ export function FilesApp({
   clipboardHistory, setClipboardHistory, userName, setPrintQueue,
   currentUser,
   networkNodes,
-  accentColor
+  accentColor,
+  runBrainscript
 }: FilesAppProps) {
   const [currentPath, setCurrentPath] = useState<string[]>(['Documents']);
   const [selectedItemNames, setSelectedItemNames] = useState<string[]>([]);
@@ -98,6 +103,34 @@ export function FilesApp({
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [sortType, setSortType] = useState<'name' | 'date' | 'size' | 'type'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    Array.from(files).forEach((file: File) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        const path = (currentPath.length === 0 ? '' : currentPath.join('/') + '/') + file.name;
+        try {
+          fsLib.write(path, content);
+          addNotification('File Explorer', `Uploaded ${file.name}`, 'success');
+        } catch (err) {
+          addNotification('File Explorer', `Failed to upload ${file.name}`, 'error');
+        }
+      };
+      
+      // For now, read as text. If binary support is needed, we could read as data URL or similar.
+      // But text is safest for most virtual FS items in this OS.
+      reader.readAsText(file);
+    });
+    
+    // Clear input
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    setActiveMenu(null);
+  };
 
   const cutItemInfo = useMemo(() => {
     const cutData = clipboardHistory.find((i: string) => i.startsWith('FILE_CUT_JSON:'));
@@ -127,6 +160,8 @@ export function FilesApp({
       case 'png': return <ImageIcon size={20} className="text-purple-400" />;
       case 'sys': return <Cpu size={20} className="text-red-400" />;
       case 'b': return <FileCode size={20} className="text-green-400" />;
+      case 'exe':
+      case 'pkg': return <Zap size={20} className="text-blue-400 fill-blue-400/20" />;
       case 'json': return <FileJson size={20} className="text-yellow-400" />;
       case 'gdoc': return <FileText size={20} className="text-blue-400 font-bold" />;
       case 'gsheet': return <TableIcon size={20} className="text-emerald-400 font-bold" />;
@@ -317,14 +352,25 @@ export function FilesApp({
 
   const handleCut = () => {
     if (selectedItemNames.length === 0) return;
-    const fileData = `FILES_CUT_JSON:${JSON.stringify({ items: selectedItems, sourcePath: currentPath })}`;
+    const fileData = `FILE_CUT_JSON:${JSON.stringify({ items: selectedItems })}`;
     setClipboardHistory((prev: string[]) => [fileData, ...prev.filter(i => i !== fileData)].slice(0, 50));
-    addNotification('File Explorer', `Cut ${selectedItemNames.length} items to clipboard`, 'info');
+    
+    // Delete immediately as requested
+    try {
+      selectedItemNames.forEach(name => {
+        const itemPath = currentPath.join('/') + '/' + name;
+        fsLib.delete(itemPath);
+      });
+      addNotification('File Explorer', `Cut ${selectedItemNames.length} items to clipboard`, 'info');
+      setSelectedItemNames([]);
+    } catch (e) {
+      addNotification('File Explorer', 'Error during cut deletion', 'error');
+    }
     setActiveMenu(null);
   };
 
   const handlePaste = () => {
-    const pasteItemsData = clipboardHistory.find((i: string) => i.startsWith('FILES_JSON:') || i.startsWith('FILES_CUT_JSON:'));
+    const pasteItemsData = clipboardHistory.find((i: string) => i.startsWith('FILES_JSON:') || i.startsWith('FILES_CUT_JSON:') || i.startsWith('FILE_CUT_JSON:'));
     if (!pasteItemsData) {
       addNotification('File Explorer', 'No files in clipboard to paste', 'warning');
       return;
@@ -334,11 +380,16 @@ export function FilesApp({
       if (pasteItemsData.startsWith('FILES_JSON:')) {
         const items: FileSystemItem[] = JSON.parse(pasteItemsData.replace('FILES_JSON:', ''));
         items.forEach(item => duplicateItem(item));
-      } else {
+      } else if (pasteItemsData.startsWith('FILES_CUT_JSON:')) {
         const data = JSON.parse(pasteItemsData.replace('FILES_CUT_JSON:', ''));
         data.items.forEach((item: FileSystemItem) => {
           handleMove(item.name, data.sourcePath, currentPath);
         });
+        setClipboardHistory((prev: string[]) => prev.filter(i => i !== pasteItemsData));
+      } else if (pasteItemsData.startsWith('FILE_CUT_JSON:')) {
+        const data = JSON.parse(pasteItemsData.replace('FILE_CUT_JSON:', ''));
+        const pathStr = currentPath.join('/');
+        fsLib.mount(pathStr, data.items);
         setClipboardHistory((prev: string[]) => prev.filter(i => i !== pasteItemsData));
       }
       addNotification('File Explorer', 'Items pasted successfully', 'success');
@@ -387,6 +438,7 @@ export function FilesApp({
       const filename = item.name;
       const newJob: PrintJob = {
         id: Math.random().toString(36).substr(2, 9),
+        documentName: filename,
         filename,
         status: 'printing',
         timestamp: new Date().toLocaleTimeString(),
@@ -416,9 +468,16 @@ export function FilesApp({
     } else {
       const ext = item.name.split('.').pop()?.toLowerCase();
       if (ext === 'txt' || ext === 'b' || ext === 'json') {
+        // If it's a JSON file, check if it's a GlassOS Binary
+        if (ext === 'json' && item.content?.includes('"glassOsBinary": true')) {
+           handleExecuteBinary(item);
+           return;
+        }
         setNotepadContent(item.content || '');
         setActiveFileInNotepad({ name: item.name, path: currentPath });
         openWindow('notepad', 'Notepad');
+      } else if (ext === 'exe' || ext === 'pkg') {
+        handleExecuteBinary(item);
       } else if (ext === 'jpg' || ext === 'png') {
         openWindow('photos', 'Photos');
       } else if (ext === 'gdoc') {
@@ -437,6 +496,27 @@ export function FilesApp({
       } else {
         addNotification('File Explorer', `No application associated with .${ext} files`, 'warning');
       }
+    }
+  };
+
+  const handleExecuteBinary = (item: FileSystemItem) => {
+    try {
+      const metadata = JSON.parse(item.content || '{}');
+      if (metadata.glassOsBinary) {
+        addNotification('System', `Launching ${item.name}...`, 'info');
+        // We open the terminal or a mini-process-window to show output
+        openWindow('terminal', 'System Process Console');
+        // Wait a bit for window to open
+        setTimeout(() => {
+          runBrainscript(metadata.source, (msg) => {
+            console.log(`[Binary-Out] ${msg}`);
+          });
+        }, 500);
+      } else {
+        addNotification('System', `Not a valid GlassOS Binary`, 'error');
+      }
+    } catch (e) {
+      addNotification('System', `Execution Error: Corrupt or invalid binary`, 'error');
     }
   };
 
@@ -597,6 +677,13 @@ export function FilesApp({
                    >
                      <span>Open Selected</span>
                      <span className="text-white/20 group-hover:text-white/40">Enter</span>
+                   </button>
+                   <button 
+                     onClick={() => fileInputRef.current?.click()}
+                     className="w-full text-left px-4 py-1.5 text-[11px] hover:bg-blue-500/20 flex items-center justify-between group"
+                   >
+                     <span>Upload File</span>
+                     <Upload size={12} className="text-white/20 group-hover:text-white/40" />
                    </button>
                    <button 
                      onClick={() => {
@@ -812,6 +899,21 @@ export function FilesApp({
               </button>
             )}
           </div>
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-full text-[10px] font-medium transition-all"
+            title="Upload Files"
+          >
+            <Upload size={12} />
+            Upload
+          </button>
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleFileUpload} 
+            multiple 
+            className="hidden" 
+          />
         </div>
       </div>
 
@@ -1016,8 +1118,7 @@ export function FilesApp({
             {filteredFolder.map((item, idx) => {
               const itemPath = item.displayPath || currentPath;
               const isCut = cutItemInfo && 
-                           cutItemInfo.item.name === item.name && 
-                           JSON.stringify(cutItemInfo.sourcePath) === JSON.stringify(itemPath);
+                           cutItemInfo.items?.some((i: any) => i.name === item.name && JSON.stringify(i.displayPath || []) === JSON.stringify(itemPath));
 
               return (
                 <div 

@@ -129,6 +129,16 @@ export class FileSystemLib {
     const now = new Date().toISOString();
     const size = content.length;
 
+    // Ensure directory exists
+    let currentDir = "";
+    for (const part of dirParts) {
+      const nextDir = currentDir ? `${currentDir}/${part}` : part;
+      if (!this.exists(nextDir)) {
+        this.mkdir(nextDir);
+      }
+      currentDir = nextDir;
+    }
+
     const existing = this.findRecursive(this.fs, parts);
     if (existing) {
       const updatedFs = this.updateRecursive(this.fs, parts, { ...existing, content, size, dateModified: now });

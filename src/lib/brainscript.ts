@@ -19,6 +19,8 @@ export class BrainscriptInterpreter {
   private onLineChange: (line: number) => void;
   private blocks: BSBlock[] = [];
 
+  private currentLine: number = 0;
+
   constructor(context: BrainscriptContext, onLineChange: (line: number) => void) {
     this.context = context;
     this.onLineChange = onLineChange;
@@ -29,6 +31,7 @@ export class BrainscriptInterpreter {
     this.isRunning = true;
     this.variables = {};
     this.blocks = [];
+    this.currentLine = 0;
     
     this.context.print("--- BRNSCRIPT V3 ADDR-SPACE INIT ---");
     
@@ -60,8 +63,10 @@ export class BrainscriptInterpreter {
       if (e instanceof Error && e.message === 'HALT') {
           this.context.print("--- PROGRAM QUIT ---");
       } else {
-          this.context.notify(`Brainscript Error: ${e instanceof Error ? e.message : String(e)}`, 'error');
-          this.context.print(`[FATAL] ${e instanceof Error ? e.message : String(e)}`);
+          const errMsg = e instanceof Error ? e.message : String(e);
+          const formattedError = `Brainscript Error at Line ${this.currentLine + 1}: ${errMsg}`;
+          this.context.notify(formattedError, 'error');
+          this.context.print(`[FATAL] ${formattedError}`);
       }
     } finally {
       this.isRunning = false;
@@ -105,7 +110,8 @@ export class BrainscriptInterpreter {
   private async executeBlock(block: BSBlock) {
       for (const line of block.lines) {
           if (line.text.startsWith('//') || line.text.startsWith('REM ')) continue;
-          this.onLineChange(line.originalIndex);
+          this.currentLine = line.originalIndex;
+          this.onLineChange(this.currentLine);
           await this.parseAndExecute(line.text, block.type);
           await new Promise(r => setTimeout(r, 100));
       }
@@ -128,6 +134,8 @@ export class BrainscriptInterpreter {
         const regex = /(\$[a-zA-Z0-9_.]+)/g;
         const subParts = entries.split(regex).filter(Boolean);
         
+        if (subParts.length === 0) throw new Error(`${command} requires arguments (variable and value)`);
+
         for (let i = 0; i < subParts.length; i += 2) {
             const varName = subParts[i].trim().toLowerCase();
             let valueRaw = (subParts[i+1] || '').trim();
@@ -135,11 +143,6 @@ export class BrainscriptInterpreter {
             if (valueRaw.toLowerCase().startsWith('to ')) valueRaw = valueRaw.slice(3).trim();
             
             const resolvedValue = this.evalExpression(valueRaw);
-            if (blockType === 'global') {
-                if (typeof resolvedValue !== 'number' && !/^0x[0-9a-fA-F]+$/.test(String(resolvedValue)) && !line.includes("'")) {
-                   // User example shows SET $000 'START OF FILE' is allowed too.
-                }
-            }
             this.variables[varName] = resolvedValue;
         }
         break;
@@ -152,11 +155,12 @@ export class BrainscriptInterpreter {
       }
 
       case 'IF': {
-        // IF $choice 1 : instructions : instructions
         const content = line.slice(3).trim();
         const mainParts = content.split(':');
+        if (mainParts.length < 2) throw new Error("IF requires at least one action (IF condition : action)");
         const condition = mainParts[0].trim();
         const condParts = condition.split(/\s+/);
+        if (condParts.length < 2) throw new Error("Invalid IF condition");
         const lhs = this.evalExpression(condParts[0]);
         const rhs = this.evalExpression(condParts[1]);
 
@@ -169,14 +173,15 @@ export class BrainscriptInterpreter {
       }
 
       case 'COMPARE': {
-        // COMPARE $a $b && $c $d : action_true : action_false
         const content = line.slice(8).trim();
         const sections = content.split(':');
+        if (sections.length < 2) throw new Error("COMPARE requires at least one action (COMPARE cond1 && cond2 : action)");
         const conditionsTable = sections[0].split('&&');
         
         let allTrue = true;
         for (const cond of conditionsTable) {
             const cp = cond.trim().split(/\s+/);
+            if (cp.length < 2) throw new Error("Invalid COMPARE condition");
             const v1 = this.evalExpression(cp[0]);
             const v2 = this.evalExpression(cp[1]);
             if (v1 != v2) { allTrue = false; break; }
@@ -197,9 +202,8 @@ export class BrainscriptInterpreter {
       }
 
       case 'BRANCH': {
-        // BRANCH $var FROM 'file' TO ###target
-        // BRANCH ##target
         const content = line.slice(7).trim();
+        if (!content) throw new Error("BRANCH requires a target label");
         
         if (content.includes('FROM')) {
             const varNameMatch = content.match(/(\$[a-zA-Z0-9_.]+)/);
@@ -207,6 +211,8 @@ export class BrainscriptInterpreter {
             const fromMatch = content.match(/FROM\s+['"](.*?)['"]/);
             const filename = fromMatch ? fromMatch[1] : null;
             
+            if (!varName || !filename) throw new Error("Invalid BRANCH FROM syntax");
+
             if (filename && varName) {
                 const fileContent = await this.context.readFile(filename);
                 if (fileContent) {
@@ -214,6 +220,8 @@ export class BrainscriptInterpreter {
                    if (fileVars[varName] !== undefined) {
                        this.variables[varName] = fileVars[varName];
                    }
+                } else {
+                    throw new Error(`Could not read file: ${filename}`);
                 }
             }
             
@@ -221,7 +229,6 @@ export class BrainscriptInterpreter {
             if (toMatch && varName) {
                 const targetHeader = toMatch[1] + toMatch[2];
                 this.context.print(`[SYSTEM] Transferred ${varName} to address ${targetHeader}`);
-                // In this emulator, we just keep variables in the same map for now.
             }
             return;
         }
@@ -238,7 +245,11 @@ export class BrainscriptInterpreter {
                     const block = this.blocks.find(b => b.type === blockType && b.name === blockName);
                     if (block) {
                         await this.executeBlock(block);
+                    } else {
+                        throw new Error(`Target block not found: ${branchMatch[1]}${blockName}`);
                     }
+                } else if (cleanT) {
+                    throw new Error(`Invalid BRANCH target: ${cleanT}`);
                 }
             }
         }
@@ -250,12 +261,13 @@ export class BrainscriptInterpreter {
           if (varName) {
               const val = await this.context.prompt("User Input Required:");
               this.variables[varName] = val;
+          } else {
+              throw new Error("INPUT requires a variable name");
           }
           break;
       }
 
       case 'DATA': {
-          // DATA $000 $001 : $002
           this.context.print(`[DATA] Structural map initialized: ${line.slice(5)}`);
           break;
       }
@@ -264,6 +276,9 @@ export class BrainscriptInterpreter {
           this.context.print(`[TIME] ${new Date().toLocaleString()}`);
           break;
       }
+
+      default:
+        throw new Error(`Unknown command: ${command}`);
     }
   }
 
@@ -273,8 +288,9 @@ export class BrainscriptInterpreter {
       const lines = script.split('\n');
       for (const l of lines) {
           const trimmed = l.trim();
-          if (trimmed.toUpperCase().startsWith('SET ') || trimmed.toUpperCase().startsWith('LET ')) {
-              const p = trimmed.split(/\s+/);
+          const p = trimmed.split(/\s+/);
+          const cmd = p[0].toUpperCase();
+          if (cmd === 'SET' || cmd === 'LET') {
               if (p[1] && p[2]) vars[p[1].toLowerCase()] = p[2].replace(/['"]/g, '');
           }
       }
@@ -302,7 +318,7 @@ export class BrainscriptInterpreter {
             processed = processed.replace(/ABS\s+(\$[a-zA-Z0-9_.]+)/g, "Math.abs($1)");
             processed = processed.replace(/CEL\s+(\$[a-zA-Z0-9_.]+)/g, "Math.ceil($1)");
             processed = processed.replace(/FLO\s+(\$[a-zA-Z0-9_.]+)/g, "Math.floor($1)");
-            processed = processed.replace(/RAND\s+(\$[a-zA-Z0-9_.]+)/g, "Math.random()");
+            processed = processed.replace(/RAND/g, "Math.random()");
             processed = processed.replace(/LOG\s+(\$[a-zA-Z0-9_.]+)/g, "Math.log($1)");
             processed = processed.replace(/SIN\s+(\$[a-zA-Z0-9_.]+)/g, "Math.sin($1)");
             processed = processed.replace(/COS\s+(\$[a-zA-Z0-9_.]+)/g, "Math.cos($1)");
@@ -312,7 +328,18 @@ export class BrainscriptInterpreter {
             const vars = processed.match(/(\$[a-zA-Z0-9_.]+)/g) || [];
             for (const v of vars) {
                 const varVal = this.variables[v.toLowerCase()];
-                processed = processed.replace(v, varVal !== undefined ? varVal : "0");
+                if (varVal === undefined) {
+                    // Check if it's a memory address
+                    const varName = v.toLowerCase();
+                    const hex = parseInt(varName.slice(1), 16);
+                    if (!isNaN(hex)) {
+                        processed = processed.replace(v, String(this.evalExpression(v)));
+                    } else {
+                        throw new Error(`Variable undefined: ${v}`);
+                    }
+                } else {
+                    processed = processed.replace(v, JSON.stringify(varVal));
+                }
             }
 
             // Power
@@ -320,8 +347,11 @@ export class BrainscriptInterpreter {
             // Inequality
             processed = processed.replace(/<>/g, "!=");
 
-            return eval(processed);
+            const result = eval(processed);
+            if (result === Infinity || isNaN(result)) throw new Error("Arithmetic error (Division by zero?)");
+            return result;
         } catch (e) {
+            if (e instanceof Error && (e.message.includes('undefined') || e.message.includes('Arithmetic'))) throw e;
             return val;
         }
     }

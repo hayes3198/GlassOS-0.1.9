@@ -117,7 +117,7 @@ import { FileSystemLib } from './lib/FileSystem.lib';
 import { AuthLib } from './lib/Auth.lib';
 import { BridgeLib } from './lib/Bridge.lib';
 import { DisplayLib } from './lib/Display.lib';
-import { INITIAL_FS, DEFAULT_PERMISSIONS } from './constants/initialFs';
+import { INITIAL_FS, DEFAULT_PERMISSIONS } from './components/constants/initialFs';
 import { FilePicker } from './components/FilePicker';
 import { nativeBridge, SystemInfo } from './lib/NativeBridge.lib';
 import { 
@@ -270,9 +270,9 @@ export default function App() {
   const [systemFontFamily, setSystemFontFamily] = useState('Inter');
   const [systemFontSize, setSystemFontSize] = useState('14');
   const [systemFontWeight, setSystemFontWeight] = useState('400');
-  const [userName, setUserName] = useState('Guest User');
+  const [userName, setUserName] = useState('Administrator');
   const [users, setUsers] = useState<UserAccount[]>([
-    { id: '1', username: 'Guest User', avatar: 'https://cdn-icons-png.flaticon.com/512/1144/1144760.png', isAdmin: true },
+    { id: '1', username: 'Administrator', avatar: 'https://cdn-icons-png.flaticon.com/512/1144/1144760.png', isAdmin: true },
     { id: '2', username: 'Engineer', avatar: 'https://cdn-icons-png.flaticon.com/512/219/219983.png', isAdmin: false },
   ]);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
@@ -665,6 +665,51 @@ export default function App() {
     storage.saveFS(fs).catch(err => console.error("FS Save Error:", err));
   }, [userName, wallpaper, notepadContent, builds, fs, windows, activeWindow, clipboardHistory, tasks, networkConfig, installedApps, notificationHistory]);
 
+  const lastWidth = useRef(window.innerWidth);
+  
+  useEffect(() => {
+    const handleResize = () => {
+      const screenW = window.innerWidth;
+      const screenH = window.innerHeight;
+      
+      const widthChanged = screenW !== lastWidth.current;
+      lastWidth.current = screenW;
+
+      setWindows(prev => prev.map(w => {
+        if (w.isMaximized) {
+          return {
+            ...w,
+            width: screenW,
+            height: screenH - 48
+          };
+        }
+        
+        // If only height changed (likely keyboard on mobile), DO NOT adjust non-maximized windows
+        // This keeps the window unaffected by the keyboard as requested.
+        if (!widthChanged) return w;
+
+        let x = w.x;
+        let y = w.y;
+        let width = w.width;
+        let height = w.height;
+
+        // Ensure window is at least partially visible and fits new width
+        width = Math.min(width, screenW - 40);
+        height = Math.min(height, screenH - 120);
+
+        if (x > screenW - 40) x = screenW - 100;
+        if (y > screenH - 40) y = screenH - 96;
+        if (x < -width + 40) x = 0;
+        if (y < 0) y = 0;
+
+        return { ...w, x, y, width, height };
+      }));
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const openWindow = (id: AppId, title: string) => {
     const existing = windows.find(w => w.id === id);
     const maxZ = Math.max(0, ...windows.map(w => w.zIndex));
@@ -675,6 +720,17 @@ export default function App() {
       return;
     }
 
+    const screenW = window.innerWidth;
+    const screenH = window.innerHeight;
+    
+    // Default sizes
+    let w = id === 'codestudio' ? 1000 : id === 'glassmail' ? 800 : 600;
+    let h = id === 'codestudio' ? 700 : id === 'glassmail' ? 500 : 400;
+
+    // Cap to screen size with some margins
+    w = Math.min(w, screenW - 40);
+    h = Math.min(h, screenH - 120); // More margin for taskbar and titlebar
+
     const newWindow: WindowState = {
       id,
       title,
@@ -682,10 +738,10 @@ export default function App() {
       isMinimized: false,
       isMaximized: false,
       zIndex: maxZ + 1,
-      x: 100 + (windows.length % 10) * 30,
-      y: 100 + (windows.length % 10) * 30,
-      width: id === 'codestudio' ? 1000 : 600,
-      height: id === 'codestudio' ? 700 : 400,
+      x: Math.max(20, Math.min(100 + (windows.length % 10) * 30, screenW - w - 20)),
+      y: Math.max(20, Math.min(100 + (windows.length % 10) * 30, screenH - h - 60)),
+      width: w,
+      height: h,
     };
 
     setWindows(prev => [...prev, newWindow]);
@@ -742,25 +798,51 @@ export default function App() {
   };
 
   const updateWindowPos = (id: AppId, x: number, y: number) => {
-    setWindows(prev => prev.map(w => w.id === id ? { ...w, x, y } : w));
+    setWindows(prev => prev.map(w => {
+      if (w.id !== id) return w;
+      const screenW = window.innerWidth;
+      const screenH = window.innerHeight;
+      const safeX = Math.max(0, Math.min(x, screenW - 100)); // Keep title bar reachable
+      const safeY = Math.max(0, Math.min(y, screenH - 96));  // Keep above taskbar
+      return { ...w, x: safeX, y: safeY };
+    }));
   };
 
   const updateWindowSize = (id: AppId, width: number, height: number) => {
-    setWindows(prev => prev.map(w => w.id === id ? { ...w, width, height } : w));
+    setWindows(prev => prev.map(w => {
+      if (w.id !== id) return w;
+      const screenW = window.innerWidth;
+      const screenH = window.innerHeight;
+      const safeW = Math.max(300, Math.min(width, screenW - w.x));
+      const safeH = Math.max(200, Math.min(height, screenH - w.y - 48)); // Leave space for taskbar
+      return { ...w, width: safeW, height: safeH };
+    }));
   };
 
   const updateWindowRect = (id: AppId, rect: { x?: number, y?: number, width?: number, height?: number }) => {
-    setWindows(prev => prev.map(w => w.id === id ? { ...w, ...rect } : w));
+    setWindows(prev => prev.map(w => {
+      if (w.id !== id) return w;
+      const screenW = window.innerWidth;
+      const screenH = window.innerHeight;
+      const newRect = { ...rect };
+      
+      if (newRect.x !== undefined) newRect.x = Math.max(0, Math.min(newRect.x, screenW - 100));
+      if (newRect.y !== undefined) newRect.y = Math.max(0, Math.min(newRect.y, screenH - 96));
+      
+      const currentX = newRect.x !== undefined ? newRect.x : w.x;
+      const currentY = newRect.y !== undefined ? newRect.y : w.y;
+      
+      if (newRect.width !== undefined) newRect.width = Math.max(300, Math.min(newRect.width, screenW - currentX));
+      if (newRect.height !== undefined) newRect.height = Math.max(200, Math.min(newRect.height, screenH - currentY - 48));
+      
+      return { ...w, ...newRect };
+    }));
   };
 
   const addNotification = (title: string, message: string, type: Notification['type'] = 'info') => {
-    const id = Math.random().toString(36).substr(2, 9);
-    const newNotification: Notification = { id, title, message, type, timestamp: new Date() };
-    setNotifications(prev => [newNotification, ...prev].slice(0, 5));
-    setNotificationHistory(prev => [newNotification, ...prev]);
-    setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== id));
-    }, 5000);
+    // Notifications disabled by user request
+    console.log(`[Notification Silenced] ${title}: ${message}`);
+    return;
   };
 
   const runGlassScript = async (script: string) => {
@@ -894,9 +976,11 @@ export default function App() {
             onLogin={(user) => {
               setCurrentUser(user);
               setUserName(user.username);
+              setIsAdmin(user.isAdmin);
               setIsLockScreen(false);
               addNotification('System', `Welcome back, ${user.username}!`, 'success');
             }} 
+            addNotification={addNotification}
           />
         ) : (
           <motion.div
@@ -1339,9 +1423,6 @@ export default function App() {
               )}
             >
               <Bell size={16} />
-              {notificationHistory.length > 0 && (
-                <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-blue-500 rounded-full border border-black" />
-              )}
             </button>
             <button 
               onClick={() => setIsQuickSettingsOpen(!isQuickSettingsOpen)}
@@ -1557,7 +1638,11 @@ function Window({ win, isActive, onFocus, onClose, onMinimize, onMaximize, onRes
       {/* Title Bar */}
       <div 
         className="h-12 flex items-center justify-between px-4 cursor-grab active:cursor-grabbing select-none bg-white/5 touch-none shrink-0"
-        onPointerDown={(e) => !win.isMaximized && controls.start(e)}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          onFocus();
+          if (!win.isMaximized) controls.start(e);
+        }}
         onDoubleClick={onMaximize}
       >
         <div className="flex items-center gap-2">
@@ -2018,7 +2103,7 @@ function AltTabSwitcher({ windows, activeWindow, onFocus }: { windows: WindowSta
   );
 }
 
-function LoginScreen({ users, onLogin }: any) {
+function LoginScreen({ users, onLogin, addNotification }: any) {
   const [selectedUser, setSelectedUser] = useState<UserAccount>(users[0]);
   const [password, setPassword] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
@@ -2033,11 +2118,26 @@ function LoginScreen({ users, onLogin }: any) {
   const handleLogin = () => {
     setIsAuthenticating(true);
     setError(false);
+    
     // Simulate auth delay
     setTimeout(() => {
       setIsAuthenticating(false);
-      onLogin(selectedUser);
-    }, 1000);
+      
+      const adminPass = AuthLib.adminPassword; // 'admin'
+      
+      if (selectedUser.isAdmin) {
+        if (password === adminPass) {
+          onLogin(selectedUser);
+        } else {
+          setError(true);
+          setPassword('');
+          addNotification('Login', 'Invalid password. Try "admin"', 'error');
+        }
+      } else {
+        // Guest user login with any password (or no password)
+        onLogin(selectedUser);
+      }
+    }, 800);
   };
 
   return (
@@ -2999,7 +3099,7 @@ function GlassMail(props: any) {
 
     const newMail: Email = {
       id: Math.random().toString(36).substr(2, 9),
-      from: currentUser?.username || 'Guest',
+      from: currentUser?.username || 'Administrator',
       to: composeData.to,
       subject: composeData.subject,
       message: composeData.message,
@@ -3195,7 +3295,7 @@ function GlassMessaging(props: any) {
     if (!msgText.trim()) return;
     const newMsg: DBMessage = {
       id: Math.random().toString(36).substr(2, 9),
-      sender: currentUser?.username || 'Guest',
+      sender: currentUser?.username || 'Administrator',
       text: msgText,
       timestamp: new Date().toLocaleTimeString()
     };
@@ -3548,10 +3648,11 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
     const filename = activeFile ? activeFile.name : 'Untitled Sheet.gsheet';
     const newJob: PrintJob = {
       id: Math.random().toString(36).substr(2, 9),
+      documentName: filename,
       filename,
       status: 'printing',
       timestamp: new Date().toLocaleTimeString(),
-      owner: userName || 'Guest'
+      owner: userName || 'Administrator'
     };
     setPrintQueue((prev: PrintJob[]) => [...prev, newJob]);
     addNotification('Print Manager', `Sending "${filename}" to printer...`, 'info');
@@ -5216,16 +5317,16 @@ function TerminalApp({
             'Usage: pkg <command> [packet]',
             '',
             'Commands:',
-            '  list      List available packets in /home/Guest/Scripts',
+            '  list      List available packets in /home/Administrator/Scripts',
             '  status    List installed packets in /sys/pkgs',
-            '  install   Install a packet from /home/Guest/Scripts',
+            '  install   Install a packet from /home/Administrator/Scripts',
             '  remove    Remove an installed packet',
             '  run       Run an installed packet'
           ] });
           break;
         }
 
-        const SCRIPTS_PATH = '/home/Guest/Scripts';
+        const SCRIPTS_PATH = '/home/Administrator/Scripts';
         const PKGS_PATH = '/sys/pkgs';
 
         switch (subCommand) {
@@ -5797,10 +5898,11 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
     const filename = activeFile ? activeFile.name : 'Untitled Document.gdoc';
     const newJob: PrintJob = {
       id: Math.random().toString(36).substr(2, 9),
+      documentName: filename,
       filename,
       status: 'printing',
       timestamp: new Date().toLocaleTimeString(),
-      owner: userName || 'Guest'
+      owner: userName || 'Administrator'
     };
     setPrintQueue((prev: PrintJob[]) => [...prev, newJob]);
     addNotification('Print Manager', `Sending "${filename}" to printer...`, 'info');
@@ -6315,7 +6417,7 @@ function SettingsApp(props: any) {
     };
   }, []);
 
-  const networks = ['GlassFiber_5G', 'Starlink_Guest', 'Neighbor_WiFi', 'Public_Hotspot'];
+  const networks = ['GlassFiber_5G', 'Staff_WiFi', 'Neighbor_WiFi', 'Public_Hotspot'];
 
   const handleConnect = (name: string) => {
     setIsConnecting(true);
@@ -7637,6 +7739,7 @@ function NotepadApp({
     const filename = activeFileInNotepad ? activeFileInNotepad.name : 'Untitled.txt';
     const newJob: PrintJob = {
       id: Math.random().toString(36).substr(2, 9),
+      documentName: filename,
       filename,
       status: 'printing',
       timestamp: new Date().toLocaleTimeString(),
@@ -8406,7 +8509,6 @@ function CodeStudioApp({
   fsLib, 
   builds, 
   setBuilds, 
-  setTerminalHistory, 
   addNotification, 
   runGlassScript, 
   glassScriptLine,
@@ -8414,25 +8516,153 @@ function CodeStudioApp({
   brainscriptLine,
   accentColor
 }: any) {
-  const projectsPath = 'home/Guest/Projects/CodeStudio';
+  const projectsPath = 'home/Administrator/Documents/Projects/CodeStudio';
   const files = useMemo(() => {
     try {
+      if (!fsLib.exists(projectsPath)) {
+        fsLib.mkdir(projectsPath);
+        fsLib.mkdir(`${projectsPath}/build`);
+      }
       return fsLib.list(projectsPath);
     } catch (e) {
       return [];
     }
   }, [fs]);
 
-  const [activeFile, setActiveFile] = useState('main.b');
-  const [code, setCode] = useState('');
+  const [activeFile, setActiveFile] = useState<string>('main.b');
+  const [code, setCode] = useState<string>('');
+  const [isDirty, setIsDirty] = useState(false);
   
+  // Syntax Validator
+  const validateSyntax = useCallback((content: string) => {
+    if (!activeFile.endsWith('.b')) {
+      setSyntaxErrors([]);
+      return [];
+    }
+
+    const errors: {line: number, message: string}[] = [];
+    const lines = content.split('\n');
+    let inBlock = false;
+    let blockHeaderFound = false;
+
+    lines.forEach((line, index) => {
+      const trimmed = line.trim();
+      const upTrimmed = trimmed.toUpperCase();
+      if (!trimmed || trimmed.startsWith('//') || upTrimmed.startsWith('REM')) return;
+
+      // Check for block headers
+      if (trimmed.startsWith('@@') || trimmed.startsWith('$$') || trimmed.startsWith('###') || trimmed.startsWith('##')) {
+        if (inBlock) {
+          errors.push({ line: index + 1, message: "Cannot define a block header inside another block. Did you forget an 'End'?" });
+        }
+        
+        // Strip headers (@@, $$, ###, ##) to check for a name if needed
+        const namePart = trimmed.replace(/^[#@$]+/, '');
+        const parts = namePart.split(/[\s(]/);
+        const blockName = parts[0];
+        
+        // @@global is allowed without a name, but others should have one
+        if (!blockName && !trimmed.startsWith('@@')) {
+          errors.push({ line: index + 1, message: "Block name is required" });
+        }
+        
+        blockHeaderFound = true;
+        return;
+      }
+
+      if (trimmed.toUpperCase() === 'START') {
+        if (!blockHeaderFound) {
+          errors.push({ line: index + 1, message: "Block must be preceded by a header (@@, $$, ###, or ##)" });
+        }
+        if (inBlock) {
+          errors.push({ line: index + 1, message: "Nested 'Start' is not allowed" });
+        }
+        inBlock = true;
+        blockHeaderFound = false; // Reset for next potential block
+        return;
+      }
+
+      if (trimmed.toUpperCase() === 'END') {
+        if (!inBlock) {
+          errors.push({ line: index + 1, message: "'End' without matching 'Start'" });
+        }
+        inBlock = false;
+        return;
+      }
+
+      // Commands inside block
+      if (inBlock) {
+        const parts = trimmed.split(/\s+/);
+        const command = parts[0].toUpperCase();
+
+        if (command === 'REM' || command === '//') {
+          // Remark, ignore rest of line
+        } else if (command === 'LET' || command === 'SET') {
+          if (!parts[1] || !parts[1].startsWith('$')) {
+            errors.push({ line: index + 1, message: `${command} must be followed by a variable starting with '$'` });
+          }
+        } else if (command === 'PRINT') {
+          if (parts.length < 2) {
+            errors.push({ line: index + 1, message: "PRINT requires an argument" });
+          }
+        } else if (command === 'IF') {
+          if (!trimmed.includes(':')) {
+            errors.push({ line: index + 1, message: "IF requires a colon ':' to separate condition from action" });
+          }
+        } else if (command === 'COMPARE') {
+          if (!trimmed.includes(':')) {
+            errors.push({ line: index + 1, message: "COMPARE requires a colon ':' to separate condition from action" });
+          }
+        } else if (command === 'BRANCH') {
+          if (parts.length < 2) {
+            errors.push({ line: index + 1, message: "BRANCH requires a target label (e.g., ##target)" });
+          }
+        } else if (command === 'INPUT') {
+          if (!parts[1] || !parts[1].startsWith('$')) {
+            errors.push({ line: index + 1, message: "INPUT requires a variable starting with '$'" });
+          }
+        } else if (command === 'DATA' || command === 'TIMESTAMP' || command === 'QUIT') {
+          // valid standalone or simple commands
+        } else {
+          errors.push({ line: index + 1, message: `Unknown command: ${command}` });
+        }
+      } else {
+        // Outside block, only headers or comments allowed
+        errors.push({ line: index + 1, message: "Code must be inside a Start/End block" });
+      }
+    });
+
+    if (inBlock) {
+      errors.push({ line: lines.length, message: "Missing 'End' for block" });
+    }
+
+    setSyntaxErrors(errors);
+    return errors;
+  }, [activeFile]);
+
   useEffect(() => {
     const fullPath = `${projectsPath}/${activeFile}`;
-    const content = fsLib.read(fullPath);
-    if (content !== null) {
-      setCode(content);
+    if (fsLib.exists(fullPath)) {
+      const content = fsLib.read(fullPath);
+      if (content !== null) {
+        setCode(content);
+        setSyntaxErrors([]); // Clear errors on file switch
+        setIsDirty(false);
+      }
     }
   }, [activeFile, fs]);
+
+  // Watch for external changes
+  useEffect(() => {
+    const fullPath = `${projectsPath}/${activeFile}`;
+    const unwatch = fsLib.watch(fullPath, (newContent) => {
+      if (newContent !== null && newContent !== code) {
+        setCode(newContent);
+        setIsDirty(false);
+      }
+    });
+    return unwatch;
+  }, [activeFile, fsLib, code]);
   const [targetArch, setTargetArch] = useState('x64 (Windows/Linux)');
   const [optimizationLevel, setOptimizationLevel] = useState('O2 (Balanced)');
   const [isCompiling, setIsCompiling] = useState(false);
@@ -8536,8 +8766,9 @@ function CodeStudioApp({
     setOutputLogs(prev => [...prev, `[DEBUG] Initializing debugger for ${activeFile}...`]);
     
     setTimeout(() => {
-      if (syntaxErrors.length > 0) {
-        const firstErr = syntaxErrors[0];
+      const errors = validateSyntax(code);
+      if (errors.length > 0) {
+        const firstErr = errors[0];
         setOutputLogs(prev => [...prev, `[DEBUG] CRITICAL: Execution halted at Line ${firstErr.line} due to unresolved syntax errors.`]);
         addNotification('Debugger', 'Execution Halted: Syntax Errors Detected', 'error');
         setIsDebugMode(false);
@@ -8576,91 +8807,17 @@ function CodeStudioApp({
 
   // Removed redundant effect
 
-  useEffect(() => {
-    if (!activeFile.endsWith('.b')) {
-      setSyntaxErrors([]);
-      return;
-    }
-
-    const errors: {line: number, message: string}[] = [];
-    const lines = code.split('\n');
-    let inBlock = false;
-    let blockHeaderFound = false;
-
-    lines.forEach((line, index) => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('//')) return;
-
-      // Check for block headers
-      if (trimmed.startsWith('@@') || trimmed.startsWith('$$') || trimmed.startsWith('###') || trimmed.startsWith('##')) {
-        if (inBlock) {
-          errors.push({ line: index + 1, message: "Cannot define a block header inside another block" });
-        }
-        blockHeaderFound = true;
-        return;
-      }
-
-      if (trimmed === 'Start') {
-        if (!blockHeaderFound) {
-          errors.push({ line: index + 1, message: "Block must be preceded by a header (@@, $$, ###, or ##)" });
-        }
-        if (inBlock) {
-          errors.push({ line: index + 1, message: "Nested 'Start' is not allowed" });
-        }
-        inBlock = true;
-        blockHeaderFound = false; // Reset for next potential block
-        return;
-      }
-
-      if (trimmed === 'End') {
-        if (!inBlock) {
-          errors.push({ line: index + 1, message: "'End' without matching 'Start'" });
-        }
-        inBlock = false;
-        return;
-      }
-
-      // Commands inside block
-      if (inBlock) {
-        const parts = trimmed.split(/\s+/);
-        const command = parts[0];
-
-        if (command === 'REM') {
-          // Remark, ignore rest of line
-        } else if (command === 'LET') {
-          if (!parts[1] || !parts[1].startsWith('$')) {
-            errors.push({ line: index + 1, message: "LET must be followed by a variable starting with '$'" });
-          }
-        } else if (command === 'PRINT') {
-          if (parts.length < 2) {
-            errors.push({ line: index + 1, message: "PRINT requires an argument" });
-          }
-        } else if (command === 'TIMESTAMP') {
-          // standalone
-        } else {
-          errors.push({ line: index + 1, message: `Unknown command: ${command}` });
-        }
-      } else {
-        // Outside block, only headers or comments allowed
-        errors.push({ line: index + 1, message: "Code must be inside a Start/End block" });
-      }
-    });
-
-    if (inBlock) {
-      errors.push({ line: lines.length, message: "Missing 'End' for block" });
-    }
-
-    setSyntaxErrors(errors);
-  }, [code, activeFile]);
-
   const handleSave = () => {
-    const fullPath = `home/Guest/Projects/CodeStudio/${activeFile}`;
+    const fullPath = `home/Administrator/Projects/CodeStudio/${activeFile}`;
     try {
       fsLib.write(fullPath, code);
+      setIsDirty(false);
       addNotification('Code Studio', `Saved ${activeFile}`, 'success');
-      setTerminalHistory((prev: string[]) => [...prev, `[IDE] Saved ${activeFile} successfully.`]);
-    } catch (e) {
-      addNotification('Code Studio', 'Error saving file', 'error');
+      setOutputLogs((prev: string[]) => [...prev, `[IDE] Saved ${activeFile} successfully.`]);
+    } catch (err: any) {
+      const msg = err.message || String(err);
+      addNotification('Code Studio', `Error saving: ${msg}`, 'error');
+      setOutputLogs((prev: string[]) => [...prev, `[ERROR] Save failed: ${msg}`]);
     }
   };
 
@@ -8673,7 +8830,7 @@ function CodeStudioApp({
 
     const extension = newFileData.type === 'Brainscript' ? '.b' : newFileData.type === 'JSON' ? '.json' : '.txt';
     const fileName = newFileData.name.trim().endsWith(extension) ? newFileData.name.trim() : newFileData.name.trim() + extension;
-    const fullPath = `home/Guest/Projects/CodeStudio/${fileName}`;
+    const fullPath = `${projectsPath}/${fileName}`;
 
     if (fsLib.exists(fullPath)) {
       setNewFileError(`A file named "${fileName}" already exists.`);
@@ -8681,8 +8838,13 @@ function CodeStudioApp({
     }
     
     try {
-      fsLib.write(fullPath, '// New ' + newFileData.type + ' file');
+      const initialContent = newFileData.type === 'Brainscript' 
+        ? `@@${fileName.replace('.b', '')}\nStart\n  PRINT 'Hello World'\nEnd`
+        : '// New ' + newFileData.type + ' file';
+        
+      fsLib.write(fullPath, initialContent);
       setActiveFile(fileName);
+      setOutputLogs(prev => [...prev, `[IDE] Created ${fileName}`]);
       addNotification('Code Studio', `Created ${fileName}`, 'success');
       setActiveDialog(null);
       setNewFileData({ name: '', type: 'Brainscript', path: 'src/' });
@@ -8693,9 +8855,10 @@ function CodeStudioApp({
 
   const handleSendTo = () => {
     if (!selectedFileForSend) return;
-    setTerminalHistory((prev: string[]) => [...prev, `[IDE] Sending ${selectedFileForSend} to ${destinationFolder}...`]);
+    setOutputLogs((prev: string[]) => [...prev, `[IDE] Sending ${selectedFileForSend} to ${destinationFolder}...`]);
+    setIsOutputVisible(true);
     setTimeout(() => {
-      setTerminalHistory((prev: string[]) => [...prev, `[IDE] File ${selectedFileForSend} sent successfully.`]);
+      setOutputLogs((prev: string[]) => [...prev, `[IDE] File ${selectedFileForSend} sent successfully.`]);
       addNotification('Code Studio', `Sent ${selectedFileForSend} to ${destinationFolder}`, 'success');
       setActiveDialog(null);
       setSelectedFileForSend(null);
@@ -8703,46 +8866,83 @@ function CodeStudioApp({
   };
 
   const handleRunBrainscript = () => {
+    // Run syntax validation manually on Run/Debug
+    const errors = validateSyntax(code);
+    
     setIsOutputVisible(true);
     setOutputLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] Executing Brainscript: ${activeFile}...`]);
     
+    if (errors.length > 0) {
+      setOutputLogs(prev => [...prev, `[IDE] Warning: Executing with ${errors.length} syntax errors.`]);
+    }
+
     runBrainscript(code, (msg: string) => {
       setOutputLogs(prev => [...prev, `[BS-OUT] ${msg}`]);
     });
   };
 
   const handleBuild = () => {
+    // Run syntax validation manually on Build
+    const errors = validateSyntax(code);
+
+    if (errors.length > 0) {
+      setOutputLogs(prev => [...prev, `[IDE] Build aborted: ${errors.length} syntax errors found.`]);
+      setIsOutputVisible(true);
+      return;
+    }
+
     setIsCompiling(true);
-    addNotification('Code Studio', `Compiling ${activeFile}...`, 'info');
     const startLogs = [
       `[${new Date().toLocaleTimeString()}] Parsing Brainscript: ${activeFile}...`,
       `[${new Date().toLocaleTimeString()}] Optimization: ${optimizationLevel}...`,
       `[${new Date().toLocaleTimeString()}] Generating Intermediate Representation...`,
-      `[${new Date().toLocaleTimeString()}] Linking for Target: ${targetArch}...`
+      `[${new Date().toLocaleTimeString()}] Target Architecture: ${targetArch}...`,
+      `[${new Date().toLocaleTimeString()}] Packing Executable...`
     ];
     
-    setTerminalHistory((prev: string[]) => [...prev, ...startLogs]);
     setOutputLogs(prev => [...prev, ...startLogs]);
     setIsOutputVisible(true);
 
     setTimeout(() => {
       const type = targetArch.includes('6502') ? '8-bit' : targetArch.includes('68k') ? '16-bit' : targetArch.includes('x64') ? '64-bit' : '32-bit';
+      const exeName = activeFile.replace('.b', '.exe');
+      
       const newBuild: BrainscriptBuild = {
         id: Math.random().toString(36).substr(2, 9),
         status: 'success',
         opt: optimizationLevel,
-        name: activeFile.replace('.b', '.exe'),
+        name: exeName,
         arch: targetArch,
         timestamp: new Date().toLocaleTimeString(),
-        size: (Math.random() * 500 + 100).toFixed(0) + ' KB',
+        size: (code.length / 1024 + 50).toFixed(1) + ' KB',
         type
       };
+      
+      // Real "Executable" Content: A JSON wrapper that FilesApp can "Execute"
+      const exeMetadata = {
+        glassOsBinary: true,
+        version: "3.0",
+        entryPoint: activeFile,
+        source: code,
+        arch: targetArch,
+        timestamp: new Date().toISOString(),
+        author: "Administrator"
+      };
+
+      const exePath = `${projectsPath}/build/${exeName}`;
+      try {
+        if (!fsLib.exists(`${projectsPath}/build`)) {
+          fsLib.mkdir(`${projectsPath}/build`);
+        }
+        fsLib.write(exePath, JSON.stringify(exeMetadata, null, 2));
+      } catch (e) {
+        console.error("Failed to write build artifact", e);
+      }
+
       const endLog = `[${new Date().toLocaleTimeString()}] Output: build/${newBuild.name} (${type} Binary) - SUCCESS`;
       
       setBuilds((prev: BrainscriptBuild[]) => [newBuild, ...prev]);
       setIsCompiling(false);
-      addNotification('Code Studio', `Build successful: ${newBuild.name}`, 'success');
-      setTerminalHistory((prev: string[]) => [...prev, endLog]);
       setOutputLogs(prev => [...prev, endLog]);
     }, 2000);
   };
@@ -8786,10 +8986,13 @@ function CodeStudioApp({
                     </button>
                     <button 
                       onClick={() => { handleSave(); setActiveMenu(null); }}
-                      className="w-full text-left px-4 py-2 hover:bg-white/10 flex items-center gap-2"
+                      className="w-full text-left px-4 py-2 hover:bg-white/10 flex items-center justify-between group"
                     >
-                      <Save size={14} />
-                      <span>Save File</span>
+                      <div className="flex items-center gap-2">
+                        <Save size={14} className={cn(isDirty ? "text-emerald-400" : "text-white/60")} />
+                        <span>Save File</span>
+                      </div>
+                      <span className="text-[9px] text-white/20 group-hover:text-white/40">Ctrl+S</span>
                     </button>
                     <button 
                       onClick={() => { alert('Printing...'); setActiveMenu(null); }}
@@ -9097,9 +9300,9 @@ function CodeStudioApp({
         </button>
       </div>
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Sidebar */}
-        <div className="w-[200px] bg-black/20 border-r border-white/10 flex flex-col">
+        <div className="w-[200px] bg-black/20 border-r border-white/10 flex flex-col min-h-0">
           <div className="p-3 text-[10px] uppercase tracking-wider text-white/40 font-bold">Explorer</div>
           <div className="flex-1 overflow-y-auto p-2">
             <FolderItem name="src" defaultOpen={true}>
@@ -9146,14 +9349,17 @@ function CodeStudioApp({
         </div>
 
         {/* Editor */}
-        <div className={cn("flex-1 flex flex-col transition-colors duration-300 relative overflow-hidden", THEMES[currentTheme].bg)}>
+        <div className={cn("flex-1 flex flex-col transition-colors duration-300 relative overflow-hidden min-h-0", THEMES[currentTheme].bg)}>
           <div className="h-8 bg-white/5 flex items-center px-4 gap-2 border-b border-white/5">
             <div className={cn("h-full border-t-2 px-4 flex items-center gap-2 bg-white/5", THEMES[currentTheme].border)}>
               <FileCode size={12} className={THEMES[currentTheme].accent} />
-              <span className={cn("text-[11px]", THEMES[currentTheme].text)}>{activeFile}</span>
+              <div className="flex items-center gap-2">
+                <span className={cn("text-[11px]", THEMES[currentTheme].text)}>{activeFile}</span>
+                {isDirty && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />}
+              </div>
             </div>
           </div>
-          <div className="flex-1 relative overflow-hidden flex">
+          <div className="flex-1 relative overflow-hidden flex min-h-0">
             {/* Gutter */}
             <div 
               ref={gutterRef}
@@ -9171,28 +9377,74 @@ function CodeStudioApp({
               ))}
             </div>
 
+            <div className="flex-1 min-h-[100px] overflow-hidden flex flex-col">
             <div className="flex-1 relative overflow-hidden">
-              {/* Syntax Highlighting Layer */}
-              <div 
-                ref={scrollRef}
-                className={cn(
-                  "absolute inset-0 p-6 font-mono text-sm leading-relaxed pointer-events-none whitespace-pre overflow-hidden",
-                  THEMES[currentTheme].text
-                )}
-                dangerouslySetInnerHTML={{ __html: highlightCode(code) + '\n\n' }}
-              />
-              {/* Input Layer */}
-              <textarea 
-                ref={textareaRef}
-                className={cn(
-                  "absolute inset-0 w-full h-full bg-transparent p-6 outline-none resize-none font-mono text-sm leading-relaxed transition-colors duration-300 caret-white",
-                  "text-transparent selection:bg-blue-500/30 overflow-auto whitespace-pre",
-                )}
-                spellCheck={false}
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                onScroll={handleScroll}
-              />
+                {/* Syntax Highlighting Layer */}
+                <div 
+                  ref={scrollRef}
+                  className={cn(
+                    "absolute inset-0 p-6 font-mono text-sm leading-relaxed pointer-events-none whitespace-pre overflow-hidden",
+                    THEMES[currentTheme].text
+                  )}
+                  dangerouslySetInnerHTML={{ __html: highlightCode(code) + '\n\n' }}
+                />
+                {/* Input Layer */}
+                <textarea 
+                  ref={textareaRef}
+                  className={cn(
+                    "absolute inset-0 w-full h-full bg-transparent p-6 outline-none resize-none font-mono text-sm leading-relaxed transition-colors duration-300 caret-white",
+                    "text-transparent selection:bg-blue-500/30 overflow-auto whitespace-pre",
+                  )}
+                  spellCheck={false}
+                  value={code}
+                  onChange={(e) => {
+                    setCode(e.target.value);
+                    setIsDirty(true);
+                  }}
+                  onScroll={handleScroll}
+                  onKeyDown={(e) => {
+                    if (e.ctrlKey && e.key === 's') {
+                      e.preventDefault();
+                      handleSave();
+                    }
+                    
+                    // Tab handling
+                    if (e.key === 'Tab') {
+                      e.preventDefault();
+                      const start = e.currentTarget.selectionStart;
+                      const end = e.currentTarget.selectionEnd;
+                      const value = e.currentTarget.value;
+                      setCode(value.substring(0, start) + "  " + value.substring(end));
+                      setIsDirty(true);
+                      
+                      // Reset cursor
+                      setTimeout(() => {
+                        if (textareaRef.current) {
+                          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + 2;
+                        }
+                      }, 0);
+                    }
+                  }}
+                />
+              </div>
+              
+              {/* Status Bar */}
+              <div className="h-6 bg-black/40 border-t border-white/5 flex items-center px-4 justify-between text-[10px] text-white/40">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-1.5">
+                    <div className={cn("w-1.5 h-1.5 rounded-full", isDirty ? "bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]" : "bg-emerald-500")} />
+                    <span>{isDirty ? 'Unsaved Changes' : 'All Changes Saved'}</span>
+                  </div>
+                  <div className="w-[1px] h-3 bg-white/10" />
+                  <span>UTF-8</span>
+                  <div className="w-[1px] h-3 bg-white/10" />
+                  <span>{activeFile.endsWith('.b') ? 'Brainscript' : activeFile.endsWith('.scr') ? 'GlassScript' : 'Text'}</span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span>Line {code.substring(0, textareaRef.current?.selectionStart || 0).split('\n').length}, Col {(textareaRef.current?.selectionStart || 0) - code.lastIndexOf('\n', (textareaRef.current?.selectionStart || 0) - 1)}</span>
+                  <span>{code.length} chars</span>
+                </div>
+              </div>
             </div>
           </div>
           
@@ -9232,7 +9484,9 @@ function CodeStudioApp({
                   outputLogs.map((log, i) => (
                     <div key={i} className={cn(
                       "transition-all",
-                      log.includes('SUCCESS') ? "text-green-400" : "text-white/60"
+                      log.includes('SUCCESS') ? "text-green-400" : 
+                      log.includes('[FATAL]') || log.includes('Error') ? "text-red-400" :
+                      "text-white/60"
                     )}>
                       {log}
                     </div>

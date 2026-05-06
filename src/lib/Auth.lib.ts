@@ -13,7 +13,7 @@ export class AuthLib {
     isSandboxed: true,
   };
 
-  private static adminPassword = 'admin'; // System default for research purposes
+  public static adminPassword = 'admin'; // System default for research purposes
 
   static getSession(): AuthSession {
     return { ...this.session };

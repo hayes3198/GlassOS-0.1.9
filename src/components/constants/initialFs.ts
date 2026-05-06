@@ -1,4 +1,4 @@
-import { FileSystemItem, Permissions } from '../types';
+import { FileSystemItem, Permissions } from '../../types';
 
 export const DEFAULT_PERMISSIONS: Permissions = {
   owner: { r: true, w: true, x: true },
@@ -57,7 +57,7 @@ export const INITIAL_FS: FileSystemItem[] = [
     permissions: DEFAULT_PERMISSIONS,
     children: [
       {
-        name: 'Guest',
+        name: 'Administrator',
         type: 'folder',
         permissions: DEFAULT_PERMISSIONS,
         children: [
@@ -72,6 +72,19 @@ export const INITIAL_FS: FileSystemItem[] = [
             children: [
                 { name: 'notes.txt', type: 'file', content: 'My first GlassOS note!', size: 23, dateModified: '2026-04-21T12:05:00Z', permissions: DEFAULT_PERMISSIONS },
                 { name: 'report.gdoc', type: 'file', content: 'DOCUMENT_DATA', size: 13, dateModified: '2026-04-21T12:10:00Z', permissions: DEFAULT_PERMISSIONS },
+                {
+                  name: 'Projects',
+                  type: 'folder',
+                  permissions: DEFAULT_PERMISSIONS,
+                  children: [
+                    {
+                      name: 'CodeStudio',
+                      type: 'folder',
+                      permissions: DEFAULT_PERMISSIONS,
+                      children: []
+                    }
+                  ]
+                }
             ]
           },
           {
@@ -110,6 +123,12 @@ export const INITIAL_FS: FileSystemItem[] = [
                     type: 'file', 
                     permissions: DEFAULT_PERMISSIONS 
                   },
+                  {
+                    name: 'error_test.b',
+                    content: '###error_demo\nStart\n  PRINT "This script will fail at runtime"\n  \n  REM Intentional error: Division by zero\n  LET $result 100 / 0\n  \n  PRINT "Result is: " && $result\n  \n  PRINT "This line will not be reached"\nEnd',
+                    type: 'file',
+                    permissions: DEFAULT_PERMISSIONS
+                  }
                 ]
               }
             ]

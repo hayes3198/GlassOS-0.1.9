@@ -342,9 +342,13 @@
     }
   ],
   "settings_v1": {
-    "username": "Guest User",
+    "username": "Administrator",
     "wallpaper": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1920&auto=format&fit=crop",
-    "notepad": "Hello world"
+    "accentColor": "#3b82f6",
+    "notepad": "Hello world",
+    "fontFamily": "Inter",
+    "fontSize": "14",
+    "fontWeight": "400"
   },
   "users_v1": [],
   "collections": {
@@ -352,7 +356,7 @@
     "messages": [
       {
         "id": "xkccdnwsf",
-        "sender": "Guest User",
+        "sender": "Administrator",
         "text": "Hello",
         "timestamp": "5:40:04 PM"
       }
