@@ -1114,7 +1114,7 @@ export function FilesApp({
             });
           }}
         >
-          <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-2 sm:gap-4 p-2 sm:p-4 content-start">
             {filteredFolder.map((item, idx) => {
               const itemPath = item.displayPath || currentPath;
               const isCut = cutItemInfo && 
@@ -1132,7 +1132,7 @@ export function FilesApp({
                     onDrop(e, [...itemPath, item.name]);
                   } : undefined}
                   className={cn(
-                    "group relative glass p-2.5 rounded-xl flex flex-col items-center gap-1.5 hover:bg-white/10 transition-all cursor-pointer border border-transparent select-none min-h-[100px]",
+                    "group relative glass p-2.5 rounded-xl flex flex-col items-center gap-1.5 hover:bg-white/10 transition-all cursor-pointer border border-transparent select-none min-h-[110px] w-full",
                     draggedItems.some(i => i.name === item.name) && "opacity-50 scale-95",
                     isCut && "opacity-30 grayscale-[0.5] border-dashed border-white/20",
                     dropSuccessFolder === item.name && item.type === 'folder' && "bg-emerald-500/20 border-emerald-500/50 ring-2 ring-emerald-500/50"
