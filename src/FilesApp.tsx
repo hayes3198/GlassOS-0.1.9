@@ -152,20 +152,20 @@ export function FilesApp({
   }, [fs, currentPath, fsLib]);
 
   const getFileIcon = (name: string, type: 'file' | 'folder') => {
-    if (type === 'folder') return <Folder size={20} style={{ color: accentColor }} />;
+    if (type === 'folder') return <Folder size={32} style={{ color: accentColor }} />;
     const ext = name.split('.').pop()?.toLowerCase();
     switch (ext) {
-      case 'txt': return <FileText size={20} className="text-white/60" />;
+      case 'txt': return <FileText size={32} className="text-white/60" />;
       case 'jpg':
-      case 'png': return <ImageIcon size={20} className="text-purple-400" />;
-      case 'sys': return <Cpu size={20} className="text-red-400" />;
-      case 'b': return <FileCode size={20} className="text-green-400" />;
+      case 'png': return <ImageIcon size={32} className="text-purple-400" />;
+      case 'sys': return <Cpu size={32} className="text-red-400" />;
+      case 'b': return <FileCode size={32} className="text-green-400" />;
       case 'exe':
-      case 'pkg': return <Zap size={20} className="text-blue-400 fill-blue-400/20" />;
-      case 'json': return <FileJson size={20} className="text-yellow-400" />;
-      case 'gdoc': return <FileText size={20} className="text-blue-400 font-bold" />;
-      case 'gsheet': return <TableIcon size={20} className="text-emerald-400 font-bold" />;
-      default: return <FileText size={20} className="text-white/40" />;
+      case 'pkg': return <Zap size={32} className="text-blue-400 fill-blue-400/20" />;
+      case 'json': return <FileJson size={32} className="text-yellow-400" />;
+      case 'gdoc': return <FileText size={32} className="text-blue-400 font-bold" />;
+      case 'gsheet': return <TableIcon size={32} className="text-emerald-400 font-bold" />;
+      default: return <FileText size={32} className="text-white/40" />;
     }
   };
 
@@ -1132,7 +1132,7 @@ export function FilesApp({
                     onDrop(e, [...itemPath, item.name]);
                   } : undefined}
                   className={cn(
-                    "group relative glass p-4 rounded-xl flex flex-col items-center gap-2 hover:bg-white/10 transition-all cursor-pointer border border-transparent select-none",
+                    "group relative glass p-2.5 rounded-xl flex flex-col items-center gap-1.5 hover:bg-white/10 transition-all cursor-pointer border border-transparent select-none min-h-[100px]",
                     draggedItems.some(i => i.name === item.name) && "opacity-50 scale-95",
                     isCut && "opacity-30 grayscale-[0.5] border-dashed border-white/20",
                     dropSuccessFolder === item.name && item.type === 'folder' && "bg-emerald-500/20 border-emerald-500/50 ring-2 ring-emerald-500/50"
@@ -1238,13 +1238,13 @@ export function FilesApp({
                           setEditingItem({ path: itemPath, name: item.name });
                           setNewName(item.name);
                         }}
-                        className="text-[11px] text-center truncate w-full group-hover:whitespace-normal group-hover:overflow-visible group-hover:bg-black/40 group-hover:rounded px-1 cursor-text"
+                        className="text-[10px] text-center line-clamp-2 break-all w-full leading-tight cursor-text"
                       >
                         {item.name}
                       </span>
                     )}
                     {searchQuery.trim() && item.displayPath && (
-                      <span className="text-[8px] text-white/30 truncate w-full text-center">
+                      <span className="text-[9px] text-white/30 truncate w-full text-center mt-0.5">
                         /{item.displayPath.join('/')}
                       </span>
                     )}
@@ -1562,22 +1562,4 @@ export function FilesApp({
   );
 }
 
-const Scissors = ({ size, className }: { size?: number, className?: string }) => (
-  <svg 
-    width={size} 
-    height={size} 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
-    className={className}
-  >
-    <circle cx="6" cy="6" r="3" />
-    <circle cx="6" cy="18" r="3" />
-    <line x1="20" y1="4" x2="8.12" y2="15.88" />
-    <line x1="14.47" y1="14.48" x2="20" y2="20" />
-    <line x1="8.12" y1="8.12" x2="12" y2="12" />
-  </svg>
-);
+
