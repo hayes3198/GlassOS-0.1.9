@@ -128,6 +128,18 @@ import {
   Briefcase,
   User as UserIcon,
   Monitor as MonitorIcon,
+  Strikethrough,
+  WrapText,
+  AlignStartVertical,
+  AlignCenterVertical,
+  AlignEndVertical,
+  PaintBucket,
+  DollarSign,
+  Percent,
+  ChevronUp,
+  Baseline,
+  ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
 import { motion, AnimatePresence, useDragControls } from 'motion/react';
 import { 
@@ -2403,6 +2415,109 @@ function getAppIcon(id: AppId, size: number, color?: string) {
 
 // --- Specialized Apps ---
 
+function ScriptPicker({ 
+  fs, 
+  onClose, 
+  onSelect 
+}: { 
+  fs: FileSystemItem[], 
+  onClose: () => void, 
+  onSelect: (content: string, name: string) => void 
+}) {
+  const [currentPath, setCurrentPath] = useState<string[]>(['Projects']);
+  
+  const currentItems = useMemo(() => {
+    if (currentPath.length === 0) return fs;
+    const folder = findItemByPath(fs, currentPath);
+    return (folder?.type === 'folder' && folder.children) ? folder.children : [];
+  }, [fs, currentPath]);
+
+  return (
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+      />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.9, y: 20 }}
+        className="relative w-full max-w-md glass-dark rounded-3xl border border-white/20 shadow-2xl overflow-hidden flex flex-col max-h-[70vh]"
+      >
+        <div className="p-6 border-b border-white/10 flex items-center justify-between bg-white/5">
+          <div className="flex items-center gap-3">
+             <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center text-green-400">
+                <Play size={20} />
+             </div>
+             <div>
+                <h3 className="text-lg font-bold">Run Script</h3>
+                <p className="text-[10px] text-white/30 uppercase tracking-widest font-mono">Select .scr or .b source</p>
+             </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg text-white/40 hover:text-white transition-all">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-4 bg-white/5 border-b border-white/10 flex items-center gap-2 overflow-x-auto no-scrollbar">
+           <button onClick={() => setCurrentPath([])} className="text-[10px] text-white/40 hover:text-white uppercase font-bold tracking-tighter">Root</button>
+           {currentPath.map((p, i) => (
+             <React.Fragment key={i}>
+               <ChevronRight size={10} className="text-white/10" />
+               <button onClick={() => setCurrentPath(currentPath.slice(0, i + 1))} className="text-[10px] text-white hover:text-blue-400 capitalize font-medium">{p}</button>
+             </React.Fragment>
+           ))}
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-1 no-scrollbar lg-scrollbar">
+          {currentPath.length > 0 && (
+            <button 
+              onClick={() => setCurrentPath(currentPath.slice(0, -1))}
+              className="w-full text-left p-3 rounded-xl hover:bg-white/5 transition-all flex items-center gap-3 text-white/40"
+            >
+              <ChevronLeft size={18} />
+              <span className="text-xs font-medium">Go Back</span>
+            </button>
+          )}
+          {currentItems.map((item, i) => {
+            const isScript = item.name.endsWith('.scr') || item.name.endsWith('.b') || item.name.endsWith('.txt');
+            const isFolder = item.type === 'folder';
+            
+            return (
+              <button
+                key={i}
+                onClick={() => {
+                  if (isFolder) {
+                    setCurrentPath([...currentPath, item.name]);
+                  } else if (isScript) {
+                    onSelect(item.content || '', item.name);
+                  }
+                }}
+                className={cn(
+                  "w-full text-left p-3 rounded-xl transition-all flex items-center justify-between group",
+                  isFolder ? "hover:bg-white/5" : isScript ? "hover:bg-green-500/10 text-green-400/80 hover:text-green-400" : "opacity-20 cursor-not-allowed"
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  {isFolder ? <Folder size={18} className="text-blue-400" /> : <Code2 size={18} />}
+                  <span className="text-xs font-medium">{item.name}</span>
+                </div>
+                {isFolder ? <ChevronRight size={14} className="text-white/10" /> : isScript ? <Play size={14} className="opacity-0 group-hover:opacity-100" /> : null}
+              </button>
+            );
+          })}
+          {currentItems.length === 0 && (
+            <div className="py-20 text-center text-white/20 text-xs font-mono italic">No items in this directory</div>
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 function GlassDatabase(props: any) {
   const { 
     collections, setCollections, addNotification, 
@@ -2445,6 +2560,7 @@ function GlassDatabase(props: any) {
   const [isEditingRecord, setIsEditingRecord] = useState<number | null>(null);
   const [selectedScript, setSelectedScript] = useState<string | null>(null);
   const [activeExecutionLine, setActiveExecutionLine] = useState(-1);
+  const [showScriptPicker, setShowScriptPicker] = useState(false);
 
   const scripts = Array.isArray(collections._scripts) ? collections._scripts : [];
 
@@ -2863,15 +2979,25 @@ function GlassDatabase(props: any) {
                 <div className="glass rounded-3xl border border-white/10 overflow-hidden flex flex-col">
                     <div className="p-4 border-b border-white/10 bg-white/5 flex items-center justify-between">
                         <h3 className="text-xs font-bold uppercase tracking-widest text-white/40">Object Scripts</h3>
-                        <button 
-                            onClick={() => {
-                                const name = 'Script_' + (scripts.length + 1);
-                                saveScript(name, '-- Shard Integrity Script\ntell app "GlassDatabase"\n  query table "users"\n  get count to total_users\n\n  if total_users is "0"\n    notify "Warning: Users table is empty!"\n    insert record "username: system_admin, status: active"\n  else\n    notify "Database Check: " & total_users & " users found"\n  end if\nend tell');
-                            }}
-                            className="p-1 hover:text-blue-400 text-white/20 transition-colors"
-                        >
-                            <Plus size={16} />
-                        </button>
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={() => setShowScriptPicker(true)}
+                                className="p-1 hover:text-green-400 text-white/20 transition-colors"
+                                title="Run External Script"
+                            >
+                                <Play size={16} />
+                            </button>
+                            <button 
+                                onClick={() => {
+                                    const name = 'Script_' + (scripts.length + 1);
+                                    saveScript(name, '-- Shard Integrity Script\ntell app "GlassDatabase"\n  query table "users"\n  get count to total_users\n\n  if total_users is "0"\n    notify "Warning: Users table is empty!"\n    insert record "username: system_admin, status: active"\n  else\n    notify "Database Check: " & total_users & " users found"\n  end if\nend tell');
+                                }}
+                                className="p-1 hover:text-blue-400 text-white/20 transition-colors"
+                                title="New Script"
+                            >
+                                <Plus size={16} />
+                            </button>
+                        </div>
                     </div>
                     <div className="flex-1 overflow-y-auto p-2 space-y-2">
                         {scripts.map((script: any) => (
@@ -3082,6 +3208,23 @@ function GlassDatabase(props: any) {
           </div>
         )}
       </div>
+
+      <AnimatePresence>
+        {showScriptPicker && (
+          <ScriptPicker 
+            fs={props.fs} 
+            onClose={() => setShowScriptPicker(false)}
+            onSelect={(content, name) => {
+              setShowScriptPicker(false);
+              if (name.endsWith('.scr') || name.endsWith('.txt')) {
+                runScript(content);
+              } else if (name.endsWith('.b')) {
+                props.runBrainscript(content, (msg: string) => addNotification('Brainscript', msg, 'info'));
+              }
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       <div className="p-4 bg-[#050505] border-t border-white/10 flex items-center justify-between text-[10px] font-mono text-white/20">
         <div>SERVER_IDENT: CORP_MASTER_NODE_ALPHA</div>
@@ -3573,6 +3716,504 @@ function CalendarApp({ calendarEvents, setCalendarEvents, addNotification }: any
   );
 }
 
+function ConditionalFormattingDialog({ activeCell, cellFormats, updateFormat, onClose }: { activeCell: [number, number] | null, cellFormats: Record<string, CellFormat>, updateFormat: (updates: Partial<CellFormat>) => void, onClose: () => void }) {
+  if (!activeCell) return null;
+  const currentRules = cellFormats[`${activeCell[0]},${activeCell[1]}`]?.conditionalRules || [];
+  const [localRules, setLocalRules] = useState<ConditionalRule[]>(currentRules);
+
+  const addRule = () => {
+    setLocalRules([...localRules, { type: 'single', operator: 'greaterThan', value1: '0', style: { bold: true, textColor: '#ef4444' } }]);
+  };
+
+  const removeRule = (index: number) => {
+    setLocalRules(localRules.filter((_, i) => i !== index));
+  };
+
+  const updateRule = (index: number, updates: Partial<ConditionalRule>) => {
+    const newRules = [...localRules];
+    newRules[index] = { ...newRules[index], ...updates };
+    setLocalRules(newRules);
+  };
+
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-sm z-[110]">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="w-[500px] max-h-[80vh] bg-white rounded-3xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col"
+      >
+        <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+          <h3 className="text-xl font-black tracking-tight text-gray-900 flex items-center gap-2">
+            <Sparkles className="text-emerald-500" size={20} />
+            Conditional Formatting
+          </h3>
+          <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+            <X size={20} />
+          </button>
+        </div>
+        
+        <div className="p-6 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
+          {localRules.map((rule, idx) => (
+            <div key={idx} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-3 relative group">
+              <button 
+                onClick={() => removeRule(idx)}
+                className="absolute top-2 right-2 p-1.5 text-gray-400 hover:text-red-500 transition-colors bg-white rounded-lg shadow-sm opacity-0 group-hover:opacity-100"
+              >
+                <Trash2 size={14} />
+              </button>
+
+              <div className="flex items-center gap-3">
+                <select 
+                  className="bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-bold text-gray-700 outline-none"
+                  value={rule.type}
+                  onChange={(e) => updateRule(idx, { type: e.target.value as any })}
+                >
+                  <option value="single">Single Color</option>
+                  <option value="scale">Color Scale</option>
+                </select>
+              </div>
+
+              {rule.type === 'single' ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <select 
+                    className="col-span-2 bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-bold text-gray-700 outline-none"
+                    value={rule.operator}
+                    onChange={(e) => updateRule(idx, { operator: e.target.value as any })}
+                  >
+                    <option value="greaterThan">Greater Than</option>
+                    <option value="lessThan">Less Than</option>
+                    <option value="equalTo">Equal To</option>
+                    <option value="between">Between</option>
+                    <option value="contains">Text Contains</option>
+                    <option value="empty">Is Empty</option>
+                    <option value="notEmpty">Is Not Empty</option>
+                  </select>
+                  <input 
+                    type="text" 
+                    placeholder="Value 1"
+                    className="bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-bold text-gray-700 outline-none"
+                    value={rule.value1 || ''}
+                    onChange={(e) => updateRule(idx, { value1: e.target.value })}
+                  />
+                  {rule.operator === 'between' && (
+                    <input 
+                      type="text" 
+                      placeholder="Value 2"
+                      className="bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-bold text-gray-700 outline-none"
+                      value={rule.value2 || ''}
+                      onChange={(e) => updateRule(idx, { value2: e.target.value })}
+                    />
+                  )}
+                  <div className="col-span-2 flex items-center gap-4 pt-2">
+                    <button 
+                      onClick={() => updateRule(idx, { style: { ...rule.style, bold: !rule.style?.bold } })}
+                      className={cn("p-1.5 rounded transition-colors bg-white border", rule.style?.bold ? "border-emerald-500 text-emerald-600" : "border-gray-200 text-gray-400")}
+                    >
+                      <Bold size={14} />
+                    </button>
+                    <input 
+                      type="color" 
+                      title="Text Color"
+                      className="w-8 h-8 rounded p-0 border-none bg-transparent cursor-pointer"
+                      value={rule.style?.textColor || '#000000'}
+                      onChange={(e) => updateRule(idx, { style: { ...rule.style, textColor: e.target.value } })}
+                    />
+                    <input 
+                      type="color" 
+                      title="Fill Color"
+                      className="w-8 h-8 rounded p-0 border-none bg-transparent cursor-pointer"
+                      value={rule.style?.bgColor || '#ffffff'}
+                      onChange={(e) => updateRule(idx, { style: { ...rule.style, bgColor: e.target.value } })}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Min Value</label>
+                    <input 
+                      type="number"
+                      className="bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-bold text-gray-700 w-full outline-none"
+                      value={rule.scale?.minValue || 0}
+                      onChange={(e) => updateRule(idx, { scale: { ...rule.scale!, minValue: parseFloat(e.target.value) } })}
+                    />
+                    <input 
+                      type="color"
+                      className="h-8 w-full rounded p-0 border-none bg-transparent cursor-pointer"
+                      value={rule.scale?.minColor || '#ff0000'}
+                      onChange={(e) => updateRule(idx, { scale: { ...rule.scale!, minColor: e.target.value } })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Max Value</label>
+                    <input 
+                      type="number"
+                      className="bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-bold text-gray-700 w-full outline-none"
+                      value={rule.scale?.maxValue || 100}
+                      onChange={(e) => updateRule(idx, { scale: { ...rule.scale!, maxValue: parseFloat(e.target.value) } })}
+                    />
+                    <input 
+                      type="color"
+                      className="h-8 w-full rounded p-0 border-none bg-transparent cursor-pointer"
+                      value={rule.scale?.maxColor || '#00ff00'}
+                      onChange={(e) => updateRule(idx, { scale: { ...rule.scale!, maxColor: e.target.value } })}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+
+          <button 
+            onClick={addRule}
+            className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl flex items-center justify-center gap-2 text-gray-400 hover:text-emerald-500 hover:border-emerald-200 transition-all font-bold text-xs"
+          >
+            <Plus size={16} /> Add new rule
+          </button>
+        </div>
+
+        <div className="p-6 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-3">
+          <button onClick={onClose} className="px-6 py-2.5 rounded-xl text-xs font-bold text-gray-500 hover:bg-gray-200 transition-colors">
+            Cancel
+          </button>
+          <button 
+            onClick={() => {
+              updateFormat({ conditionalRules: localRules });
+              onClose();
+            }}
+            className="px-8 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-all active:scale-95"
+          >
+            Apply rules
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function ValidationDialog({ activeCell, cellFormats, updateFormat, onClose }: { activeCell: [number, number] | null, cellFormats: Record<string, CellFormat>, updateFormat: (updates: Partial<CellFormat>) => void, onClose: () => void }) {
+  if (!activeCell) return null;
+  const currentValidation = cellFormats[`${activeCell[0]},${activeCell[1]}`]?.validation || { type: 'none' };
+
+  const [localVal, setLocalVal] = useState<DataValidation>(currentValidation);
+
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-sm z-[100]">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="w-[450px] bg-white rounded-3xl shadow-2xl border border-gray-200 overflow-hidden"
+      >
+        <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+          <h3 className="text-xl font-black tracking-tight text-gray-900 flex items-center gap-2">
+            <ShieldCheck className="text-emerald-500" size={20} />
+            Data Validation
+          </h3>
+          <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+            <X size={20} />
+          </button>
+        </div>
+        
+        <div className="p-6 space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Criteria Type</label>
+            <select 
+              className="w-full bg-gray-100 border-none rounded-xl px-4 py-3 text-xs font-bold text-gray-700 focus:ring-2 focus:ring-emerald-500 outline-none"
+              value={localVal.type}
+              onChange={(e) => setLocalVal({ ...localVal, type: e.target.value as any, criteria: undefined })}
+            >
+              <option value="none">None</option>
+              <option value="list">Dropdown List</option>
+              <option value="number">Number Range</option>
+              <option value="text">Text Rules</option>
+              <option value="date">Date</option>
+            </select>
+          </div>
+
+          {localVal.type === 'list' && (
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">List Items (comma separated)</label>
+              <textarea 
+                className="w-full bg-gray-100 border-none rounded-xl px-4 py-3 text-xs font-bold text-gray-700 min-h-[100px] focus:ring-2 focus:ring-emerald-500 outline-none"
+                placeholder="Item 1, Item 2, Item 3..."
+                value={localVal.listValues?.join(', ') || ''}
+                onChange={(e) => setLocalVal({ ...localVal, listValues: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
+              />
+            </div>
+          )}
+
+          {localVal.type === 'number' && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2 col-span-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Condition</label>
+                <select 
+                  className="w-full bg-gray-100 border-none rounded-xl px-4 py-3 text-xs font-bold text-gray-700 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  value={localVal.criteria}
+                  onChange={(e) => setLocalVal({ ...localVal, criteria: e.target.value as any })}
+                >
+                  <option value="between">Between</option>
+                  <option value="greaterThan">Greater Than</option>
+                  <option value="lessThan">Less Than</option>
+                  <option value="equalTo">Equal To</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Value 1</label>
+                <input 
+                  type="number"
+                  className="w-full bg-gray-100 border-none rounded-xl px-4 py-3 text-xs font-bold text-gray-700 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  value={localVal.value1 || ''}
+                  onChange={(e) => setLocalVal({ ...localVal, value1: e.target.value })}
+                />
+              </div>
+              {localVal.criteria === 'between' && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Value 2</label>
+                  <input 
+                    type="number"
+                    className="w-full bg-gray-100 border-none rounded-xl px-4 py-3 text-xs font-bold text-gray-700 focus:ring-2 focus:ring-emerald-500 outline-none"
+                    value={localVal.value2 || ''}
+                    onChange={(e) => setLocalVal({ ...localVal, value2: e.target.value })}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {localVal.type === 'text' && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Text Rules</label>
+                <select 
+                  className="w-full bg-gray-100 border-none rounded-xl px-4 py-3 text-xs font-bold text-gray-700 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  value={localVal.criteria}
+                  onChange={(e) => setLocalVal({ ...localVal, criteria: e.target.value as any })}
+                >
+                  <option value="contains">Contains</option>
+                  <option value="isEmail">Valid Email</option>
+                  <option value="isUrl">Valid URL</option>
+                </select>
+              </div>
+              {localVal.criteria === 'contains' && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Value</label>
+                  <input 
+                    type="text"
+                    className="w-full bg-gray-100 border-none rounded-xl px-4 py-3 text-xs font-bold text-gray-700 focus:ring-2 focus:ring-emerald-500 outline-none"
+                    value={localVal.value1 || ''}
+                    onChange={(e) => setLocalVal({ ...localVal, value1: e.target.value })}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center gap-3 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+            <input 
+              type="checkbox"
+              id="allow-invalid"
+              className="w-4 h-4 rounded-lg bg-white border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              checked={localVal.allowInvalid}
+              onChange={(e) => setLocalVal({ ...localVal, allowInvalid: e.target.checked })}
+            />
+            <label htmlFor="allow-invalid" className="text-[11px] font-bold text-gray-600 select-none cursor-pointer">Allow invalid data with warning icon</label>
+          </div>
+        </div>
+
+        <div className="p-6 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-3">
+          <button 
+            onClick={onClose}
+            className="px-6 py-2.5 rounded-xl text-xs font-bold text-gray-500 hover:bg-gray-200 transition-colors"
+          >
+            Cancel
+          </button>
+          <button 
+            onClick={() => {
+              updateFormat({ validation: localVal });
+              onClose();
+            }}
+            className="px-8 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-all active:scale-95"
+          >
+            Apply validation
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function FormattingToolbar({ activeCell, cellFormats, updateFormat }: { activeCell: [number, number] | null, cellFormats: Record<string, CellFormat>, updateFormat: (updates: Partial<CellFormat>) => void }) {
+  if (!activeCell) return null;
+  const currentFormat = cellFormats[`${activeCell[0]},${activeCell[1]}`] || {};
+
+  const toggle = (field: keyof CellFormat) => updateFormat({ [field]: !currentFormat[field] });
+
+  return (
+    <div className="bg-white border-b border-gray-200 px-4 py-1.5 flex items-center gap-4 overflow-x-auto no-scrollbar shrink-0">
+      {/* Typography */}
+      <div className="flex items-center gap-1 border-r border-gray-200 pr-4">
+        <button onClick={() => toggle('bold')} className={cn("p-1.5 rounded transition-colors hover:bg-gray-100", currentFormat.bold ? "bg-emerald-100 text-emerald-700" : "text-gray-500")} title="Bold (Ctrl+B)">
+          <Bold size={14} />
+        </button>
+        <button onClick={() => toggle('italic')} className={cn("p-1.5 rounded transition-colors hover:bg-gray-100", currentFormat.italic ? "bg-emerald-100 text-emerald-700" : "text-gray-500")} title="Italic (Ctrl+I)">
+          <Italic size={14} />
+        </button>
+        <button onClick={() => toggle('underline')} className={cn("p-1.5 rounded transition-colors hover:bg-gray-100", currentFormat.underline ? "bg-emerald-100 text-emerald-700" : "text-gray-500")} title="Underline (Ctrl+U)">
+          <Underline size={14} />
+        </button>
+        <button onClick={() => toggle('strikethrough')} className={cn("p-1.5 rounded transition-colors hover:bg-gray-100", currentFormat.strikethrough ? "bg-emerald-100 text-emerald-700" : "text-gray-500")} title="Strikethrough">
+          <Strikethrough size={14} />
+        </button>
+      </div>
+
+      {/* Alignment */}
+      <div className="flex items-center gap-1 border-r border-gray-200 pr-4">
+        <button onClick={() => updateFormat({ alignX: 'left' })} className={cn("p-1.5 rounded transition-colors hover:bg-gray-100", currentFormat.alignX === 'left' ? "bg-emerald-100 text-emerald-700" : "text-gray-500")} title="Align Left">
+          <AlignLeft size={14} />
+        </button>
+        <button onClick={() => updateFormat({ alignX: 'center' })} className={cn("p-1.5 rounded transition-colors hover:bg-gray-100", currentFormat.alignX === 'center' ? "bg-emerald-100 text-emerald-700" : "text-gray-500")} title="Align Center">
+          <AlignCenter size={14} />
+        </button>
+        <button onClick={() => updateFormat({ alignX: 'right' })} className={cn("p-1.5 rounded transition-colors hover:bg-gray-100", currentFormat.alignX === 'right' ? "bg-emerald-100 text-emerald-700" : "text-gray-500")} title="Align Right">
+          <AlignRight size={14} />
+        </button>
+        <div className="w-px h-4 bg-gray-200 mx-1" />
+        <button onClick={() => updateFormat({ alignY: 'top' })} className={cn("p-1.5 rounded transition-colors hover:bg-gray-100", currentFormat.alignY === 'top' ? "bg-emerald-100 text-emerald-700" : "text-gray-500")} title="Align Top">
+          <AlignStartVertical size={14} />
+        </button>
+        <button onClick={() => updateFormat({ alignY: 'middle' })} className={cn("p-1.5 rounded transition-colors hover:bg-gray-100", currentFormat.alignY === 'middle' ? "bg-emerald-100 text-emerald-700" : "text-gray-500")} title="Align Middle">
+          <AlignCenterVertical size={14} />
+        </button>
+        <button onClick={() => updateFormat({ alignY: 'bottom' })} className={cn("p-1.5 rounded transition-colors hover:bg-gray-100", currentFormat.alignY === 'bottom' ? "bg-emerald-100 text-emerald-700" : "text-gray-500")} title="Align Bottom">
+          <AlignEndVertical size={14} />
+        </button>
+      </div>
+
+      {/* Wrapping & Borders */}
+      <div className="flex items-center gap-1 border-r border-gray-200 pr-4">
+        <button onClick={() => updateFormat({ wrap: currentFormat.wrap === 'wrap' ? 'nowrap' : 'wrap' })} className={cn("p-1.5 rounded transition-colors hover:bg-gray-100", currentFormat.wrap === 'wrap' ? "bg-emerald-100 text-emerald-700" : "text-gray-500")} title="Wrap Text">
+          <WrapText size={14} />
+        </button>
+        <div className="relative group">
+          <button className="p-1.5 rounded transition-colors hover:bg-gray-100 text-gray-500" title="Cell Borders">
+            <Square size={14} />
+            <div className="absolute top-full left-0 hidden group-hover:flex flex-col gap-2 p-3 bg-white border border-gray-200 shadow-xl rounded-xl z-[100] mt-1 min-w-[140px]">
+              <div className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-1">Thickness</div>
+              <div className="flex gap-1">
+                {[1, 2, 4].map(t => (
+                  <button 
+                    key={t} 
+                    onClick={() => updateFormat({ borderThickness: t })}
+                    className={cn("px-2 py-1 rounded text-[10px] font-bold border grow text-center", currentFormat.borderThickness === t ? "bg-emerald-100 border-emerald-200 text-emerald-700" : "bg-gray-50 border-gray-100 text-gray-500")}
+                  >
+                    {t}px
+                  </button>
+                ))}
+              </div>
+              <div className="text-[9px] font-bold text-gray-400 uppercase tracking-widest my-1">Style</div>
+              <div className="flex flex-col gap-1">
+                {(['solid', 'dashed', 'dotted'] as const).map(s => (
+                  <button 
+                    key={s} 
+                    onClick={() => updateFormat({ borderStyle: s })}
+                    className={cn("px-2 py-1 rounded text-[10px] font-bold border text-left flex items-center justify-between", currentFormat.borderStyle === s ? "bg-emerald-100 border-emerald-200 text-emerald-700" : "bg-gray-50 border-gray-100 text-gray-500")}
+                  >
+                    <span className="capitalize">{s}</span>
+                    <div className="w-12 h-0 border-t" style={{ borderStyle: s, borderColor: 'currentColor' }} />
+                  </button>
+                ))}
+              </div>
+              <div className="text-[9px] font-bold text-gray-400 uppercase tracking-widest my-1 border-t border-gray-100 pt-2">Toggle Borders</div>
+              <div className="grid grid-cols-2 gap-1">
+                {(['borderTop', 'borderRight', 'borderBottom', 'borderLeft'] as const).map(b => (
+                   <button 
+                    key={b} 
+                    onClick={() => toggle(b)}
+                    className={cn("px-1 py-1 rounded text-[8px] font-bold border uppercase transition-all", currentFormat[b] ? "bg-emerald-100 border-emerald-200 text-emerald-700 font-black" : "bg-gray-50 border-gray-100 text-gray-500")}
+                   >
+                     {b.replace('border', '')}
+                   </button>
+                ))}
+                <button 
+                  onClick={() => updateFormat({ borderTop: true, borderRight: true, borderBottom: true, borderLeft: true })}
+                  className="px-1 py-1 rounded text-[8px] font-bold border uppercase bg-gray-50 border-gray-100 text-gray-500 hover:bg-emerald-100 transition-all font-black col-span-2"
+                >
+                  All Borders
+                </button>
+              </div>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* Numbers */}
+      <div className="flex items-center gap-1 border-r border-gray-200 pr-4">
+        <button onClick={() => updateFormat({ type: 'currency' })} className={cn("p-1.5 rounded transition-colors hover:bg-gray-100", currentFormat.type === 'currency' ? "bg-emerald-100 text-emerald-700" : "text-gray-500")} title="Format as Currency">
+          <DollarSign size={14} />
+        </button>
+        <button onClick={() => updateFormat({ type: 'percent' })} className={cn("p-1.5 rounded transition-colors hover:bg-gray-100", currentFormat.type === 'percent' ? "bg-emerald-100 text-emerald-700" : "text-gray-500")} title="Format as Percentage">
+          <Percent size={14} />
+        </button>
+        <button onClick={() => updateFormat({ precision: (currentFormat.precision || 0) + 1 })} className="p-1.5 rounded transition-colors hover:bg-gray-100 text-gray-500" title="Increase Decimals">
+          .00<Baseline size={10} className="inline ml-0.5" />
+        </button>
+        <button onClick={() => updateFormat({ precision: Math.max(0, (currentFormat.precision || 0) - 1) })} className="p-1.5 rounded transition-colors hover:bg-gray-100 text-gray-500" title="Decrease Decimals">
+          .0<Baseline size={10} className="inline ml-0.5" />
+        </button>
+        <button onClick={() => updateFormat({ type: 'date' })} className={cn("p-1.5 rounded transition-colors hover:bg-gray-100", currentFormat.type === 'date' ? "bg-emerald-100 text-emerald-700" : "text-gray-500")} title="Format as Date">
+          <Calendar size={14} />
+        </button>
+      </div>
+
+      {/* Colors */}
+      <div className="flex items-center gap-1">
+        <div className="relative group">
+          <button className="p-1.5 rounded transition-colors hover:bg-gray-100 text-gray-500" title="Text Color">
+            <Palette size={14} />
+            <div className="absolute top-full left-0 hidden group-hover:grid grid-cols-4 gap-1 p-2 bg-white border border-gray-200 shadow-xl rounded-xl z-[100] mt-1">
+              {['#000', '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#64748b'].map(c => (
+                <button key={c} onClick={() => updateFormat({ textColor: c })} className="w-4 h-4 rounded-full border border-gray-100" style={{ backgroundColor: c }} />
+              ))}
+            </div>
+          </button>
+        </div>
+        <div className="relative group">
+          <button className="p-1.5 rounded transition-colors hover:bg-gray-100 text-gray-500" title="Fill Color">
+            <PaintBucket size={14} />
+            <div className="absolute top-full left-0 hidden group-hover:grid grid-cols-4 gap-1 p-2 bg-white border border-gray-200 shadow-xl rounded-xl z-[100] mt-1">
+              {['transparent', '#fee2e2', '#dbeafe', '#d1fae5', '#fef3c7', '#ede9fe', '#fce7f3', '#f1f5f9'].map(c => (
+                <button key={c} onClick={() => updateFormat({ bgColor: c })} className="w-4 h-4 rounded-full border border-gray-100" style={{ backgroundColor: c }} />
+              ))}
+            </div>
+          </button>
+        </div>
+      </div>
+      
+      {/* Font selector */}
+      <div className="flex items-center gap-2 ml-auto">
+        <select 
+          className="text-[10px] font-bold bg-gray-100 px-2 py-1 rounded border-none outline-none text-gray-600 cursor-pointer"
+          value={currentFormat.fontFamily || 'Inter'}
+          onChange={(e) => updateFormat({ fontFamily: e.target.value })}
+        >
+          <option value="Inter">Sans</option>
+          <option value="JetBrains Mono">Mono</option>
+          <option value="serif">Serif</option>
+        </select>
+        <select 
+          className="text-[10px] font-bold bg-gray-100 px-2 py-1 rounded border-none outline-none text-gray-600 cursor-pointer"
+          value={currentFormat.fontSize || 12}
+          onChange={(e) => updateFormat({ fontSize: parseInt(e.target.value) })}
+        >
+          {[8, 9, 10, 11, 12, 14, 16, 18, 24].map(s => (
+            <option key={s} value={s}>{s}px</option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
 function SpreadsheetChart({ type, data, onClose }: { type: string, data: string[][], onClose: () => void }) {
   const chartData = useMemo(() => {
     // Basic heuristics: assume row 0 is headers, col 0 is labels
@@ -3894,8 +4535,62 @@ function SpreadsheetChart({ type, data, onClose }: { type: string, data: string[
   );
 }
 
-function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets, setActiveFileInSheets, addNotification, currentUser, openWindow, setPrintQueue, userName }: any) {
+interface DataValidation {
+  type: 'none' | 'list' | 'number' | 'text' | 'date';
+  criteria?: 'between' | 'greaterThan' | 'lessThan' | 'equalTo' | 'contains' | 'isEmail' | 'isUrl';
+  value1?: string | number;
+  value2?: string | number;
+  allowInvalid?: boolean;
+  errorMessage?: string;
+  listValues?: string[];
+}
+
+interface ConditionalRule {
+  type: 'single' | 'scale';
+  operator?: 'greaterThan' | 'lessThan' | 'equalTo' | 'between' | 'contains' | 'empty' | 'notEmpty';
+  value1?: string | number;
+  value2?: string | number;
+  style?: {
+    bold?: boolean;
+    italic?: boolean;
+    textColor?: string;
+    bgColor?: string;
+  };
+  scale?: {
+    minColor: string;
+    maxColor: string;
+    minValue?: number;
+    maxValue?: number;
+  };
+}
+
+interface CellFormat {
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strikethrough?: boolean;
+  alignX?: 'left' | 'center' | 'right';
+  alignY?: 'top' | 'middle' | 'bottom';
+  wrap?: 'wrap' | 'nowrap' | 'clip';
+  fontFamily?: string;
+  fontSize?: number;
+  textColor?: string;
+  bgColor?: string;
+  borderTop?: boolean;
+  borderRight?: boolean;
+  borderBottom?: boolean;
+  borderLeft?: boolean;
+  borderThickness?: number;
+  borderStyle?: 'solid' | 'dashed' | 'dotted';
+  type?: 'text' | 'number' | 'currency' | 'percent' | 'date' | 'sci';
+  precision?: number;
+  validation?: DataValidation;
+  conditionalRules?: ConditionalRule[];
+}
+
+function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets, setActiveFileInSheets, addNotification, currentUser, openWindow, setPrintQueue, userName, runGlassScript, runBrainscript }: any) {
   const [activeCell, setActiveCell] = useState<[number, number] | null>(null);
+  const [selectionRange, setSelectionRange] = useState<{ start: [number, number], end: [number, number] } | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [activeFile, setActiveFile] = useState<{ name: string, path: string[] } | null>(activeFileInSheets);
@@ -3903,7 +4598,202 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveFileName, setSaveFileName] = useState('');
   const [activeChart, setActiveChart] = useState<string | null>(null);
+  const [cellFormats, setCellFormats] = useState<Record<string, CellFormat>>({});
+  const [showValidationDialog, setShowValidationDialog] = useState(false);
+  const [showConditionalDialog, setShowConditionalDialog] = useState(false);
+  const [showScriptPicker, setShowScriptPicker] = useState(false);
   
+  const validateCell = (val: string, validation?: DataValidation): { isValid: boolean, error?: string } => {
+    if (!validation || validation.type === 'none') return { isValid: true };
+    
+    if (validation.type === 'list') {
+      const isValid = validation.listValues?.includes(val) || false;
+      return { isValid, error: isValid ? undefined : validation.errorMessage || 'Value must be from the list' };
+    }
+
+    if (validation.type === 'number') {
+      const num = parseFloat(val);
+      if (isNaN(num)) return { isValid: false, error: 'Value must be a number' };
+      const v1 = parseFloat(validation.value1 as string);
+      const v2 = parseFloat(validation.value2 as string);
+      
+      switch (validation.criteria) {
+        case 'between':
+          if (num < v1 || num > v2) return { isValid: false, error: `Value must be between ${v1} and ${v2}` };
+          break;
+        case 'greaterThan':
+          if (num <= v1) return { isValid: false, error: `Value must be greater than ${v1}` };
+          break;
+        case 'lessThan':
+          if (num >= v1) return { isValid: false, error: `Value must be less than ${v1}` };
+          break;
+        case 'equalTo':
+          if (num !== v1) return { isValid: false, error: `Value must be equal to ${v1}` };
+          break;
+      }
+    }
+
+    if (validation.type === 'text') {
+      switch (validation.criteria) {
+        case 'contains':
+          if (!val.includes(validation.value1 as string)) return { isValid: false, error: `Text must contain "${validation.value1}"` };
+          break;
+        case 'isEmail':
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) return { isValid: false, error: 'Value must be a valid email' };
+          break;
+        case 'isUrl':
+          try { new URL(val); } catch { return { isValid: false, error: 'Value must be a valid URL' }; }
+          break;
+      }
+    }
+
+    return { isValid: true };
+  };
+  
+  const updateFormat = (updates: Partial<CellFormat>) => {
+    if (!activeCell) return;
+    
+    setCellFormats(prev => {
+      const newFormats = { ...prev };
+      
+      if (selectionRange) {
+        const rStart = Math.min(selectionRange.start[0], selectionRange.end[0]);
+        const rEnd = Math.max(selectionRange.start[0], selectionRange.end[0]);
+        const cStart = Math.min(selectionRange.start[1], selectionRange.end[1]);
+        const cEnd = Math.max(selectionRange.start[1], selectionRange.end[1]);
+        
+        for (let r = rStart; r <= rEnd; r++) {
+          for (let c = cStart; c <= cEnd; c++) {
+            const cellId = `${r},${c}`;
+            newFormats[cellId] = { ...newFormats[cellId], ...updates };
+          }
+        }
+      } else {
+        const cellId = `${activeCell[0]},${activeCell[1]}`;
+        newFormats[cellId] = { ...newFormats[cellId], ...updates };
+      }
+      
+      return newFormats;
+    });
+  };
+
+  const getFormattedValue = (val: any, format?: CellFormat): string => {
+    if (val === undefined || val === null || val === '') return '';
+    const num = parseFloat(val);
+    if (isNaN(num)) return val.toString();
+
+    const precision = format?.precision ?? 2;
+
+    switch (format?.type) {
+      case 'currency':
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: precision }).format(num);
+      case 'percent':
+        return new Intl.NumberFormat('en-US', { style: 'percent', minimumFractionDigits: precision }).format(num / 100);
+      case 'date':
+        try {
+           const d = new Date(val);
+           return isNaN(d.getTime()) ? val : d.toLocaleDateString();
+        } catch(e) { return val; }
+      case 'sci':
+        return num.toExponential(precision);
+      case 'number':
+        return num.toFixed(precision);
+      default:
+        return val.toString();
+    }
+  };
+
+  const getCellStyle = (r: number, c: number): React.CSSProperties => {
+    const format = cellFormats[`${r},${c}`] || {};
+    const dispVal = getDisplayValue(r, c);
+    
+    let conditionalStyle: React.CSSProperties = {};
+    if (format.conditionalRules) {
+      for (const rule of format.conditionalRules) {
+        if (rule.type === 'single') {
+          const numVal = parseFloat(dispVal);
+          const v1 = parseFloat(rule.value1 as string);
+          const v2 = parseFloat(rule.value2 as string);
+          let match = false;
+          
+          switch (rule.operator) {
+            case 'greaterThan': match = numVal > v1; break;
+            case 'lessThan': match = numVal < v1; break;
+            case 'equalTo': match = numVal === v1; break;
+            case 'between': match = numVal >= v1 && numVal <= v2; break;
+            case 'contains': match = dispVal.includes(rule.value1 as string); break;
+            case 'empty': match = dispVal === ''; break;
+            case 'notEmpty': match = dispVal !== ''; break;
+          }
+          
+          if (match && rule.style) {
+            conditionalStyle = {
+              ...conditionalStyle,
+              fontWeight: rule.style.bold ? 'bold' : conditionalStyle.fontWeight,
+              fontStyle: rule.style.italic ? 'italic' : conditionalStyle.fontStyle,
+              color: rule.style.textColor || conditionalStyle.color,
+              backgroundColor: rule.style.bgColor || conditionalStyle.backgroundColor,
+            };
+          }
+        } else if (rule.type === 'scale' && rule.scale) {
+          const numVal = parseFloat(dispVal);
+          if (!isNaN(numVal) && rule.scale.minValue !== undefined && rule.scale.maxValue !== undefined) {
+             const min = rule.scale.minValue;
+             const max = rule.scale.maxValue;
+             const ratio = Math.max(0, Math.min(1, (numVal - min) / (max - min)));
+             
+             // Basic HEX interpolation
+             const hexToRgb = (hex: string) => {
+               const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+               return result ? {
+                 r: parseInt(result[1], 16),
+                 g: parseInt(result[2], 16),
+                 b: parseInt(result[3], 16)
+               } : { r: 255, g: 255, b: 255 };
+             };
+             
+             const rgb1 = hexToRgb(rule.scale.minColor || '#ff0000');
+             const rgb2 = hexToRgb(rule.scale.maxColor || '#00ff00');
+             
+             const r = Math.round(rgb1.r + (rgb2.r - rgb1.r) * ratio);
+             const g = Math.round(rgb1.g + (rgb2.g - rgb1.g) * ratio);
+             const b = Math.round(rgb1.b + (rgb2.b - rgb1.b) * ratio);
+             
+             conditionalStyle = {
+               ...conditionalStyle,
+               backgroundColor: `rgb(${r}, ${g}, ${b})`
+             };
+          }
+        }
+      }
+    }
+
+    // Default conditional styling (legacy or hardcoded)
+    const valForDefault = parseFloat(dispVal);
+    if (!isNaN(valForDefault) && valForDefault > 1000 && (!format.conditionalRules || format.conditionalRules.length === 0)) {
+      conditionalStyle = { ...conditionalStyle, color: '#ef4444', fontWeight: 'bold' };
+    }
+
+    return {
+      fontWeight: format.bold ? 'bold' : 'normal',
+      fontStyle: format.italic ? 'italic' : 'normal',
+      textDecoration: `${format.underline ? 'underline' : ''} ${format.strikethrough ? 'line-through' : ''}`.trim(),
+      justifyContent: format.alignX === 'center' ? 'center' : format.alignX === 'right' ? 'flex-end' : 'flex-start',
+      alignItems: format.alignY === 'top' ? 'flex-start' : format.alignY === 'bottom' ? 'flex-end' : 'center',
+      whiteSpace: format.wrap === 'wrap' ? 'normal' : 'nowrap',
+      overflow: format.wrap === 'clip' ? 'hidden' : 'visible',
+      fontFamily: format.fontFamily || 'inherit',
+      fontSize: format.fontSize ? `${format.fontSize}px` : '12px',
+      color: format.textColor || 'inherit',
+      backgroundColor: format.bgColor || 'transparent',
+      borderTop: format.borderTop ? `${format.borderThickness || 2}px ${format.borderStyle || 'solid'} #10b981` : undefined,
+      borderRight: format.borderRight ? `${format.borderThickness || 2}px ${format.borderStyle || 'solid'} #10b981` : undefined,
+      borderBottom: format.borderBottom ? `${format.borderThickness || 2}px ${format.borderStyle || 'solid'} #10b981` : undefined,
+      borderLeft: format.borderLeft ? `${format.borderThickness || 2}px ${format.borderStyle || 'solid'} #10b981` : undefined,
+      ...conditionalStyle,
+    };
+  };
+
   useEffect(() => {
     if (activeFileInSheets) {
       setActiveFile(activeFileInSheets);
@@ -3934,7 +4824,17 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
   }, [sheetData, setSheetData, addNotification]);
 
   const updateCell = (r: number, c: number, val: string) => {
+    const format = cellFormats[`${r},${c}`];
+    const validation = format?.validation;
+    const { isValid, error } = validateCell(val, validation);
+
+    if (!isValid && validation && !validation.allowInvalid) {
+      addNotification('Sheets', error || 'Invalid input', 'error');
+      return;
+    }
+
     const newData = [...sheetData];
+    newData[r] = [...newData[r]];
     newData[r][c] = val;
     setSheetData(newData);
   };
@@ -3960,7 +4860,7 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
         });
       };
 
-      const serializedData = JSON.stringify(sheetData);
+      const serializedData = JSON.stringify({ data: sheetData, formats: cellFormats });
       setFs((prev: FileSystemItem[]) => updateFileContent(prev, activeFile.path, activeFile.name, serializedData));
       setActiveFileInSheets(activeFile);
       addNotification('Sheets', `Saved ${activeFile.name}`, 'success');
@@ -3981,7 +4881,7 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
       return;
     }
 
-    const serializedData = JSON.stringify(sheetData);
+    const serializedData = JSON.stringify({ data: sheetData, formats: cellFormats });
     const newFile: FileSystemItem = {
       name: fileName,
       type: 'file',
@@ -4010,8 +4910,15 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
   const handleOpen = (file: FileSystemItem, path: string[]) => {
     if (file.type === 'file' && file.content) {
       try {
-        const data = JSON.parse(file.content);
-        setSheetData(data);
+        const parsed = JSON.parse(file.content);
+        if (parsed.data && parsed.formats) {
+          setSheetData(parsed.data);
+          setCellFormats(parsed.formats);
+        } else {
+          // Legacy support
+          setSheetData(parsed);
+          setCellFormats({});
+        }
         setActiveFile({ name: file.name, path });
         setActiveFileInSheets({ name: file.name, path });
         setShowOpenDialog(false);
@@ -4164,6 +5071,13 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!activeCell) return;
     const [r, c] = activeCell;
+    const cellId = `${r},${c}`;
+
+    if (e.ctrlKey || e.metaKey) {
+      if (e.key === 'b') { e.preventDefault(); updateFormat({ bold: !cellFormats[cellId]?.bold }); }
+      if (e.key === 'i') { e.preventDefault(); updateFormat({ italic: !cellFormats[cellId]?.italic }); }
+      if (e.key === 'u') { e.preventDefault(); updateFormat({ underline: !cellFormats[cellId]?.underline }); }
+    }
     
     if (e.key === 'ArrowUp' && r > 0) setActiveCell([r - 1, c]);
     if (e.key === 'ArrowDown' && r < sheetData.length - 1) setActiveCell([r + 1, c]);
@@ -4184,7 +5098,12 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
 
   const menuItems = {
     file: [
-      { label: 'New Sheet', shortcut: 'Ctrl+N', action: () => { setSheetData(DEFAULT_SHEET_DATA); setActiveFile(null); setActiveFileInSheets(null); } },
+      { label: 'New Sheet', shortcut: 'Ctrl+N', action: () => { 
+        setSheetData(DEFAULT_SHEET_DATA.map(row => [...row])); 
+        setActiveFile(null); 
+        setActiveFileInSheets(null); 
+        addNotification('Sheets', 'New sheet created', 'success');
+      } },
       { label: 'Open...', shortcut: 'Ctrl+O', action: () => setShowOpenDialog(true) },
       { label: 'Save', shortcut: 'Ctrl+S', action: handleSave },
       { label: 'Save As...', action: () => setShowSaveDialog(true) },
@@ -4199,13 +5118,19 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
       { label: 'Clear All', action: () => setSheetData(DEFAULT_SHEET_DATA.map(row => row.map(() => ''))) },
     ],
     format: [
-      { label: 'Bold', shortcut: 'Ctrl+B' },
-      { label: 'Italic', shortcut: 'Ctrl+I' },
-      { label: 'Underline', shortcut: 'Ctrl+U' },
-      { label: 'Number Format' },
+      { label: 'Bold', shortcut: 'Ctrl+B', action: () => updateFormat({ bold: !cellFormats[`${activeCell?.[0]},${activeCell?.[1]}`]?.bold }) },
+      { label: 'Italic', shortcut: 'Ctrl+I', action: () => updateFormat({ italic: !cellFormats[`${activeCell?.[0]},${activeCell?.[1]}`]?.italic }) },
+      { label: 'Underline', shortcut: 'Ctrl+U', action: () => updateFormat({ underline: !cellFormats[`${activeCell?.[0]},${activeCell?.[1]}`]?.underline }) },
+      { label: 'Conditional Formatting', icon: <Sparkles size={14} />, action: () => setShowConditionalDialog(true) },
+      { label: 'Number Format', action: () => updateFormat({ type: 'number', precision: 2 }) },
+      { label: 'Currency', action: () => updateFormat({ type: 'currency' }) },
+      { label: 'Percentage', action: () => updateFormat({ type: 'percent' }) },
+      { label: 'Scientific', action: () => updateFormat({ type: 'sci' }) },
     ],
     tools: [
+      { label: 'Data Validation', icon: <ShieldCheck size={14} />, action: () => setShowValidationDialog(true) },
       { label: 'Script Editor', action: () => openWindow('codestudio', 'Code Studio') },
+      { label: 'Run Script...', icon: <Play size={14} />, action: () => setShowScriptPicker(true) },
     ],
     graph: [
       { label: 'WORK GRAPHS', type: 'header' },
@@ -4232,31 +5157,25 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
 
   return (
     <div className="h-full flex flex-col bg-white text-[#1a1a1a] font-sans selection:bg-emerald-100 relative">
-      {/* App Header */}
-      <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-white z-10 shrink-0 shadow-sm">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center text-white shadow-lg shadow-emerald-200">
-            <TableIcon size={20} />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold tracking-tight text-gray-900">{activeFile ? activeFile.name : 'Glass Sheets Pro'}</h2>
-            <div className="flex items-center gap-2 text-[9px] uppercase font-bold tracking-widest text-emerald-600">
-              <Activity size={10} /> Live Relational Link
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 border-l border-gray-100 pl-4">
-          <button className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors" title="Add Row" onClick={() => setSheetData([...sheetData, Array(headers.length).fill('')])}><Rows size={18} /></button>
-          <button className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors" title="Add Column" onClick={() => setSheetData(sheetData.map(row => [...row, '']))}><Columns size={18} /></button>
-          <button className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors" onClick={handleSave}><Save size={18} /></button>
-          <button className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold ml-2 shadow-lg shadow-emerald-200 flex items-center gap-2 hover:bg-emerald-700 transition-all" onClick={handlePrint}>
-            <Printer size={14} /> Print
-          </button>
-        </div>
-      </div>
-
       {/* Menu Bar */}
-      <div className="h-8 bg-gray-50 border-b border-gray-200 flex items-center px-4 gap-2 z-20 shrink-0 select-none">
+      <AnimatePresence>
+        {showScriptPicker && (
+          <ScriptPicker 
+            fs={fs} 
+            onClose={() => setShowScriptPicker(false)}
+            onSelect={(content, name) => {
+              setShowScriptPicker(false);
+              if (name.endsWith('.scr') || name.endsWith('.txt')) {
+                runGlassScript(content);
+              } else if (name.endsWith('.b')) {
+                runBrainscript(content, (msg: string) => addNotification('Brainscript', msg, 'info'));
+              }
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <div className="h-8 bg-gray-50 border-b border-gray-200 flex items-center px-4 gap-2 z-[70] shrink-0 select-none">
         {(Object.keys(menuItems) as Array<keyof typeof menuItems>).map((menu) => (
           <div key={menu} className="relative">
             <button 
@@ -4277,7 +5196,7 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
                     initial={{ opacity: 0, y: 5 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 5 }}
-                    className="absolute top-full left-0 min-w-48 bg-white border border-gray-200 rounded-xl shadow-2xl py-2 mt-1 z-50 overflow-hidden"
+                    className="absolute top-full left-0 min-w-48 bg-white border border-gray-200 rounded-xl shadow-2xl py-2 mt-1 z-[100] overflow-hidden"
                   >
                     {menuItems[menu].map((item: any, idx: number) => (
                       item.type === 'header' ? (
@@ -4310,6 +5229,29 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
         ))}
       </div>
 
+      {/* App Header */}
+      <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-white z-10 shrink-0 shadow-sm">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center text-white shadow-lg shadow-emerald-200">
+            <TableIcon size={20} />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold tracking-tight text-gray-900">{activeFile ? activeFile.name : 'Glass Sheets Pro'}</h2>
+            <div className="flex items-center gap-2 text-[9px] uppercase font-bold tracking-widest text-emerald-600">
+              <Activity size={10} /> Live Relational Link
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 border-l border-gray-100 pl-4">
+          <button className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors" title="Add Row" onClick={() => setSheetData([...sheetData, Array(headers.length).fill('')])}><Rows size={18} /></button>
+          <button className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors" title="Add Column" onClick={() => setSheetData(sheetData.map(row => [...row, '']))}><Columns size={18} /></button>
+          <button className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors" onClick={handleSave}><Save size={18} /></button>
+          <button className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold ml-2 shadow-lg shadow-emerald-200 flex items-center gap-2 hover:bg-emerald-700 transition-all" onClick={handlePrint}>
+            <Printer size={14} /> Print
+          </button>
+        </div>
+      </div>
+
       {/* Formula Bar */}
       <div className="p-2 bg-gray-50 border-b border-gray-200 flex items-center gap-3 shrink-0">
         <div className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs font-mono font-bold text-gray-500">
@@ -4327,6 +5269,8 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
         </div>
       </div>
 
+      <FormattingToolbar activeCell={activeCell} cellFormats={cellFormats} updateFormat={updateFormat} />
+
       <div className="flex-1 overflow-auto bg-gray-100 relative custom-scrollbar">
         <table className="border-collapse table-fixed w-full bg-white select-none">
           <thead>
@@ -4343,31 +5287,80 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
                 <td className="bg-gray-100 border-r border-b border-gray-300 text-center text-[10px] text-gray-400 font-bold font-mono">{rIdx + 1}</td>
                 {row.map((cell, cIdx) => {
                   const isActive = activeCell?.[0] === rIdx && activeCell?.[1] === cIdx;
+                  const isInRange = selectionRange && (() => {
+                    const rStart = Math.min(selectionRange.start[0], selectionRange.end[0]);
+                    const rEnd = Math.max(selectionRange.start[0], selectionRange.end[0]);
+                    const cStart = Math.min(selectionRange.start[1], selectionRange.end[1]);
+                    const cEnd = Math.max(selectionRange.start[1], selectionRange.end[1]);
+                    return rIdx >= rStart && rIdx <= rEnd && cIdx >= cStart && cIdx <= cEnd;
+                  })();
+
                   return (
                     <td 
                       key={cIdx} 
-                      onClick={() => {
-                        if (!isActive) {
+                      onClick={(e) => {
+                        if (e.shiftKey && activeCell) {
+                          setSelectionRange({ start: activeCell, end: [rIdx, cIdx] });
+                        } else {
                           setActiveCell([rIdx, cIdx]);
+                          setSelectionRange(null);
                           setIsEditing(false);
                         }
                       }}
                       onDoubleClick={() => setIsEditing(true)}
-                      className={`border-r border-b border-gray-200 h-10 p-0 relative group transition-colors ${isActive ? 'ring-2 ring-inset ring-emerald-500 z-10 bg-emerald-50/20' : 'hover:bg-gray-50/50'}`}
+                      className={cn(
+                        "border-r border-b border-gray-200 h-10 p-0 relative group transition-colors",
+                        isActive && "ring-2 ring-inset ring-emerald-500 z-10 bg-emerald-50/20",
+                        isInRange && "bg-emerald-600/10 ring-1 ring-inset ring-emerald-500/30",
+                        !isActive && !isInRange && "hover:bg-gray-50/50"
+                      )}
                     >
                       {isActive && isEditing ? (
-                        <input 
-                          autoFocus
-                          type="text"
-                          className="w-full h-full px-3 text-xs focus:outline-none bg-white font-medium shadow-inner"
-                          value={cell}
-                          onChange={(e) => updateCell(rIdx, cIdx, e.target.value)}
-                          onBlur={() => setIsEditing(false)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') setIsEditing(false);
-                            handleKeyDown(e);
-                          }}
-                        />
+                        cellFormats[`${rIdx},${cIdx}`]?.validation?.type === 'list' ? (
+                          <div className="absolute inset-0 bg-white z-20 flex items-center p-0.5">
+                            <select
+                              autoFocus
+                              className="w-full h-full text-xs font-medium border-none outline-none bg-emerald-50 rounded"
+                              value={cell}
+                              onChange={(e) => {
+                                updateCell(rIdx, cIdx, e.target.value);
+                                setIsEditing(false);
+                              }}
+                              onBlur={() => setIsEditing(false)}
+                            >
+                              <option value="">Select...</option>
+                              {cellFormats[`${rIdx},${cIdx}`]?.validation?.listValues?.map(opt => (
+                                <option key={opt} value={opt}>{opt}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : (
+                          <input 
+                            autoFocus
+                            type="text"
+                            className="w-full h-full px-3 text-xs focus:outline-none bg-white font-medium shadow-inner"
+                            style={getCellStyle(rIdx, cIdx)}
+                            value={cell}
+                            onChange={(e) => {
+                              const newData = [...sheetData];
+                              newData[rIdx] = [...newData[rIdx]];
+                              newData[rIdx][cIdx] = e.target.value;
+                              setSheetData(newData);
+                            }}
+                            onBlur={() => {
+                              updateCell(rIdx, cIdx, cell);
+                              setIsEditing(false);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                updateCell(rIdx, cIdx, cell);
+                                setIsEditing(false);
+                              }
+                              if (e.key === 'Escape') setIsEditing(false);
+                              handleKeyDown(e);
+                            }}
+                          />
+                        )
                       ) : (
                         <div 
                           tabIndex={0}
@@ -4379,11 +5372,25 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
                             }
                             handleKeyDown(e);
                           }}
-                          className="w-full h-full px-3 text-xs flex items-center font-medium outline-none cursor-cell select-text overflow-hidden"
+                          className="w-full h-full px-3 text-xs flex font-medium outline-none cursor-cell select-text overflow-hidden relative group/cell"
+                          style={getCellStyle(rIdx, cIdx)}
+                          onClick={() => setActiveCell([rIdx, cIdx])}
+                          onDoubleClick={() => setIsEditing(true)}
                         >
                           <span className={cn("truncate", cell && cell.toString().startsWith('=') && "text-emerald-700 font-bold")}>
-                            {getDisplayValue(rIdx, cIdx)}
+                            {getFormattedValue(getDisplayValue(rIdx, cIdx), cellFormats[`${rIdx},${cIdx}`])}
                           </span>
+                          
+                          {/* Validation Indicators */}
+                          {cellFormats[`${rIdx},${cIdx}`]?.validation?.type === 'list' && (
+                            <ChevronDown size={10} className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-300 group-hover/cell:text-emerald-500" />
+                          )}
+                          
+                          {cellFormats[`${rIdx},${cIdx}`]?.validation?.type && cellFormats[`${rIdx},${cIdx}`]?.validation?.type !== 'none' && (
+                            !validateCell(cell, cellFormats[`${rIdx},${cIdx}`]?.validation).isValid && (
+                              <div className="absolute top-0 right-0 w-0 h-0 border-t-[6px] border-l-[6px] border-t-red-500 border-l-transparent" title={validateCell(cell, cellFormats[`${rIdx},${cIdx}`]?.validation).error} />
+                            )
+                          )}
                         </div>
                       )}
                     </td>
@@ -4484,6 +5491,24 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
           type={activeChart} 
           data={sheetData} 
           onClose={() => setActiveChart(null)} 
+        />
+      )}
+
+      {showValidationDialog && (
+        <ValidationDialog 
+          activeCell={activeCell} 
+          cellFormats={cellFormats} 
+          updateFormat={updateFormat} 
+          onClose={() => setShowValidationDialog(false)} 
+        />
+      )}
+
+      {showConditionalDialog && (
+        <ConditionalFormattingDialog 
+          activeCell={activeCell} 
+          cellFormats={cellFormats} 
+          updateFormat={updateFormat} 
+          onClose={() => setShowConditionalDialog(false)} 
         />
       )}
     </div>
@@ -6202,7 +7227,7 @@ function Screensaver({ type, onDismiss }: { type: string, onDismiss: () => void 
   );
 }
 
-function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindow, setPrintQueue, userName, glassWordContent, setGlassWordContent, activeFileInGlassWord, setActiveFileInGlassWord }: any) {
+function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindow, setPrintQueue, userName, glassWordContent, setGlassWordContent, activeFileInGlassWord, setActiveFileInGlassWord, runGlassScript, runBrainscript }: any) {
   const [content, setContent] = useState(glassWordContent || DEFAULT_GLASSWORD_CONTENT);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState(new Date().toLocaleTimeString());
@@ -6210,6 +7235,7 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
   const [showOpenDialog, setShowOpenDialog] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveFileName, setSaveFileName] = useState('');
+  const [showScriptPicker, setShowScriptPicker] = useState(false);
   const editorRef = useRef<HTMLDivElement>(null);
   const lastContent = useRef(content);
   const lastSelection = useRef('');
@@ -6489,6 +7515,7 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
           const words = content.replace(/<[^>]*>?/gm, '').split(/\s+/).filter(Boolean).length;
           addNotification('GlassWord', `Word Count: ${words}`, 'info');
         }},
+        { label: 'Run Script...', action: () => setShowScriptPicker(true) },
         { label: 'Code Studio', action: () => openWindow('codestudio', 'Code Studio') },
         { label: 'Terminal', action: () => openWindow('terminal', 'Terminal') }
       ] 
@@ -6498,6 +7525,23 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
   return (
     <div className="h-full flex flex-col bg-slate-950/40 overflow-hidden font-sans">
       {/* Menu Bar */}
+      <AnimatePresence>
+        {showScriptPicker && (
+          <ScriptPicker 
+            fs={fs} 
+            onClose={() => setShowScriptPicker(false)}
+            onSelect={(content, name) => {
+              setShowScriptPicker(false);
+              if (name.endsWith('.scr') || name.endsWith('.txt')) {
+                runGlassScript(content);
+              } else if (name.endsWith('.b')) {
+                runBrainscript(content, (msg: string) => addNotification('Brainscript', msg, 'info'));
+              }
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       <div className="h-8 flex items-center px-4 bg-white/5 backdrop-blur-xl border-b border-white/10 z-50">
         {menuItems.map((menu) => (
           <div key={menu.label} className="relative">
@@ -8538,6 +9582,10 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
   const [showHistory, setShowHistory] = useState(false);
   const [isSecureMode, setIsSecureMode] = useState(true);
 
+  const [view, setView] = useState<'browser' | 'composer'>('browser');
+  const [composerContent, setComposerContent] = useState('<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: sans-serif; color: #333; padding: 2rem; }\n    h1 { color: #2563eb; }\n  </style>\n</head>\n<body>\n  <h1>My Custom Page</h1>\n  <p>Built with GlassOS HTML Composer.</p>\n</body>\n</html>');
+  const [composerFileName, setComposerFileName] = useState('new_page.html');
+
   const activeTab = useMemo(() => 
     tabs.find(t => t.id === activeTabId) || tabs[0],
     [tabs, activeTabId]
@@ -8689,6 +9737,28 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
             <Shield size={16} />
           </button>
           <button 
+            onClick={() => {
+              const fileName = activeTab.url.replace('local://', '');
+              if (activeTab.url.startsWith('local://')) {
+                const content = fsLib.read(`/GlassDrive/webpages/${fileName}`);
+                if (content) {
+                  setComposerContent(content);
+                  setComposerFileName(fileName);
+                  setView('composer');
+                }
+              } else {
+                setView('composer');
+              }
+            }}
+            className={cn(
+              "p-2 rounded-full transition-all",
+              view === 'composer' ? "bg-blue-500/10 text-blue-600" : "text-slate-400 hover:bg-slate-100"
+            )}
+            title="HTML Composer"
+          >
+            <Code2 size={16} />
+          </button>
+          <button 
             onClick={() => setShowHistory(!showHistory)}
             className={cn(
               "p-2 rounded-full transition-all",
@@ -8703,50 +9773,134 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
 
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden bg-white">
-        <div className="flex-1 relative">
-          {tabs.map(tab => (
-            <div 
-              key={tab.id} 
-              className={cn("absolute inset-0", activeTabId === tab.id ? "block" : "hidden")}
-            >
-              {tab.localContent ? (
-                <div 
-                  className="w-full h-full overflow-auto bg-white"
-                  dangerouslySetInnerHTML={{ __html: tab.localContent }}
-                  onClick={(e) => {
-                    const target = e.target as HTMLElement;
-                    const link = target.closest('a');
-                    const href = link?.getAttribute('href');
-                    if (href?.startsWith('local://')) {
-                      e.preventDefault();
-                      const content = getLocalPageContent(href);
-                      if (content) {
-                        setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, url: href, localContent: content } : t));
-                        setUrlInput(href);
-                        setHistory(prev => [href, ...prev.filter(h => h !== href)].slice(0, 50));
-                        addNotification('Browser', `Navigating to ${href}`, 'info');
-                      } else {
-                        addNotification('Browser', `Page ${href} not found`, 'error');
+        {view === 'browser' ? (
+          <div className="flex-1 relative">
+            {tabs.map(tab => (
+              <div 
+                key={tab.id} 
+                className={cn("absolute inset-0", activeTabId === tab.id ? "block" : "hidden")}
+              >
+                {tab.localContent ? (
+                  <div 
+                    className="w-full h-full overflow-auto bg-white"
+                    dangerouslySetInnerHTML={{ __html: tab.localContent }}
+                    onClick={(e) => {
+                      const target = e.target as HTMLElement;
+                      const link = target.closest('a');
+                      const href = link?.getAttribute('href');
+                      if (href?.startsWith('local://')) {
+                        e.preventDefault();
+                        const content = getLocalPageContent(href);
+                        if (content) {
+                          setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, url: href, localContent: content } : t));
+                          setUrlInput(href);
+                          setHistory(prev => [href, ...prev.filter(h => h !== href)].slice(0, 50));
+                          addNotification('Browser', `Navigating to ${href}`, 'info');
+                        } else {
+                          addNotification('Browser', `Page ${href} not found`, 'error');
+                        }
                       }
+                    }}
+                  />
+                ) : (
+                  <iframe 
+                    src={tab.url} 
+                    className={cn(
+                      "w-full h-full border-none transition-all",
+                      !isSecureMode && "grayscale brightness-90 saturate-50"
+                    )}
+                    title={`Tab ${tab.id}`}
+                  />
+                )}
+              </div>
+            ))}
+            <div className="absolute bottom-4 right-4 bg-white/80 backdrop-blur-sm border border-slate-200 p-2 rounded-lg text-[10px] text-slate-500 pointer-events-none shadow-sm">
+              Note: Some sites block embedding for security.
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col bg-slate-900 border-l border-white/5">
+            <div className="h-10 bg-slate-800 flex items-center justify-between px-4 border-b border-white/5">
+              <div className="flex items-center gap-3">
+                <LayoutGrid size={14} className="text-blue-400" />
+                <span className="text-[10px] font-bold text-white/60 uppercase tracking-widest">HTML Composer</span>
+                <div className="h-4 w-[1px] bg-white/10 mx-2" />
+                <input 
+                  value={composerFileName}
+                  onChange={(e) => setComposerFileName(e.target.value)}
+                  className="bg-transparent border-none text-[10px] text-white focus:outline-none w-32 font-mono"
+                  placeholder="filename.html"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => {
+                    const cleanName = composerFileName.endsWith('.html') ? composerFileName : composerFileName + '.html';
+                    fsLib.write(`/GlassDrive/webpages/${cleanName}`, composerContent);
+                    addNotification('Composer', `Saved ${cleanName} to GlassDrive/webpages`, 'success');
+                    // Refresh current tab if it matches
+                    if (activeTab.url === `local://${cleanName}`) {
+                      setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, localContent: composerContent } : t));
                     }
                   }}
-                />
-              ) : (
-                <iframe 
-                  src={tab.url} 
-                  className={cn(
-                    "w-full h-full border-none transition-all",
-                    !isSecureMode && "grayscale brightness-90 saturate-50"
-                  )}
-                  title={`Tab ${tab.id}`}
-                />
-              )}
+                  className="px-3 py-1 bg-blue-500 hover:bg-blue-600 rounded text-[10px] font-bold text-white transition-all flex items-center gap-2"
+                >
+                  <Save size={12} />
+                  Save Changes
+                </button>
+                <button 
+                  onClick={() => setView('browser')}
+                  className="p-1 hover:bg-white/10 rounded-lg text-white/40 hover:text-white"
+                >
+                  <X size={14} />
+                </button>
+              </div>
             </div>
-          ))}
-          <div className="absolute bottom-4 right-4 bg-white/80 backdrop-blur-sm border border-slate-200 p-2 rounded-lg text-[10px] text-slate-500 pointer-events-none shadow-sm">
-            Note: Some sites block embedding for security.
+            <div className="h-8 bg-slate-800/50 border-b border-white/5 flex items-center px-2 gap-1 overflow-x-auto no-scrollbar">
+               {[
+                 { label: 'H1', snippet: '<h1>Title</h1>' },
+                 { label: 'P', snippet: '<p>Paragraph text here</p>' },
+                 { label: 'DIV', snippet: '<div style="padding: 20px; background: #f0f0f0;">\n  \n</div>' },
+                 { label: 'IMG', snippet: '<img src="https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=400" style="width: 100%; border-radius: 8px;" />' },
+                 { label: 'A', snippet: '<a href="local://home.html" style="color: blue;">Link</a>' },
+                 { label: 'BUTTON', snippet: '<button style="padding: 10px 20px; background: blue; color: white; border: none; border-radius: 4px;">Click Me</button>' },
+                 { label: 'STYLE', snippet: '<style>\n  .box { padding: 20px; border: 1px solid #ccc; }\n</style>' },
+                 { label: 'SCRIPT', snippet: '<script>\n  console.log("Hello from page!");\n</script>' },
+               ].map(tool => (
+                 <button 
+                  key={tool.label}
+                  onClick={() => setComposerContent(prev => prev + tool.snippet)}
+                  className="px-2 py-0.5 rounded hover:bg-white/10 text-[9px] text-white/40 hover:text-white transition-all font-mono"
+                 >
+                   {tool.label}
+                 </button>
+               ))}
+            </div>
+            <div className="flex-1 flex overflow-hidden">
+               <div className="flex-1 border-r border-white/5 flex flex-col">
+                  <div className="p-2 bg-slate-900/50 border-b border-white/5 flex items-center justify-between">
+                     <span className="text-[9px] text-white/30 uppercase font-bold tracking-tighter">Markdown / HTML Editor</span>
+                  </div>
+                  <textarea 
+                    value={composerContent}
+                    onChange={(e) => setComposerContent(e.target.value)}
+                    className="flex-1 w-full bg-slate-900 text-slate-300 p-4 font-mono text-xs focus:outline-none border-none resize-none no-scrollbar"
+                    spellCheck={false}
+                  />
+               </div>
+               <div className="flex-1 flex flex-col bg-white">
+                  <div className="p-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                     <span className="text-[9px] text-slate-400 uppercase font-bold tracking-tighter">Live Real-time Preview</span>
+                     <Eye size={12} className="text-slate-300" />
+                  </div>
+                  <div 
+                    className="flex-1 overflow-auto p-4 select-text"
+                    dangerouslySetInnerHTML={{ __html: composerContent }}
+                  />
+               </div>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* History Sidebar */}
         <AnimatePresence>
@@ -9087,13 +10241,95 @@ function CodeStudioApp({
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [temperature, setTemperature] = useState(0.7);
   const [isDebugMode, setIsDebugMode] = useState(false);
+  const [collapsedLines, setCollapsedLines] = useState<Set<number>>(new Set());
+
+  const getFoldableBlocks = useCallback(() => {
+    if (!activeFile.endsWith('.b')) return [];
+    
+    const lines = code.split('\n');
+    const blocks: { start: number; end: number }[] = [];
+    const stack: number[] = [];
+
+    lines.forEach((line, i) => {
+      const trimmed = line.trim().toUpperCase();
+      // Brainscript: Start or IF ... START
+      if (trimmed === 'START' || (trimmed.startsWith('IF') && trimmed.includes('START'))) {
+        stack.push(i);
+      } else if (trimmed === 'END') {
+        const start = stack.pop();
+        if (start !== undefined) {
+          blocks.push({ start, end: i });
+        }
+      }
+    });
+
+    return blocks;
+  }, [code, activeFile]);
+
+  const toggleFold = (startLine: number) => {
+    const blocks = getFoldableBlocks();
+    const block = blocks.find(b => b.start === startLine);
+    if (!block) return;
+
+    setCollapsedLines(prev => {
+      const next = new Set(prev);
+      const isCurrentlyFolded = next.has(startLine);
+      
+      if (isCurrentlyFolded) {
+        next.delete(startLine);
+      } else {
+        next.add(startLine);
+      }
+      return next;
+    });
+  };
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const highlightCode = (code: string) => {
+  const COMMON_SNIPPETS = {
+    Brainscript: [
+      { name: 'Start Block', code: '@@Main\nStart\n  // Code here\nEnd' },
+      { name: 'Variable Assignment', code: 'LET $var = "Value"' },
+      { name: 'Conditional (IF)', code: 'IF $var == 1: START\n  PRINT "True"\nEND' },
+      { name: 'Print Statement', code: 'PRINT "Hello World"' },
+      { name: 'Input Prompt', code: 'INPUT $name: "Enter your name: "' },
+      { name: 'Comment', code: '// This is a remark' },
+    ],
+    GlassScript: [
+      { name: 'Tell Application', code: 'tell app "Finder": start\n  notify "Hello from GlassOS"\nend' },
+      { name: 'Set Variable', code: 'set $var to "Value"' },
+      { name: 'Wait', code: 'wait 1 second' },
+      { name: 'System Date', code: 'set $today to system.date' },
+      { name: 'Writer', code: 'write "GlassOS is great"' },
+    ]
+  };
+
+  const insertSnippet = (snippet: string) => {
+    if (!textareaRef.current) return;
+    const textarea = textareaRef.current;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    const before = text.substring(0, start);
+    const after = text.substring(end);
+    const newText = before + snippet + after;
+    setCode(newText);
+    setIsDirty(true);
+    setActiveMenu(null);
+    
+    // Focus back and set cursor position
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + snippet.length, start + snippet.length);
+    }, 0);
+  };
+
+  const highlightCode = (content: string) => {
+    // We expect content here to be the visible code
     if (activeFile.endsWith('.b')) {
-      const lines = code.split('\n').map((line, idx) => {
+      const lines = content.split('\n').map((line, idx) => {
         let highlighted = line;
         highlighted = highlighted.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         highlighted = highlighted.replace(/'(.*?)'/g, '<span class="text-amber-400">\'$1\'</span>');
@@ -9650,6 +10886,46 @@ function CodeStudioApp({
                 )}
               </AnimatePresence>
             </div>
+            
+            {/* Snippets Menu */}
+            <div className="relative">
+              <button 
+                onClick={() => setActiveMenu(activeMenu === 'snippets' ? null : 'snippets')}
+                className={cn("hover:text-white transition-colors py-2 flex items-center gap-1", activeMenu === 'snippets' && "text-white")}
+              >
+                Snippets
+                <ChevronDown size={10} className={cn("transition-transform", activeMenu === 'snippets' && "rotate-180")} />
+              </button>
+              <AnimatePresence>
+                {activeMenu === 'snippets' && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 5 }}
+                    className="absolute top-full left-0 w-64 glass-dark border border-white/10 rounded-lg shadow-2xl py-1 z-[3000]"
+                  >
+                    <div className="px-4 py-1 text-[9px] uppercase font-bold text-white/30 tracking-widest flex items-center gap-2">
+                       <Code size={10} /> {activeFile.endsWith('.b') ? 'Brainscript' : activeFile.endsWith('.scr') ? 'GlassScript' : 'Snippets'}
+                    </div>
+                    {(activeFile.endsWith('.b') ? COMMON_SNIPPETS.Brainscript : activeFile.endsWith('.scr') ? COMMON_SNIPPETS.GlassScript : []).map(snippet => (
+                      <button 
+                        key={snippet.name}
+                        onClick={() => insertSnippet(snippet.code)}
+                        className="w-full text-left px-4 py-2 hover:bg-white/10 flex flex-col gap-0.5"
+                      >
+                        <span className="text-[11px] text-white/90 font-bold">{snippet.name}</span>
+                        <code className="text-[9px] text-white/40 truncate font-mono">{snippet.code.split('\n')[0]}...</code>
+                      </button>
+                    ))}
+                    {( !activeFile.endsWith('.b') && !activeFile.endsWith('.scr') ) && (
+                      <div className="px-4 py-2 text-[10px] text-white/40 italic">
+                        No snippets available for this file type.
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
           <div className="h-4 w-[1px] bg-white/10 mx-2" />
           <div className="flex items-center gap-3">
@@ -9778,16 +11054,41 @@ function CodeStudioApp({
               ref={gutterRef}
               className="w-10 bg-black/40 border-r border-white/10 flex flex-col py-6 items-end pr-2 overflow-hidden select-none"
             >
-              {code.split('\n').map((_, i) => (
-                <div key={i} className="h-[21px] flex items-center">
-                  <span className={cn(
-                    "text-[10px] font-mono",
-                    isDebugMode ? "text-blue-400/60" : "text-white/20"
-                  )}>
-                    {i + 1}
-                  </span>
-                </div>
-              ))}
+              {(() => {
+                const lines = code.split('\n');
+                const foldable = getFoldableBlocks();
+                const visible = [];
+                for (let i = 0; i < lines.length; i++) {
+                  const block = foldable.find(b => b.start === i);
+                  const isFolded = collapsedLines.has(i);
+                  
+                  visible.push(
+                    <div key={i} className="h-[21px] flex items-center gap-1 group/gutter relative">
+                      {block && (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); toggleFold(i); }}
+                          className="absolute -left-1 text-white/40 hover:text-white transition-colors"
+                        >
+                          {isFolded ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
+                        </button>
+                      )}
+                      <span className={cn(
+                        "text-[9px] font-mono",
+                        isDebugMode ? "text-blue-400/60" : "text-white/20"
+                      )}>
+                        {i + 1}
+                      </span>
+                    </div>
+                  );
+                  
+                  if (isFolded && block) {
+                    i = block.end;
+                    // Add a tiny indicator that lines are hidden
+                    visible.push(<div key={`fold-${i}`} className="h-[2px] w-2 bg-blue-500/30 self-center rounded-full my-1" />);
+                  }
+                }
+                return visible;
+              })()}
             </div>
 
             <div className="flex-1 min-h-[100px] overflow-hidden flex flex-col">
@@ -9799,7 +11100,25 @@ function CodeStudioApp({
                     "absolute inset-0 p-6 font-mono text-sm leading-relaxed pointer-events-none whitespace-pre overflow-hidden",
                     THEMES[currentTheme].text
                   )}
-                  dangerouslySetInnerHTML={{ __html: highlightCode(code) + '\n\n' }}
+                  dangerouslySetInnerHTML={{ 
+                    __html: highlightCode(
+                      (() => {
+                        const lines = code.split('\n');
+                        const foldable = getFoldableBlocks();
+                        const result = [];
+                        for (let i = 0; i < lines.length; i++) {
+                          const isFolded = collapsedLines.has(i);
+                          const block = foldable.find(b => b.start === i);
+                          result.push(lines[i]);
+                          if (isFolded && block) {
+                            result[result.length - 1] += ' { ... }';
+                            i = block.end;
+                          }
+                        }
+                        return result.join('\n');
+                      })()
+                    ) + '\n\n' 
+                  }}
                 />
                 {/* Input Layer */}
                 <textarea 
@@ -9809,10 +11128,28 @@ function CodeStudioApp({
                     "text-transparent selection:bg-blue-500/30 overflow-auto whitespace-pre",
                   )}
                   spellCheck={false}
-                  value={code}
+                  value={(() => {
+                    const lines = code.split('\n');
+                    const foldable = getFoldableBlocks();
+                    const result = [];
+                    for (let i = 0; i < lines.length; i++) {
+                      const isFolded = collapsedLines.has(i);
+                      const block = foldable.find(b => b.start === i);
+                      result.push(lines[i]);
+                      if (isFolded && block) {
+                        // We add a placeholder in the textarea too so the lines match up
+                        result[result.length - 1] += ' { ... }';
+                        i = block.end;
+                      }
+                    }
+                    return result.join('\n');
+                  })()}
+                  readOnly={collapsedLines.size > 0} // Simplify: read-only when folded to avoid complex mapping
                   onChange={(e) => {
-                    setCode(e.target.value);
-                    setIsDirty(true);
+                    if (collapsedLines.size === 0) {
+                      setCode(e.target.value);
+                      setIsDirty(true);
+                    }
                   }}
                   onScroll={handleScroll}
                   onKeyDown={(e) => {
