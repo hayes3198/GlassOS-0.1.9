@@ -8,6 +8,9 @@
 }
 
 @layer base {
+  html, body, #root {
+    @apply h-full w-full;
+  }
   body {
     @apply font-sans text-white overflow-hidden bg-slate-900;
     background-size: cover;

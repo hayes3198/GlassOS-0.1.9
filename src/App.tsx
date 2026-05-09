@@ -45,7 +45,6 @@ import {
   Trash2,
   FileCode,
   Box,
-  Activity,
   Save,
   Send,
   Upload,
@@ -107,9 +106,60 @@ import {
   Outdent,
   Eraser,
   LayoutGrid,
-  Gauge
+  Gauge,
+  Activity,
+  TrendingUp,
+  Target,
+  BarChart,
+  BarChart2,
+  LineChart as LineChartIcon,
+  PieChart as PieChartIcon,
+  AreaChart as AreaChartIcon,
+  BoxSelect as BoxIcon,
+  Grid3X3,
+  Radar as RadarIcon,
+  LayoutGrid as TreemapIcon,
+  ListFilter,
+  BarChart3,
+  GanttChartSquare,
+  Binary,
+  Presentation,
+  Filter,
+  Briefcase,
+  User as UserIcon,
+  Monitor as MonitorIcon,
 } from 'lucide-react';
 import { motion, AnimatePresence, useDragControls } from 'motion/react';
+import { 
+  BarChart as ReBarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  Legend, 
+  ResponsiveContainer, 
+  LineChart as ReLineChart, 
+  Line, 
+  AreaChart as ReAreaChart, 
+  Area, 
+  PieChart as RePieChart, 
+  Pie, 
+  Cell, 
+  RadarChart as ReRadarChart, 
+  PolarGrid, 
+  PolarAngleAxis, 
+  PolarRadiusAxis, 
+  Radar as ReRadar,
+  Treemap as ReTreemap,
+  ScatterChart,
+  Scatter,
+  ZAxis,
+  FunnelChart,
+  Funnel,
+  LabelList,
+  ComposedChart
+} from 'recharts';
 import { GlassScriptInterpreter } from './lib/glassScript';
 import { BrainscriptInterpreter } from './lib/brainscript';
 import { FilesApp } from './FilesApp';
@@ -800,10 +850,15 @@ export default function App() {
   const updateWindowPos = (id: AppId, x: number, y: number) => {
     setWindows(prev => prev.map(w => {
       if (w.id !== id) return w;
-      const screenW = window.innerWidth;
-      const screenH = window.innerHeight;
+      
+      const desktop = desktopRef.current;
+      const screenW = desktop ? desktop.offsetWidth : window.innerWidth;
+      const screenH = desktop ? desktop.offsetHeight : window.innerHeight;
+      
+      // Strict bounding for window coordinates
       const safeX = Math.max(0, Math.min(x, screenW - 100)); // Keep title bar reachable
       const safeY = Math.max(0, Math.min(y, screenH - 96));  // Keep above taskbar
+      
       return { ...w, x: safeX, y: safeY };
     }));
   };
@@ -942,7 +997,7 @@ export default function App() {
   return (
     <div 
       ref={desktopRef}
-      className="h-screen w-screen relative overflow-hidden select-text font-sans transition-all duration-500"
+      className="h-full w-full relative overflow-hidden select-text font-sans transition-all duration-500"
       style={{ 
         backgroundImage: `url(${wallpaper})`,
         '--system-font-family': `${systemFontFamily}, sans-serif`,
@@ -1348,7 +1403,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Taskbar */}
-      <div className="absolute bottom-0 left-0 right-0 h-12 glass-dark flex items-center px-2 gap-2 z-[1000]">
+      <div className="absolute bottom-0 left-0 right-0 h-12 glass-dark flex items-center px-2 gap-2 z-[5000]">
         <button 
           onClick={() => setIsStartMenuOpen(!isStartMenuOpen)}
           className={cn(
@@ -1602,10 +1657,10 @@ function Window({ win, isActive, onFocus, onClose, onMinimize, onMaximize, onRes
         opacity: 1, 
         scale: 1, 
         y: 0,
-        width: win.width,
-        height: win.height,
-        left: win.x,
-        top: win.y,
+        width: win.isMaximized ? "100%" : win.width,
+        height: win.isMaximized ? "calc(100% - 48px)" : win.height,
+        left: win.isMaximized ? 0 : win.x,
+        top: win.isMaximized ? 0 : win.y,
         zIndex: win.zIndex
       }}
       exit={{ opacity: 0, scale: 0.9, y: 20 }}
@@ -1618,10 +1673,11 @@ function Window({ win, isActive, onFocus, onClose, onMinimize, onMaximize, onRes
       dragConstraints={dragConstraints}
       dragElastic={0.1}
       whileDrag={{ scale: 1.01, boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)" }}
-      onDragEnd={(e) => {
-        if (windowRef.current) {
+      onDragEnd={() => {
+        if (windowRef.current && dragConstraints && dragConstraints.current) {
           const rect = windowRef.current.getBoundingClientRect();
-          onDragEnd(rect.left, rect.top);
+          const desktopRect = dragConstraints.current.getBoundingClientRect();
+          onDragEnd(rect.left - desktopRect.left, rect.top - desktopRect.top);
         }
       }}
       onPointerDown={onFocus}
@@ -3517,6 +3573,327 @@ function CalendarApp({ calendarEvents, setCalendarEvents, addNotification }: any
   );
 }
 
+function SpreadsheetChart({ type, data, onClose }: { type: string, data: string[][], onClose: () => void }) {
+  const chartData = useMemo(() => {
+    // Basic heuristics: assume row 0 is headers, col 0 is labels
+    const headers = data[0];
+    const rows = data.slice(1).filter(row => row.some(cell => cell.trim() !== ''));
+    
+    return rows.map((row, idx) => {
+      const obj: any = { name: row[0] || `Row ${idx + 1}` };
+      headers.slice(1).forEach((header, colIdx) => {
+        const val = parseFloat(row[colIdx + 1]);
+        obj[header || `Col ${colIdx + 1}`] = isNaN(val) ? 0 : val;
+      });
+      return obj;
+    });
+  }, [data]);
+
+  const headers = data[0].slice(1).filter(h => h.trim() !== '');
+  const COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#ec4899'];
+
+  const renderChart = () => {
+    switch (type) {
+      case 'Clustered Column':
+      case 'Clustered Bar':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <ReBarChart data={chartData} layout={type === 'Clustered Bar' ? 'vertical' : 'horizontal'}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              {type === 'Clustered Bar' ? <YAxis dataKey="name" type="category" /> : <XAxis dataKey="name" />}
+              {type === 'Clustered Bar' ? <XAxis type="number" /> : <YAxis />}
+              <Tooltip cursor={{fill: 'rgba(16, 185, 129, 0.05)'}} />
+              <Legend />
+              {headers.map((h, i) => <Bar key={h} dataKey={h} fill={COLORS[i % COLORS.length]} radius={[4, 4, 0, 0]} />)}
+            </ReBarChart>
+          </ResponsiveContainer>
+        );
+      case 'Line Chart':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <ReLineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              {headers.map((h, i) => <Line key={h} type="monotone" dataKey={h} stroke={COLORS[i % COLORS.length]} strokeWidth={3} dot={{ r: 6 }} activeDot={{ r: 8 }} />)}
+            </ReLineChart>
+          </ResponsiveContainer>
+        );
+      case 'Stacked Area':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <ReAreaChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              {headers.map((h, i) => <Area key={h} type="monotone" dataKey={h} stackId="1" stroke={COLORS[i % COLORS.length]} fill={COLORS[i % COLORS.length]} fillOpacity={0.6} />)}
+            </ReAreaChart>
+          </ResponsiveContainer>
+        );
+      case 'Combo Chart':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              {headers.map((h, i) => i === 0 
+                ? <Bar key={h} dataKey={h} fill={COLORS[i % COLORS.length]} radius={[4, 4, 0, 0]} />
+                : <Line key={h} type="monotone" dataKey={h} stroke={COLORS[i % COLORS.length]} strokeWidth={3} />
+              )}
+            </ComposedChart>
+          </ResponsiveContainer>
+        );
+      case 'Gantt Chart':
+        // Simplified Gantt using stacked bars (start offset + duration)
+        const ganttData = useMemo(() => {
+          let startOffset = 0;
+          return chartData.map(item => {
+            const duration = item[headers[0]] || 5;
+            const res = { ...item, offset: startOffset, duration };
+            startOffset += duration;
+            return res;
+          });
+        }, [chartData, headers]);
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <ReBarChart data={ganttData} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis type="number" />
+              <YAxis dataKey="name" type="category" />
+              <Tooltip />
+              <Bar dataKey="offset" stackId="a" fill="transparent" />
+              <Bar dataKey="duration" stackId="a" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+            </ReBarChart>
+          </ResponsiveContainer>
+        );
+      case 'Icon Chart':
+        return (
+          <div className="flex flex-wrap gap-8 group h-full items-center justify-center">
+            {chartData.map((item, idx) => {
+              const count = Math.min(Math.floor((item[headers[0]] || 0) / 10), 50); // Scale 1 icon = 10 units
+              return (
+                <div key={idx} className="flex flex-col items-center">
+                  <div className="flex flex-wrap gap-1 max-w-[150px] justify-center mb-2">
+                    {Array(count || 1).fill(0).map((_, i) => (
+                      <UserIcon key={i} size={12} className="text-emerald-500 animate-in fade-in zoom-in" style={{ animationDelay: `${i * 50}ms` }} />
+                    ))}
+                  </div>
+                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">{item.name}</span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      case 'Doughnut Chart':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <RePieChart>
+              <Pie
+                data={chartData}
+                cx="50%"
+                cy="50%"
+                innerRadius={80}
+                outerRadius={120}
+                paddingAngle={5}
+                dataKey={headers[0]}
+              >
+                {chartData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </RePieChart>
+          </ResponsiveContainer>
+        );
+      case 'Radar Chart':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <ReRadarChart cx="50%" cy="50%" outerRadius="80%" data={chartData}>
+              <PolarGrid stroke="#e2e8f0" />
+              <PolarAngleAxis dataKey="name" />
+              <PolarRadiusAxis />
+              {headers.map((h, i) => (
+                <ReRadar key={h} name={h} dataKey={h} stroke={COLORS[i % COLORS.length]} fill={COLORS[i % COLORS.length]} fillOpacity={0.6} />
+              ))}
+              <Tooltip />
+              <Legend />
+            </ReRadarChart>
+          </ResponsiveContainer>
+        );
+      case 'Treemap':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <ReTreemap
+              data={chartData}
+              dataKey={headers[0]}
+              aspectRatio={4 / 3}
+              stroke="#fff"
+              fill="#10b981"
+            />
+          </ResponsiveContainer>
+        );
+      case 'Box & Whisker':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <ScatterChart>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip />
+              <Scatter name="Distribution" data={chartData} fill="#8884d8">
+                {chartData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Scatter>
+            </ScatterChart>
+          </ResponsiveContainer>
+        );
+      case 'PivotChart':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <ReBarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Bar dataKey={headers[0]} fill="#10b981" />
+              <Bar dataKey={headers[1]} fill="#3b82f6" />
+            </ReBarChart>
+          </ResponsiveContainer>
+        );
+      case 'Waterfall Chart':
+        // Simplified waterfall by calculating steps
+        const waterfallData = useMemo(() => {
+          let current = 0;
+          return chartData.map(item => {
+            const val = item[headers[0]] || 0;
+            const start = current;
+            current += val;
+            return { ...item, start, end: current, diff: val };
+          });
+        }, [chartData, headers]);
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={waterfallData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip />
+              <Bar dataKey="start" stackId="a" fill="transparent" />
+              <Bar dataKey="diff" stackId="a" radius={[4, 4, 0, 0]}>
+                {waterfallData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.diff >= 0 ? '#10b981' : '#ef4444'} />
+                ))}
+              </Bar>
+            </ComposedChart>
+          </ResponsiveContainer>
+        );
+      case 'Funnel Chart':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <FunnelChart>
+              <Tooltip />
+              <Funnel
+                data={chartData}
+                dataKey={headers[0]}
+                nameKey="name"
+              >
+                <LabelList position="right" fill="#888" stroke="none" dataKey="name" />
+              </Funnel>
+            </FunnelChart>
+          </ResponsiveContainer>
+        );
+      case 'Bubble Chart':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <ScatterChart>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="category" dataKey="name" name="category" />
+              <YAxis type="number" dataKey={headers[0]} name={headers[0]} />
+              <ZAxis type="number" dataKey={headers[1] || headers[0]} range={[60, 400]} name={headers[1] || 'Value'} />
+              <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+              <Legend />
+              <Scatter name="Data Points" data={chartData} fill="#10b981" />
+            </ScatterChart>
+          </ResponsiveContainer>
+        );
+      case 'KPI Card':
+        const total = chartData.reduce((sum, item) => sum + (item[headers[0]] || 0), 0);
+        return (
+          <div className="flex flex-col items-center justify-center h-full">
+            <div className="text-[10px] uppercase font-bold tracking-widest text-emerald-600 mb-2">{headers[0]} (Total)</div>
+            <div className="text-6xl font-black tracking-tighter text-gray-900">{total.toLocaleString()}</div>
+            <div className="mt-4 flex items-center gap-2 text-emerald-500 font-bold">
+              <TrendingUp size={20} /> +12.5% Growth
+            </div>
+          </div>
+        );
+      case 'Heat Map':
+        return (
+          <div className="grid grid-cols-4 gap-2 h-full overflow-auto p-4">
+            {chartData.map((item, idx) => {
+              const val = item[headers[0]] || 0;
+              const intensity = Math.min(val / 100, 1);
+              return (
+                <div key={idx} className="aspect-square rounded-xl flex flex-col items-center justify-center relative overflow-hidden group border border-gray-100" style={{ background: `rgba(16, 185, 129, ${0.1 + intensity * 0.9})` }}>
+                  <span className="text-[10px] font-bold text-white uppercase tracking-tighter drop-shadow-sm">{item.name}</span>
+                  <span className="text-sm font-black text-white drop-shadow-sm">{val}</span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      default:
+        return (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-4">
+            <BarChart3 size={64} className="opacity-20" />
+            <p className="font-bold uppercase tracking-widest text-xs">Visualizing: {type}</p>
+            <p className="text-[10px]">Heuristics-based render in progress...</p>
+          </div>
+        );
+    }
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="absolute inset-4 top-24 bottom-12 bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl z-[60] border border-gray-200 flex flex-col overflow-hidden"
+    >
+      <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-white/50 backdrop-blur-md">
+        <div>
+          <h3 className="text-2xl font-black tracking-tighter text-gray-900">{type}</h3>
+          <p className="text-xs font-bold text-emerald-600 uppercase tracking-widest flex items-center gap-2">
+            <Activity size={12} /> Live Sheet Visualization
+          </p>
+        </div>
+        <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full text-gray-400 transition-all hover:rotate-90">
+          <X size={24} />
+        </button>
+      </div>
+      <div className="flex-1 p-8 min-h-0">
+        {renderChart()}
+      </div>
+      <div className="p-4 bg-gray-50/50 border-t border-gray-100 text-[10px] text-gray-400 font-medium flex items-center justify-center gap-4">
+        <span>MODE: ACCURATE COMPARISON</span>
+        <div className="w-1 h-1 rounded-full bg-gray-300" />
+        <span>OUTLIER DETECTION ACTIVE</span>
+        <div className="w-1 h-1 rounded-full bg-gray-300" />
+        <span>MULTI-DIMENSIONAL SYNC</span>
+      </div>
+    </motion.div>
+  );
+}
+
 function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets, setActiveFileInSheets, addNotification, currentUser, openWindow, setPrintQueue, userName }: any) {
   const [activeCell, setActiveCell] = useState<[number, number] | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -3525,6 +3902,7 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
   const [showOpenDialog, setShowOpenDialog] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveFileName, setSaveFileName] = useState('');
+  const [activeChart, setActiveChart] = useState<string | null>(null);
   
   useEffect(() => {
     if (activeFileInSheets) {
@@ -3828,6 +4206,27 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
     ],
     tools: [
       { label: 'Script Editor', action: () => openWindow('codestudio', 'Code Studio') },
+    ],
+    graph: [
+      { label: 'WORK GRAPHS', type: 'header' },
+      { label: 'Clustered Column', icon: <BarChart3 size={14} />, action: () => setActiveChart('Clustered Column') },
+      { label: 'Waterfall Chart', icon: <Activity size={14} />, action: () => setActiveChart('Waterfall Chart') },
+      { label: 'Combo Chart', icon: <Presentation size={14} />, action: () => setActiveChart('Combo Chart') },
+      { label: 'Box & Whisker', icon: <BoxIcon size={14} />, action: () => setActiveChart('Box & Whisker') },
+      { label: 'PivotChart', icon: <Filter size={14} />, action: () => setActiveChart('PivotChart') },
+      { label: 'Gantt Chart', icon: <GanttChartSquare size={14} />, action: () => setActiveChart('Gantt Chart') },
+      { label: 'PERSONAL GRAPHS', type: 'header' },
+      { label: 'Line Chart', icon: <LineChartIcon size={14} />, action: () => setActiveChart('Line Chart') },
+      { label: 'Stacked Area', icon: <AreaChartIcon size={14} />, action: () => setActiveChart('Stacked Area') },
+      { label: 'Heat Map', icon: <Grid3X3 size={14} />, action: () => setActiveChart('Heat Map') },
+      { label: 'Doughnut Chart', icon: <PieChartIcon size={14} />, action: () => setActiveChart('Doughnut Chart') },
+      { label: 'Radar Chart', icon: <RadarIcon size={14} />, action: () => setActiveChart('Radar Chart') },
+      { label: 'PRESENTATION GRAPHS', type: 'header' },
+      { label: 'Icon Chart', icon: <UserIcon size={14} />, action: () => setActiveChart('Icon Chart') },
+      { label: 'KPI Card', icon: <Target size={14} />, action: () => setActiveChart('KPI Card') },
+      { label: 'Bubble Chart', icon: <Binary size={14} />, action: () => setActiveChart('Bubble Chart') },
+      { label: 'Funnel Chart', icon: <ListFilter size={14} />, action: () => setActiveChart('Funnel Chart') },
+      { label: 'Treemap', icon: <TreemapIcon size={14} />, action: () => setActiveChart('Treemap') },
     ]
   };
 
@@ -3878,24 +4277,30 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
                     initial={{ opacity: 0, y: 5 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 5 }}
-                    className="absolute top-full left-0 w-48 bg-white border border-gray-200 rounded-xl shadow-2xl py-2 mt-1 z-50"
+                    className="absolute top-full left-0 min-w-48 bg-white border border-gray-200 rounded-xl shadow-2xl py-2 mt-1 z-50 overflow-hidden"
                   >
                     {menuItems[menu].map((item: any, idx: number) => (
-                      <button 
-                        key={idx}
-                        onClick={() => {
-                          if (item.action) item.action();
-                          else addNotification('Sheets', `Action triggered: ${item.label}`, 'info');
-                          setActiveMenu(null);
-                        }}
-                        className="w-full text-left px-4 py-2 text-[11px] font-medium text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 flex items-center justify-between group transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          {item.icon}
-                          <span>{item.label}</span>
+                      item.type === 'header' ? (
+                        <div key={idx} className="px-4 py-1.5 text-[8px] font-black text-gray-400 uppercase tracking-[0.2em] bg-gray-50/50 mt-1 first:mt-0 italic-font">
+                          {item.label}
                         </div>
-                        {item.shortcut && <span className="text-[9px] text-gray-300 group-hover:text-emerald-300">{item.shortcut}</span>}
-                      </button>
+                      ) : (
+                        <button 
+                          key={idx}
+                          onClick={() => {
+                            if (item.action) item.action();
+                            else addNotification('Sheets', `Action triggered: ${item.label}`, 'info');
+                            setActiveMenu(null);
+                          }}
+                          className="w-full text-left px-4 py-2 text-[11px] font-medium text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 flex items-center justify-between group transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="text-gray-400 group-hover:text-emerald-600 transition-colors">{item.icon}</span>
+                            <span>{item.label}</span>
+                          </div>
+                          {item.shortcut && <span className="text-[9px] text-gray-300 group-hover:text-emerald-300">{item.shortcut}</span>}
+                        </button>
+                      )
                     ))}
                   </motion.div>
                 </>
@@ -4073,6 +4478,14 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
           </div>
         )}
       </AnimatePresence>
+
+      {activeChart && (
+        <SpreadsheetChart 
+          type={activeChart} 
+          data={sheetData} 
+          onClose={() => setActiveChart(null)} 
+        />
+      )}
     </div>
   );
 }
