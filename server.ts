@@ -3,6 +3,8 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,7 +42,24 @@ async function ensureStorage() {
 async function startServer() {
   await ensureStorage();
   const app = express();
+  const httpServer = createServer(app);
+  const io = new Server(httpServer, {
+    cors: {
+      origin: "*",
+      methods: ["GET", "POST"]
+    }
+  });
+
   app.use(express.json({ limit: '50mb' }));
+
+  // Socket.io Connection Handling
+  io.on('connection', (socket) => {
+    console.log(`User connected: ${socket.id}`);
+    
+    socket.on('disconnect', () => {
+      console.log(`User disconnected: ${socket.id}`);
+    });
+  });
 
   // Middleware for API Authentication
   const apiAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -54,7 +73,7 @@ async function startServer() {
 
   // API Routes
   app.get('/api/status', (req, res) => {
-    res.json({ status: 'online', service: 'GlassOS Persistence Engine' });
+    res.json({ status: 'online', service: 'GlassOS Persistence Engine', clients: io.engine.clientsCount });
   });
 
   app.get('/api/storage', apiAuth, async (req, res) => {
@@ -71,6 +90,15 @@ async function startServer() {
       }
       const newData = { ...currentData, ...req.body };
       await fs.writeFile(DB_FILE, JSON.stringify(newData, null, 2));
+      
+      // Broadcast update to all other clients
+      const senderId = req.headers['x-socket-id'] as string;
+      if (senderId) {
+        io.except(senderId).emit('storage:updated', { timestamp: Date.now() });
+      } else {
+        io.emit('storage:updated', { timestamp: Date.now() });
+      }
+      
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Failed to save data' });
@@ -92,7 +120,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`GlassOS Server running on http://localhost:${PORT}`);
   });
 }

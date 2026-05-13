@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { 
   Folder, 
   Image as ImageIcon, 
@@ -27,7 +27,13 @@ import {
   Table as TableIcon,
   ArrowUpAZ,
   ArrowDownAZ,
+  ArrowUp10,
+  ArrowDown10,
+  ArrowUpNarrowWide,
+  ArrowDownWideNarrow,
+  FileType,
   SortAsc,
+  Clock,
   Filter,
   Zap,
   Scissors,
@@ -105,31 +111,49 @@ export function FilesApp({
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [isExternalDragging, setIsExternalDragging] = useState(false);
+  const dragCounter = useRef(0);
+
+  /**
+   * Handles the selection of files from the local machine through the file input.
+   * Processes the selected files and adds them to the virtual file system.
+   * 
+   * @param {React.ChangeEvent<HTMLInputElement>} e - The change event from the file input
+   * @returns {void}
+   */
+  const handleLocalFileOpen = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-
-    Array.from(files).forEach((file: File) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const content = event.target?.result as string;
-        const path = (currentPath.length === 0 ? '' : currentPath.join('/') + '/') + file.name;
-        try {
-          fsLib.write(path, content);
-          addNotification('File Explorer', `Uploaded ${file.name}`, 'success');
-        } catch (err) {
-          addNotification('File Explorer', `Failed to upload ${file.name}`, 'error');
-        }
-      };
-      
-      // For now, read as text. If binary support is needed, we could read as data URL or similar.
-      // But text is safest for most virtual FS items in this OS.
-      reader.readAsText(file);
-    });
-    
+    processFiles(files, currentPath);
     // Clear input
     if (fileInputRef.current) fileInputRef.current.value = '';
     setActiveMenu(null);
+  };
+
+  const processFiles = (files: FileList | File[], targetPath: string[]) => {
+    addNotification('File Explorer', `Uploading ${files.length} items...`, 'info');
+    Array.from(files).forEach((file: File) => {
+      const reader = new FileReader();
+      const isImage = file.type.startsWith('image/');
+      
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        const fileName = file.name;
+        const destPath = (targetPath.length === 0 ? '' : targetPath.join('/') + '/') + fileName;
+        try {
+          fsLib.write(destPath, content);
+          addNotification('File Explorer', `Successfully uploaded ${fileName}`, 'success');
+        } catch (err) {
+          addNotification('File Explorer', `Failed to upload ${fileName}`, 'error');
+        }
+      };
+
+      if (isImage) {
+        reader.readAsDataURL(file);
+      } else {
+        reader.readAsText(file);
+      }
+    });
   };
 
   const cutItemInfo = useMemo(() => {
@@ -201,7 +225,7 @@ export function FilesApp({
     setPropertiesItem(prev => prev ? { ...prev, permissions: newPermissions } : null);
   };
 
-  const handleDelete = (names: string[]) => {
+  const handleDelete = useCallback((names: string[]) => {
     try {
       names.forEach(name => {
         const itemPath = currentPath.join('/') + '/' + name;
@@ -216,7 +240,7 @@ export function FilesApp({
     } catch (e) {
       addNotification('File Explorer', 'Error during batch delete', 'error');
     }
-  };
+  }, [currentPath, fsLib, addNotification]);
 
   const handleMove = (itemName: string, sourcePath: string[], targetPath: string[]) => {
     const sPath = sourcePath.join('/') + '/' + itemName;
@@ -255,27 +279,62 @@ export function FilesApp({
     e.dataTransfer.effectAllowed = 'move';
   };
 
-  const onDragOver = (e: React.DragEvent, folderName?: string) => {
+  const onDragEnter = (e: React.DragEvent, folderName?: string) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (folderName) {
+    e.stopPropagation();
+    dragCounter.current++;
+    
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsExternalDragging(true);
+      setDragOverFolder(folderName || 'root');
+    } else if (folderName) {
       setDragOverFolder(folderName);
     }
   };
 
-  const onDragLeave = () => {
-    setDragOverFolder(null);
+  const onDragOver = (e: React.DragEvent, folderName?: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (e.dataTransfer.types.includes('Files')) {
+      e.dataTransfer.dropEffect = 'copy';
+    } else {
+      e.dataTransfer.dropEffect = 'move';
+    }
+  };
+
+  const onDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current--;
+    
+    if (dragCounter.current === 0) {
+      setIsExternalDragging(false);
+      setDragOverFolder(null);
+    }
   };
 
   const onDrop = (e: React.DragEvent, targetPath: string[], isBackground?: boolean) => {
     e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current = 0;
+    setIsExternalDragging(false);
+    
     const folderName = isBackground ? 'root' : (targetPath[targetPath.length - 1] || 'root');
     setDragOverFolder(null);
+
+    // Handle internal drag and drop (moving files/folders)
     if (draggedItems.length > 0) {
       draggedItems.forEach(item => {
         handleMove(item.name, item.path, targetPath);
       });
       setDraggedItems([]);
+      setDropSuccessFolder(folderName);
+      setTimeout(() => setDropSuccessFolder(null), 1000);
+    } 
+    // Handle external file drag and drop (uploading)
+    else if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processFiles(e.dataTransfer.files, targetPath);
       setDropSuccessFolder(folderName);
       setTimeout(() => setDropSuccessFolder(null), 1000);
     }
@@ -342,15 +401,15 @@ export function FilesApp({
     currentFolder.filter(item => selectedItemNames.includes(item.name)),
   [currentFolder, selectedItemNames]);
 
-  const handleCopy = () => {
+  const handleCopy = useCallback(() => {
     if (selectedItemNames.length === 0) return;
     const fileData = `FILES_JSON:${JSON.stringify(selectedItems)}`;
     setClipboardHistory((prev: string[]) => [fileData, ...prev.filter(i => i !== fileData)].slice(0, 50));
     addNotification('File Explorer', `Copied ${selectedItemNames.length} items to clipboard`, 'info');
     setActiveMenu(null);
-  };
+  }, [selectedItemNames, selectedItems, setClipboardHistory, addNotification]);
 
-  const handleCut = () => {
+  const handleCut = useCallback(() => {
     if (selectedItemNames.length === 0) return;
     const fileData = `FILE_CUT_JSON:${JSON.stringify({ items: selectedItems })}`;
     setClipboardHistory((prev: string[]) => [fileData, ...prev.filter(i => i !== fileData)].slice(0, 50));
@@ -367,9 +426,9 @@ export function FilesApp({
       addNotification('File Explorer', 'Error during cut deletion', 'error');
     }
     setActiveMenu(null);
-  };
+  }, [selectedItemNames, selectedItems, currentPath, fsLib, setClipboardHistory, addNotification]);
 
-  const handlePaste = () => {
+  const handlePaste = useCallback(() => {
     const pasteItemsData = clipboardHistory.find((i: string) => i.startsWith('FILES_JSON:') || i.startsWith('FILES_CUT_JSON:') || i.startsWith('FILE_CUT_JSON:'));
     if (!pasteItemsData) {
       addNotification('File Explorer', 'No files in clipboard to paste', 'warning');
@@ -397,7 +456,7 @@ export function FilesApp({
       addNotification('File Explorer', 'Error during paste', 'error');
     }
     setActiveMenu(null);
-  };
+  }, [clipboardHistory, currentPath, duplicateItem, handleMove, setClipboardHistory, addNotification, fsLib]);
 
   const handleItemClick = (e: React.MouseEvent, item: FileSystemItem, index: number) => {
     e.stopPropagation();
@@ -457,7 +516,28 @@ export function FilesApp({
     setActiveMenu(null);
   };
 
-  const openItem = (item: FileSystemItem) => {
+  const handleExecuteBinary = (item: FileSystemItem) => {
+    try {
+      const metadata = JSON.parse(item.content || '{}');
+      if (metadata.glassOsBinary) {
+        addNotification('System', `Launching ${item.name}...`, 'info');
+        // We open the terminal or a mini-process-window to show output
+        openWindow('terminal', 'System Process Console');
+        // Wait a bit for window to open
+        setTimeout(() => {
+          runBrainscript(metadata.source, (msg) => {
+            console.log(`[Binary-Out] ${msg}`);
+          });
+        }, 500);
+      } else {
+        addNotification('System', `Not a valid GlassOS Binary`, 'error');
+      }
+    } catch (e) {
+      addNotification('System', `Execution Error: Corrupt or invalid binary`, 'error');
+    }
+  };
+
+  const openItem = useCallback((item: FileSystemItem) => {
     if (!checkPermission(item, item.type === 'folder' ? 'x' : 'r', currentUser?.isAdmin)) {
       addNotification('File Explorer', `Permission denied: ${item.name}`, 'error');
       return;
@@ -497,28 +577,7 @@ export function FilesApp({
         addNotification('File Explorer', `No application associated with .${ext} files`, 'warning');
       }
     }
-  };
-
-  const handleExecuteBinary = (item: FileSystemItem) => {
-    try {
-      const metadata = JSON.parse(item.content || '{}');
-      if (metadata.glassOsBinary) {
-        addNotification('System', `Launching ${item.name}...`, 'info');
-        // We open the terminal or a mini-process-window to show output
-        openWindow('terminal', 'System Process Console');
-        // Wait a bit for window to open
-        setTimeout(() => {
-          runBrainscript(metadata.source, (msg) => {
-            console.log(`[Binary-Out] ${msg}`);
-          });
-        }, 500);
-      } else {
-        addNotification('System', `Not a valid GlassOS Binary`, 'error');
-      }
-    } catch (e) {
-      addNotification('System', `Execution Error: Corrupt or invalid binary`, 'error');
-    }
-  };
+  }, [checkPermission, currentUser, addNotification, currentPath, setNotepadContent, setActiveFileInNotepad, openWindow, handleExecuteBinary, setGlassWordContent, setActiveFileInGlassWord, setSheetData, setActiveFileInSheets]);
 
   const sortedFolder = useMemo(() => {
     let items = [...currentFolder];
@@ -622,14 +681,62 @@ export function FilesApp({
         if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
         let comp = 0;
         if (sortType === 'name') comp = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
-        else if (sortType === 'size') comp = (a.size || 0) - (b.size || 0);
+        else if (sortType === 'size') comp = (a.size || (a.content?.length || 0)) - (b.size || (b.content?.length || 0));
         else if (sortType === 'date') comp = new Date(a.dateModified || 0).getTime() - new Date(b.dateModified || 0).getTime();
+        else if (sortType === 'type') {
+          const extA = a.name.split('.').pop()?.toLowerCase() || '';
+          const extB = b.name.split('.').pop()?.toLowerCase() || '';
+          comp = extA.localeCompare(extB);
+        }
         return sortOrder === 'asc' ? comp : -comp;
       });
     }
 
     return baseItems;
   }, [fs, sortedFolder, searchQuery, sortType, sortOrder]);
+
+  // Keyboard shortcuts handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if typing in an input or textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const cmdKey = isMac ? e.metaKey : e.ctrlKey;
+
+      if (e.key === 'Delete' || (e.key === 'Backspace' && cmdKey)) {
+        if (selectedItemNames.length > 0) {
+          e.preventDefault();
+          handleDelete(selectedItemNames);
+        }
+      } else if (cmdKey && e.key === 'c') {
+        if (selectedItemNames.length > 0) {
+          e.preventDefault();
+          handleCopy();
+        }
+      } else if (cmdKey && e.key === 'x') {
+        if (selectedItemNames.length > 0) {
+          e.preventDefault();
+          handleCut();
+        }
+      } else if (cmdKey && e.key === 'v') {
+        e.preventDefault();
+        handlePaste();
+      } else if (cmdKey && e.key === 'a') {
+        e.preventDefault();
+        setSelectedItemNames(filteredFolder.map(i => i.name));
+      } else if (e.key === 'Enter') {
+        if (selectedItemNames.length > 0) {
+          const lastName = selectedItemNames[selectedItemNames.length - 1];
+          const lastItem = filteredFolder.find(i => i.name === lastName);
+          if (lastItem) openItem(lastItem);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedItemNames, filteredFolder, handleCopy, handleCut, handlePaste, handleDelete, openItem]);
 
   return (
     <div className="h-full flex flex-col relative">
@@ -843,16 +950,17 @@ export function FilesApp({
           ))}
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          {/* Sort Name */}
           <div className="flex bg-white/5 rounded-lg border border-white/10 p-0.5">
             <button 
               onClick={() => {
                 setSortType('name');
                 setSortOrder('asc');
-                addNotification('Files', 'Sorted by Name: Ascending', 'info');
+                addNotification('Files', 'Sorted by Name: A-Z', 'info');
               }}
               className={cn("p-1.5 rounded-md transition-all", sortType === 'name' && sortOrder === 'asc' ? "bg-blue-500 text-white shadow-lg" : "text-white/40 hover:text-white")}
-              title="Sort Name Ascending"
+              title="Sort Name Ascending (A-Z)"
             >
               <ArrowUpAZ size={14} />
             </button>
@@ -860,15 +968,102 @@ export function FilesApp({
               onClick={() => {
                 setSortType('name');
                 setSortOrder('desc');
-                addNotification('Files', 'Sorted by Name: Descending', 'info');
+                addNotification('Files', 'Sorted by Name: Z-A', 'info');
               }}
               className={cn("p-1.5 rounded-md transition-all", sortType === 'name' && sortOrder === 'desc' ? "bg-blue-500 text-white shadow-lg" : "text-white/40 hover:text-white")}
-              title="Sort Name Descending"
+              title="Sort Name Descending (Z-A)"
             >
               <ArrowDownAZ size={14} />
             </button>
           </div>
 
+          {/* Sort Date */}
+          <div className="flex bg-white/5 rounded-lg border border-white/10 p-0.5">
+            <div className="px-1.5 flex items-center border-r border-white/10">
+              <Clock size={12} className="text-white/20" />
+            </div>
+            <button 
+              onClick={() => {
+                setSortType('date');
+                setSortOrder('asc');
+                addNotification('Files', 'Sorted by Date: Oldest First', 'info');
+              }}
+              className={cn("p-1.5 rounded-md transition-all", sortType === 'date' && sortOrder === 'asc' ? "bg-emerald-500 text-white shadow-lg" : "text-white/40 hover:text-white")}
+              title="Sort Date Ascending (Oldest First)"
+            >
+              <ArrowUp10 size={14} />
+            </button>
+            <button 
+              onClick={() => {
+                setSortType('date');
+                setSortOrder('desc');
+                addNotification('Files', 'Sorted by Date: Newest First', 'info');
+              }}
+              className={cn("p-1.5 rounded-md transition-all", sortType === 'date' && sortOrder === 'desc' ? "bg-emerald-500 text-white shadow-lg" : "text-white/40 hover:text-white")}
+              title="Sort Date Descending (Newest First)"
+            >
+              <ArrowDown10 size={14} />
+            </button>
+          </div>
+
+          {/* Sort Size */}
+          <div className="flex bg-white/5 rounded-lg border border-white/10 p-0.5">
+            <div className="px-1.5 flex items-center border-r border-white/10">
+              <span className="text-[9px] font-bold text-white/20">KB</span>
+            </div>
+            <button 
+              onClick={() => {
+                setSortType('size');
+                setSortOrder('asc');
+                addNotification('Files', 'Sorted by Size: Smallest First', 'info');
+              }}
+              className={cn("p-1.5 rounded-md transition-all", sortType === 'size' && sortOrder === 'asc' ? "bg-purple-500 text-white shadow-lg" : "text-white/40 hover:text-white")}
+              title="Sort Size Ascending (Smallest First)"
+            >
+              <ArrowUpNarrowWide size={14} />
+            </button>
+            <button 
+              onClick={() => {
+                setSortType('size');
+                setSortOrder('desc');
+                addNotification('Files', 'Sorted by Size: Largest First', 'info');
+              }}
+              className={cn("p-1.5 rounded-md transition-all", sortType === 'size' && sortOrder === 'desc' ? "bg-purple-500 text-white shadow-lg" : "text-white/40 hover:text-white")}
+              title="Sort Size Descending (Largest First)"
+            >
+              <ArrowDownWideNarrow size={14} />
+            </button>
+          </div>
+
+          {/* Sort Type */}
+          <div className="flex bg-white/5 rounded-lg border border-white/10 p-0.5">
+            <div className="px-1.5 flex items-center border-r border-white/10">
+              <FileType size={12} className="text-white/20" />
+            </div>
+            <button 
+              onClick={() => {
+                setSortType('type');
+                setSortOrder('asc');
+                addNotification('Files', 'Sorted by Type: A-Z', 'info');
+              }}
+              className={cn("p-1.5 rounded-md transition-all", sortType === 'type' && sortOrder === 'asc' ? "bg-amber-500 text-white shadow-lg" : "text-white/40 hover:text-white")}
+              title="Sort Type Ascending (A-Z)"
+            >
+              <ArrowUpAZ size={14} />
+            </button>
+            <button 
+              onClick={() => {
+                setSortType('type');
+                setSortOrder('desc');
+                addNotification('Files', 'Sorted by Type: Z-A', 'info');
+              }}
+              className={cn("p-1.5 rounded-md transition-all", sortType === 'type' && sortOrder === 'desc' ? "bg-amber-500 text-white shadow-lg" : "text-white/40 hover:text-white")}
+              title="Sort Type Descending (Z-A)"
+            >
+              <ArrowDownAZ size={14} />
+            </button>
+          </div>
+          
           <div className="h-6 w-[1px] bg-white/10 mx-1" />
 
           {currentPath[0] === 'Trash' && currentPath.length === 1 && (
@@ -910,7 +1105,7 @@ export function FilesApp({
           <input 
             type="file" 
             ref={fileInputRef} 
-            onChange={handleFileUpload} 
+            onChange={handleLocalFileOpen} 
             multiple 
             className="hidden" 
           />
@@ -927,6 +1122,7 @@ export function FilesApp({
                 <button 
                   key={folder.name}
                   onClick={() => setCurrentPath([folder.name])}
+                  onDragEnter={(e) => onDragEnter(e, folder.name)}
                   onDragOver={(e) => onDragOver(e, folder.name)}
                   onDragLeave={onDragLeave}
                   onDrop={(e) => onDrop(e, [folder.name])}
@@ -970,6 +1166,7 @@ export function FilesApp({
                 <button 
                   key={folder.name}
                   onClick={() => setCurrentPath([folder.name])}
+                  onDragEnter={(e) => onDragEnter(e, folder.name)}
                   onDragOver={(e) => onDragOver(e, folder.name)}
                   onDragLeave={onDragLeave}
                   onDrop={(e) => onDrop(e, [folder.name])}
@@ -1046,6 +1243,7 @@ export function FilesApp({
                 <button 
                   key={folder.name}
                   onClick={() => setCurrentPath([folder.name])}
+                  onDragEnter={(e) => onDragEnter(e, folder.name)}
                   onDragOver={(e) => onDragOver(e, folder.name)}
                   onDragLeave={onDragLeave}
                   onDrop={(e) => onDrop(e, [folder.name])}
@@ -1078,11 +1276,12 @@ export function FilesApp({
         {/* Main Area */}
         <div 
           className={cn(
-            "flex-1 p-4 overflow-y-auto transition-all",
-            dragOverFolder === 'root' && "bg-blue-500/5 ring-4 ring-inset ring-blue-500/20",
+            "flex-1 p-4 overflow-y-auto transition-all relative",
+            dragOverFolder === 'root' && isExternalDragging && "bg-blue-500/5 ring-4 ring-inset ring-blue-500/20",
             dropSuccessFolder === 'root' && "bg-emerald-500/5 ring-4 ring-inset ring-emerald-500/20"
           )}
           onClick={() => setSelectedItemNames([])}
+          onDragEnter={(e) => onDragEnter(e, 'root')}
           onDragOver={(e) => onDragOver(e, 'root')}
           onDragLeave={onDragLeave}
           onDrop={(e) => onDrop(e, currentPath, true)}
@@ -1114,6 +1313,22 @@ export function FilesApp({
             });
           }}
         >
+          {dragOverFolder === 'root' && isExternalDragging && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="absolute inset-x-4 inset-y-4 z-40 flex items-center justify-center bg-blue-500/10 backdrop-blur-[2px] pointer-events-none border-4 border-dashed border-blue-500/40 rounded-2xl"
+            >
+              <div className="flex flex-col items-center gap-3 text-blue-400">
+                <div className="bg-blue-500/20 p-4 rounded-full">
+                  <Upload size={48} className="animate-bounce" />
+                </div>
+                <span className="text-xl font-bold uppercase tracking-widest drop-shadow-lg">Drop to Move or Upload</span>
+                <p className="text-[10px] text-blue-400/60 font-medium tracking-wider">Supports text and metadata files</p>
+              </div>
+            </motion.div>
+          )}
+
           <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-2 sm:gap-4 p-2 sm:p-4 content-start">
             {filteredFolder.map((item, idx) => {
               const itemPath = item.displayPath || currentPath;
@@ -1125,6 +1340,7 @@ export function FilesApp({
                   key={`${item.name}-${item.type}-${idx}`}
                   draggable
                   onDragStart={(e) => onDragStart(e, item.name, idx)}
+                  onDragEnter={(e) => item.type === 'folder' ? onDragEnter(e, item.name) : undefined}
                   onDragOver={(e) => item.type === 'folder' ? onDragOver(e, item.name) : undefined}
                   onDragLeave={onDragLeave}
                   onDrop={item.type === 'folder' ? (e) => {
@@ -1243,6 +1459,21 @@ export function FilesApp({
                         {item.name}
                       </span>
                     )}
+                    {sortType === 'date' && item.dateModified && (
+                      <span className="text-[8px] text-white/20 truncate w-full text-center mt-0.5">
+                        {new Date(item.dateModified).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                      </span>
+                    )}
+                    {sortType === 'size' && item.type === 'file' && (
+                      <span className="text-[8px] text-white/20 truncate w-full text-center mt-0.5">
+                        {item.size || item.content?.length || 0} B
+                      </span>
+                    )}
+                    {sortType === 'type' && item.type === 'file' && (
+                      <span className="text-[8px] text-white/20 truncate w-full text-center mt-0.5 uppercase">
+                        .{item.name.split('.').pop()}
+                      </span>
+                    )}
                     {searchQuery.trim() && item.displayPath && (
                       <span className="text-[9px] text-white/30 truncate w-full text-center mt-0.5">
                         /{item.displayPath.join('/')}
@@ -1275,7 +1506,7 @@ export function FilesApp({
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDelete(item.name);
+                        handleDelete([item.name]);
                       }}
                       className="p-1 hover:bg-white/10 rounded text-white/40 hover:text-red-400"
                       title="Delete"
@@ -1558,6 +1789,25 @@ export function FilesApp({
           </div>
         )}
       </AnimatePresence>
+      {/* Selection Status */}
+      {selectedItemNames.length > 0 && (
+        <div className="h-6 bg-blue-500/10 border-t border-blue-500/20 flex items-center px-4 justify-between text-[10px] text-blue-400 font-medium">
+          <div className="flex items-center gap-2">
+            <span>{selectedItemNames.length} items selected</span>
+            {selectedItems.length > 0 && (
+               <span className="opacity-50 tracking-tighter">
+                 ({selectedItems.reduce((acc, item) => acc + (item.size || item.content?.length || 0), 0)} bytes)
+               </span>
+            )}
+          </div>
+          <div className="flex gap-4">
+             <button onClick={handlePrint} className="hover:text-white transition-all">Print</button>
+             <button onClick={handleCopy} className="hover:text-white transition-all">Copy</button>
+             <button onClick={handleCut} className="hover:text-white transition-all">Cut</button>
+             <button onClick={() => handleDelete(selectedItemNames)} className="hover:text-red-400 transition-all font-bold">Delete</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

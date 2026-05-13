@@ -43,6 +43,7 @@ import {
   RefreshCw,
   Plus,
   Trash2,
+  Circle,
   FileCode,
   Box,
   Save,
@@ -172,6 +173,7 @@ import {
   LabelList,
   ComposedChart
 } from 'recharts';
+import { io, Socket } from 'socket.io-client';
 import { GlassScriptInterpreter } from './lib/glassScript';
 import { BrainscriptInterpreter } from './lib/brainscript';
 import { FilesApp } from './FilesApp';
@@ -364,7 +366,7 @@ export default function App() {
   const [networkTraffic, setNetworkTraffic] = useState<TrafficEvent[]>([]);
   const [networkStatus, setNetworkStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connected');
   const [connectedNetwork, setConnectedNetwork] = useState('GlassFiber_5G');
-  const [installedApps, setInstalledApps] = useState<AppId[]>(['terminal', 'settings', 'notepad', 'browser', 'photos', 'music', 'appfolder', 'codestudio', 'files', 'systemmonitor', 'glassword']);
+  const [installedApps, setInstalledApps] = useState<AppId[]>(['terminal', 'settings', 'notepad', 'browser', 'photos', 'music', 'appfolder', 'codestudio', 'files', 'systemmonitor', 'glassword', 'glassdraw', 'glasspaint', 'spreadsheet', 'calendar', 'glassmail', 'glassdatabase', 'glassmessaging', 'printers', 'taskscheduler']);
   const [notepadContent, setNotepadContent] = useState('');
   const [glassWordContent, setGlassWordContent] = useState(DEFAULT_GLASSWORD_CONTENT);
   const [activeFileInGlassWord, setActiveFileInGlassWord] = useState<{name: string, path: string[]} | null>(null);
@@ -401,6 +403,56 @@ export default function App() {
   const [isAltTabOpen, setIsAltTabOpen] = useState(false);
   const [isQuickSettingsOpen, setIsQuickSettingsOpen] = useState(false);
   const desktopRef = useRef<HTMLDivElement>(null);
+  const socketRef = useRef<Socket | null>(null);
+
+  const loadFromCloud = useCallback(async () => {
+    try {
+      const response = await fetch('/api/storage', {
+        headers: { 'x-glass-token': SYSTEM_TOKEN }
+      });
+      if (response.ok) {
+        const cloudData = await response.json();
+        setServerStatus('online');
+        
+        if (cloudData.fs_v1) setFs(cloudData.fs_v1);
+        if (cloudData.collections) setCollections(cloudData.collections);
+        if (cloudData.settings_v1) {
+          const { username, wallpaper, accentColor, notepad, fontFamily, fontSize, fontWeight } = cloudData.settings_v1;
+          if (username) setUserName(username);
+          if (wallpaper) setWallpaper(wallpaper);
+          if (accentColor) setAccentColor(accentColor);
+          if (notepad) setNotepadContent(notepad);
+          if (fontFamily) setSystemFontFamily(fontFamily);
+          if (fontSize) setSystemFontSize(fontSize);
+          if (fontWeight) setSystemFontWeight(fontWeight);
+        }
+        return true;
+      }
+    } catch (err) {
+      setServerStatus('offline');
+      console.warn("Server persistence unavailable, using local mirror.");
+    }
+    return false;
+  }, [SYSTEM_TOKEN]);
+
+  // Socket initialization
+  useEffect(() => {
+    const socket = io();
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      console.log('Connected to GlassOS Signal Engine');
+    });
+
+    socket.on('storage:updated', () => {
+      console.log('Remote change detected, syncing...');
+      loadFromCloud();
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [loadFromCloud]);
 
   const [isAdmin, setIsAdmin] = useState(AuthLib.getSession().isAdmin);
   const [isSandboxed, setIsSandboxed] = useState(AuthLib.getSession().isSandboxed);
@@ -497,36 +549,14 @@ export default function App() {
       if (localFs) setFs(localFs);
 
       // 2. Server Sync
-      try {
-        const response = await fetch('/api/storage', {
-          headers: { 'x-glass-token': SYSTEM_TOKEN }
-        });
-        if (response.ok) {
-          const cloudData = await response.json();
-          setServerStatus('online');
-          
-          if (cloudData.fs_v1) setFs(cloudData.fs_v1);
-          if (cloudData.collections) setCollections(cloudData.collections);
-          if (cloudData.settings_v1) {
-            const { username, wallpaper, accentColor, notepad, fontFamily, fontSize, fontWeight } = cloudData.settings_v1;
-            if (username) setUserName(username);
-            if (wallpaper) setWallpaper(wallpaper);
-            if (accentColor) setAccentColor(accentColor);
-            if (notepad) setNotepadContent(notepad);
-            if (fontFamily) setSystemFontFamily(fontFamily);
-            if (fontSize) setSystemFontSize(fontSize);
-            if (fontWeight) setSystemFontWeight(fontWeight);
-          }
-          addNotification('System', 'Connected to GlassOS Cloud', 'success');
-        }
-      } catch (err) {
-        setServerStatus('offline');
-        console.warn("Server persistence unavailable, using local mirror.");
+      const success = await loadFromCloud();
+      if (success) {
+        addNotification('System', 'Connected to GlassOS Cloud', 'success');
       }
     };
 
     initStorage();
-  }, []);
+  }, [loadFromCloud]);
 
   // Sync Logic
   useEffect(() => {
@@ -557,7 +587,8 @@ export default function App() {
             method: 'POST',
             headers: { 
               'Content-Type': 'application/json',
-              'x-glass-token': SYSTEM_TOKEN
+              'x-glass-token': SYSTEM_TOKEN,
+              'x-socket-id': socketRef.current?.id || ''
             },
             body: JSON.stringify({
               fs_v1: fs,
@@ -1076,6 +1107,8 @@ export default function App() {
               <DesktopIcon icon={<Mail />} label="GlassMail" onClick={() => openWindow('glassmail', 'GlassMail Professional')} />
               <DesktopIcon icon={<MessageSquare />} label="Messages" onClick={() => openWindow('glassmessaging', 'Systems Messaging')} />
               <DesktopIcon icon={<Database />} label="Database" onClick={() => openWindow('glassdatabase', 'GlassDatabase Engine')} />
+              <DesktopIcon icon={<BoxIcon className="text-orange-400" />} label="GlassDraw" onClick={() => openWindow('glassdraw', 'Glass Draw Vector')} />
+              <DesktopIcon icon={<Palette className="text-pink-400" />} label="GlassPaint" onClick={() => openWindow('glasspaint', 'Glass Paint Raster')} />
               <DesktopIcon icon={<SettingsIcon />} label="Settings" onClick={() => openWindow('settings', 'Settings')} />
             </div>
 
@@ -1269,6 +1302,8 @@ export default function App() {
                           { id: 'photos', label: 'Photos', color: 'bg-pink-500/20 text-pink-400' },
                           { id: 'music', label: 'Music', color: 'bg-orange-500/20 text-orange-400' },
                           { id: 'taskscheduler', label: 'Tasks', color: 'bg-cyan-500/20 text-cyan-400' },
+                          { id: 'glassdraw', label: 'GlassDraw', color: 'bg-orange-500/20 text-orange-400' },
+                          { id: 'glasspaint', label: 'GlassPaint', color: 'bg-pink-500/20 text-pink-400' },
                           { id: 'clipboard', label: 'Clipboard', color: 'bg-indigo-500/20 text-indigo-400' },
                         ].map(app => (
                           <button 
@@ -2407,6 +2442,8 @@ function getAppIcon(id: AppId, size: number, color?: string) {
     case 'glassmail': return <Mail size={size} />;
     case 'glassdatabase': return <Database size={size} />;
     case 'glassmessaging': return <MessageSquare size={size} />;
+    case 'glassdraw': return <BoxIcon size={size} className="text-orange-400" />;
+    case 'glasspaint': return <Palette size={size} className="text-pink-400" />;
     default: return <Box size={size} />;
   }
 }
@@ -3482,6 +3519,305 @@ function GlassMail(props: any) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function GlassDrawApp({ fs, setFs, fsLib, addNotification }: any) {
+  const [elements, setElements] = useState<any[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tool, setTool] = useState<'select' | 'rect' | 'circle' | 'line'>('select');
+  const [fillColor, setFillColor] = useState('#3b82f6');
+  const [strokeWidth, setStrokeWidth] = useState(2);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveName, setSaveName] = useState('untitled.gdraw');
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [startPos, setStartPos] = useState({ x: 0, y: 0 });
+
+  const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
+    const svg = e.currentTarget;
+    const CTM = svg.getScreenCTM();
+    if (!CTM) return;
+    const x = (e.clientX - CTM.e) / CTM.a;
+    const y = (e.clientY - CTM.f) / CTM.d;
+
+    if (tool === 'select') {
+      const target = e.target as SVGElement;
+      const id = target.getAttribute('data-id');
+      setSelectedId(id);
+      return;
+    }
+
+    setIsDrawing(true);
+    setStartPos({ x, y });
+    const newId = Math.random().toString(36).substr(2, 9);
+    const newElement = {
+      id: newId,
+      type: tool,
+      x, y, width: 0, height: 0,
+      radius: 0,
+      x2: x, y2: y,
+      fill: fillColor,
+      stroke: '#ffffff',
+      strokeWidth: strokeWidth
+    };
+    setElements([...elements, newElement]);
+    setSelectedId(newId);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!isDrawing || tool === 'select') return;
+    const svg = e.currentTarget;
+    const CTM = svg.getScreenCTM();
+    if (!CTM) return;
+    const x = (e.clientX - CTM.e) / CTM.a;
+    const y = (e.clientY - CTM.f) / CTM.d;
+
+    setElements(prev => prev.map(el => {
+      if (el.id !== selectedId) return el;
+      if (el.type === 'rect') {
+        return { 
+          ...el, 
+          x: Math.min(x, startPos.x), 
+          y: Math.min(y, startPos.y),
+          width: Math.abs(x - startPos.x),
+          height: Math.abs(y - startPos.y)
+        };
+      } else if (el.type === 'circle') {
+        const radius = Math.sqrt(Math.pow(x - startPos.x, 2) + Math.pow(y - startPos.y, 2));
+        return { ...el, radius };
+      } else if (el.type === 'line') {
+        return { ...el, x2: x, y2: y };
+      }
+      return el;
+    }));
+  };
+
+  const handleMouseUp = () => {
+    setIsDrawing(false);
+  };
+
+  const handleSave = async () => {
+    const data = JSON.stringify(elements);
+    try {
+      await fsLib.createFile(['Documents', 'Drawings'], saveName, data);
+      addNotification('GlassDraw', `Saved ${saveName}`, 'success');
+      setShowSaveDialog(false);
+    } catch (e) {
+      addNotification('GlassDraw', 'Error saving file', 'error');
+    }
+  };
+
+  const clearCanvas = () => {
+    if (confirm('Clear all elements?')) setElements([]);
+  };
+
+  return (
+    <div className="h-full flex flex-col bg-[#0f172a] text-white">
+      <div className="h-10 border-b border-white/10 flex items-center px-4 justify-between bg-slate-900/50">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1 bg-white/5 p-1 rounded-lg">
+            <button onClick={() => setTool('select')} className={cn("p-1.5 rounded", tool === 'select' ? "bg-blue-500 text-white" : "hover:bg-white/10")}><MousePointer2 size={14} /></button>
+            <button onClick={() => setTool('rect')} className={cn("p-1.5 rounded", tool === 'rect' ? "bg-blue-500 text-white" : "hover:bg-white/10")}><Square size={14} /></button>
+            <button onClick={() => setTool('circle')} className={cn("p-1.5 rounded", tool === 'circle' ? "bg-blue-500 text-white" : "hover:bg-white/10")}><Circle size={14} /></button>
+            <button onClick={() => setTool('line')} className={cn("p-1.5 rounded", tool === 'line' ? "bg-blue-500 text-white" : "hover:bg-white/10")}><Minus size={14} /></button>
+          </div>
+          <div className="h-6 w-[1px] bg-white/10" />
+          <input type="color" value={fillColor} onChange={e => setFillColor(e.target.value)} className="w-6 h-6 rounded border-0 bg-transparent cursor-pointer" />
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={clearCanvas} className="p-1.5 hover:bg-white/10 rounded text-red-400"><Trash2 size={14} /></button>
+          <button onClick={() => setShowSaveDialog(true)} className="flex items-center gap-2 px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-[10px] font-bold uppercase tracking-wider"><Save size={14} /> Save</button>
+        </div>
+      </div>
+      <div className="flex-1 relative overflow-hidden bg-white/5 pattern-dots">
+        <svg 
+          className="w-full h-full cursor-crosshair"
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+        >
+          {elements.map(el => (
+            <React.Fragment key={el.id}>
+              {el.type === 'rect' && (
+                <rect 
+                  x={el.x} y={el.y} width={el.width} height={el.height} 
+                  fill={el.fill} stroke={el.stroke} strokeWidth={el.strokeWidth}
+                  data-id={el.id}
+                  className={cn("transition-all", selectedId === el.id && "stroke-blue-400 stroke-2")}
+                />
+              )}
+              {el.type === 'circle' && (
+                <circle 
+                  cx={el.x} cy={el.y} r={el.radius} 
+                  fill={el.fill} stroke={el.stroke} strokeWidth={el.strokeWidth}
+                  data-id={el.id}
+                  className={cn("transition-all", selectedId === el.id && "stroke-blue-400 stroke-2")}
+                />
+              )}
+              {el.type === 'line' && (
+                <line 
+                  x1={el.x} y1={el.y} x2={el.x2} y2={el.y2}
+                  stroke={el.stroke} strokeWidth={el.strokeWidth}
+                  data-id={el.id}
+                  className={cn("transition-all", selectedId === el.id && "stroke-blue-400 stroke-2")}
+                />
+              )}
+            </React.Fragment>
+          ))}
+        </svg>
+      </div>
+
+      <AnimatePresence>
+        {showSaveDialog && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-dark p-6 rounded-2xl w-full max-w-xs border border-white/10 shadow-2xl">
+              <h3 className="text-sm font-bold mb-4">Save Drawing</h3>
+              <input 
+                type="text" 
+                value={saveName} 
+                onChange={e => setSaveName(e.target.value)}
+                className="w-full glass-input mb-4 text-xs" 
+              />
+              <div className="flex gap-2">
+                <button onClick={() => setShowSaveDialog(false)} className="flex-1 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs">Cancel</button>
+                <button onClick={handleSave} className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-bold">Save</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function GlassPaintApp({ fsLib, addNotification }: any) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [brushColor, setBrushColor] = useState('#3b82f6');
+  const [brushSize, setBrushSize] = useState(5);
+  const [tool, setTool] = useState<'brush' | 'eraser'>('brush');
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveName, setSaveName] = useState('sketch.gpaint');
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+  }, []);
+
+  const startDrawing = (e: React.MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    setIsDrawing(true);
+  };
+
+  const draw = (e: React.MouseEvent) => {
+    if (!isDrawing) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    ctx.strokeStyle = tool === 'eraser' ? '#ffffff' : brushColor;
+    if (tool === 'eraser') {
+      const parentBg = '#ffffff'; // Fallback white
+      ctx.strokeStyle = parentBg;
+    }
+    ctx.lineWidth = brushSize;
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
+
+  const stopDrawing = () => {
+    setIsDrawing(false);
+  };
+
+  const handleSave = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const data = canvas.toDataURL('image/png');
+    try {
+      await fsLib.createFile(['Documents', 'Paintings'], saveName, data);
+      addNotification('GlassPaint', `Saved ${saveName}`, 'success');
+      setShowSaveDialog(false);
+    } catch (e) {
+      addNotification('GlassPaint', 'Error saving painting', 'error');
+    }
+  };
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  };
+
+  return (
+    <div className="h-full flex flex-col bg-[#1a1a1a] text-white overflow-hidden">
+      <div className="h-10 border-b border-white/10 flex items-center px-4 justify-between bg-slate-900/80">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1 bg-white/5 p-1 rounded-lg">
+            <button onClick={() => setTool('brush')} className={cn("p-1.5 rounded", tool === 'brush' ? "bg-blue-500" : "hover:bg-white/10")}><PaintBucket size={14} /></button>
+            <button onClick={() => setTool('eraser')} className={cn("p-1.5 rounded", tool === 'eraser' ? "bg-blue-500" : "hover:bg-white/10")}><Eraser size={14} /></button>
+          </div>
+          <input type="color" value={brushColor} onChange={e => setBrushColor(e.target.value)} className="w-6 h-6 rounded cursor-pointer" />
+          <input type="range" min="1" max="50" value={brushSize} onChange={e => setBrushSize(parseInt(e.target.value))} className="w-24 accent-blue-500" />
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={clearCanvas} className="p-1.5 hover:bg-white/10 rounded text-white/40"><RefreshCw size={14} /></button>
+          <button onClick={() => setShowSaveDialog(true)} className="flex items-center gap-2 px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-[10px] font-bold uppercase tracking-wider"><Save size={14} /> Save</button>
+        </div>
+      </div>
+      <div className="flex-1 bg-white relative">
+        <canvas 
+          ref={canvasRef}
+          width={1200}
+          height={800}
+          className="w-full h-full cursor-crosshair"
+          onMouseDown={startDrawing}
+          onMouseMove={draw}
+          onMouseUp={stopDrawing}
+          onMouseOut={stopDrawing}
+        />
+      </div>
+
+      <AnimatePresence>
+        {showSaveDialog && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-dark p-6 rounded-2xl w-full max-w-xs border border-white/10 shadow-2xl">
+              <h3 className="text-sm font-bold mb-4 text-white">Save Sketch</h3>
+              <input 
+                type="text" 
+                value={saveName} 
+                onChange={e => setSaveName(e.target.value)}
+                className="w-full glass-input mb-4 text-xs" 
+              />
+              <div className="flex gap-2">
+                <button onClick={() => setShowSaveDialog(false)} className="flex-1 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs">Cancel</button>
+                <button onClick={handleSave} className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white">Save</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -5535,6 +5871,8 @@ function renderApp(id: AppId, props: any) {
     case 'glassmail': return <GlassMail {...props} />;
     case 'glassdatabase': return <GlassDatabase {...props} />;
     case 'glassmessaging': return <GlassMessaging {...props} />;
+    case 'glassdraw': return <GlassDrawApp {...props} />;
+    case 'glasspaint': return <GlassPaintApp {...props} />;
     default: return <div className="p-4">App not found</div>;
   }
 }
@@ -7227,13 +7565,15 @@ function Screensaver({ type, onDismiss }: { type: string, onDismiss: () => void 
   );
 }
 
-function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindow, setPrintQueue, userName, glassWordContent, setGlassWordContent, activeFileInGlassWord, setActiveFileInGlassWord, runGlassScript, runBrainscript }: any) {
+function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, openWindow, setPrintQueue, userName, glassWordContent, setGlassWordContent, activeFileInGlassWord, setActiveFileInGlassWord, runGlassScript, runBrainscript }: any) {
   const [content, setContent] = useState(glassWordContent || DEFAULT_GLASSWORD_CONTENT);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState(new Date().toLocaleTimeString());
   const [activeFile, setActiveFile] = useState<{ name: string, path: string[] } | null>(activeFileInGlassWord);
   const [showOpenDialog, setShowOpenDialog] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showInsertPicker, setShowInsertPicker] = useState(false);
+  const [insertType, setInsertType] = useState<'image' | 'sheet'>('image');
   const [saveFileName, setSaveFileName] = useState('');
   const [showScriptPicker, setShowScriptPicker] = useState(false);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -7458,6 +7798,62 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
     }
   };
 
+  const handleInsertFile = (selectedPath: string) => {
+    const file = findItemByPath(fs, selectedPath.split('/'));
+    if (!file) return;
+
+    if (insertType === 'image') {
+      const ext = file.name.split('.').pop()?.toLowerCase();
+      if (['jpeg', 'jpg', 'png', 'gif', 'img', 'gdraw', 'gpaint'].includes(ext || '')) {
+        let contentToInsert = '';
+        if (['gdraw', 'gpaint'].includes(ext || '')) {
+          contentToInsert = `<div style="padding: 20px; background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 12px; text-align: center; margin: 15px 0; color: #64748b;">
+            <div style="font-weight: bold; margin-bottom: 4px;">Drawing: ${file.name}</div>
+            <div style="font-size: 10px; opacity: 0.7;">Vector data embedded from ${ext === 'gdraw' ? 'BridgeDraw' : 'BridgePaint'}</div>
+          </div>`;
+        } else {
+          const src = file.content?.startsWith('data:') ? file.content : `data:image/${ext};base64,${file.content}`;
+          contentToInsert = `<img src="${src}" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin: 10px 0;" alt="${file.name}" />`;
+        }
+        exec('insertHTML', contentToInsert);
+        addNotification('GlassWord', `Inserted ${file.name}`, 'success');
+      } else {
+        addNotification('GlassWord', 'Selected file is not a supported image format', 'warning');
+      }
+    } else if (insertType === 'sheet') {
+      const ext = file.name.split('.').pop()?.toLowerCase();
+      if (ext === 'gsheet') {
+        const tableHtml = `<div style="margin: 15px 0; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; font-family: sans-serif;">
+          <div style="font-size: 11px; font-weight: bold; margin-bottom: 8px; color: #475569; display: flex; items-center: center; gap: 6px;">
+            <span style="color: #10b981;">📊</span> Linked Sheet: ${file.name}
+          </div>
+          <table style="width: 100%; border-collapse: collapse; background: white; font-size: 10px; border: 1px solid #e2e8f0;">
+            <thead>
+              <tr style="background: #f1f5f9;">
+                <th style="border: 1px solid #e2e8f0; padding: 4px; text-align: left;">Col A</th>
+                <th style="border: 1px solid #e2e8f0; padding: 4px; text-align: left;">Col B</th>
+                <th style="border: 1px solid #e2e8f0; padding: 4px; text-align: left;">Col C</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="border: 1px solid #e2e8f0; padding: 4px; color: #94a3b8; font-style: italic;">... live data link ...</td>
+                <td style="border: 1px solid #e2e8f0; padding: 4px; color: #94a3b8; font-style: italic;">...</td>
+                <td style="border: 1px solid #e2e8f0; padding: 4px; color: #94a3b8; font-style: italic;">...</td>
+              </tr>
+            </tbody>
+          </table>
+          <div style="font-size: 9px; color: #94a3b8; margin-top: 8px; text-align: right;">vLink 1.0 PERSISTENT</div>
+        </div>`;
+        exec('insertHTML', tableHtml);
+        addNotification('GlassWord', `Inserted live link to ${file.name}`, 'success');
+      } else {
+        addNotification('GlassWord', 'Please select a .gsheet file', 'warning');
+      }
+    }
+    setShowInsertPicker(false);
+  };
+
   const menuItems = [
     { 
       label: 'File', 
@@ -7478,7 +7874,14 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
         { label: 'Cut', action: () => { document.execCommand('cut'); if (editorRef.current) { const html = editorRef.current.innerHTML; lastContent.current = html; setContent(html); } }, shortcut: 'Cmd+X' },
         { label: 'Copy', action: () => document.execCommand('copy'), shortcut: 'Cmd+C' },
         { label: 'Paste', action: handlePaste, shortcut: 'Cmd+V' },
-        { label: 'Clear', action: () => { setContent(''); } }
+        { label: 'Clear', action: () => { setContent(''); } },
+        { 
+          label: 'Insert', 
+          items: [
+            { label: 'Image (jpeg, img, gdraw/paint)...', action: () => { setInsertType('image'); setShowInsertPicker(true); } },
+            { label: 'Sheet (gsheets)...', action: () => { setInsertType('sheet'); setShowInsertPicker(true); } }
+          ]
+        }
       ] 
     },
     { 
@@ -7562,19 +7965,44 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
                   exit={{ opacity: 0, y: 5 }}
                   className="absolute top-full left-0 w-48 bg-slate-900/90 backdrop-blur-2xl border border-white/10 shadow-2xl z-[100] py-1 rounded-b-lg"
                 >
-                  {menu.items.map((item: any) => (
-                    <button
-                      key={item.label}
-                      onClick={() => {
-                        item.action();
-                        setActiveMenu(null);
-                      }}
-                      className="w-full text-left px-4 py-1.5 text-[11px] text-white/80 hover:bg-blue-500/50 transition-colors flex justify-between group"
-                    >
-                      <span>{item.label}</span>
-                      {item.shortcut && <span className="opacity-40 uppercase text-[9px] group-hover:text-white/50">{item.shortcut}</span>}
-                    </button>
-                  ))}
+        {menu.items.map((item: any) => (
+          <div key={item.label} className="relative group/sub">
+            <button
+              onClick={() => {
+                if (item.action) {
+                  item.action();
+                  setActiveMenu(null);
+                }
+              }}
+              className={cn(
+                "w-full text-left px-4 py-1.5 text-[11px] text-white/80 hover:bg-blue-500/50 transition-colors flex justify-between group",
+                item.items ? "cursor-default" : ""
+              )}
+            >
+              <span className="flex items-center gap-2">
+                {item.label}
+                {item.items && <ChevronRight size={10} className="ml-auto opacity-40 group-hover/sub:translate-x-0.5 transition-transform" />}
+              </span>
+              {item.shortcut && <span className="opacity-40 uppercase text-[9px] group-hover:text-white/50">{item.shortcut}</span>}
+            </button>
+            {item.items && (
+              <div className="absolute left-full top-0 w-48 bg-slate-900 border border-white/10 hidden group-hover/sub:block py-1 shadow-2xl rounded-lg -ml-1">
+                {item.items.map((subItem: any) => (
+                  <button
+                    key={subItem.label}
+                    onClick={() => {
+                      subItem.action();
+                      setActiveMenu(null);
+                    }}
+                    className="w-full text-left px-4 py-1.5 text-[11px] text-white/80 hover:bg-blue-500/50 transition-colors"
+                  >
+                    {subItem.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -7741,6 +8169,19 @@ function GlassWordProcessor({ fs, setFs, addNotification, currentUser, openWindo
               </div>
             </motion.div>
           </div>
+        )}
+
+        {showInsertPicker && (
+          <FilePicker 
+            title={insertType === 'image' ? "Insert Image" : "Insert Sheet"}
+            fs={fs}
+            fsLib={fsLib}
+            mode="open"
+            allowedExtensions={insertType === 'image' ? ['jpeg', 'jpg', 'png', 'gif', 'img', 'gdraw', 'gpaint'] : ['gsheet']}
+            accentColor="#3b82f6"
+            onCancel={() => setShowInsertPicker(false)}
+            onSelect={handleInsertFile}
+          />
         )}
       </AnimatePresence>
 
