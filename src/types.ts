@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type AppId = 'terminal' | 'settings' | 'notepad' | 'browser' | 'photos' | 'music' | 'appfolder' | 'codestudio' | 'files' | 'systemmonitor' | 'glassword' | 'spreadsheet' | 'glassmail' | 'glassdatabase' | 'glassmessaging' | 'printers' | 'calendar' | 'taskscheduler' | 'glassdraw' | 'glasspaint' | string;
+export type AppId = 'terminal' | 'settings' | 'notepad' | 'browser' | 'photos' | 'music' | 'appfolder' | 'codestudio' | 'files' | 'systemmonitor' | 'glassword' | 'spreadsheet' | 'glassmail' | 'glassdatabase' | 'glassmessaging' | 'printers' | 'calendar' | 'taskscheduler' | 'glassdraw' | 'glasspaint' | 'glassphoto' | string;
 
 export interface Permissions {
   owner: { r: boolean; w: boolean; x: boolean };

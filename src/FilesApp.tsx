@@ -25,6 +25,8 @@ import {
   Clipboard,
   Upload,
   Table as TableIcon,
+  Palette,
+  BoxSelect as BoxIcon,
   ArrowUpAZ,
   ArrowDownAZ,
   ArrowUp10,
@@ -84,6 +86,8 @@ interface FilesAppProps {
   networkNodes: any[];
   accentColor: string;
   runBrainscript: (script: string, onPrint: (msg: string) => void) => void;
+  setPhotosAppProps?: (props: any) => void;
+  setGlassDrawProps?: (props: any) => void;
 }
 
 export function FilesApp({ 
@@ -93,7 +97,9 @@ export function FilesApp({
   currentUser,
   networkNodes,
   accentColor,
-  runBrainscript
+  runBrainscript,
+  setPhotosAppProps,
+  setGlassDrawProps
 }: FilesAppProps) {
   const [currentPath, setCurrentPath] = useState<string[]>(['Documents']);
   const [selectedItemNames, setSelectedItemNames] = useState<string[]>([]);
@@ -181,7 +187,11 @@ export function FilesApp({
     switch (ext) {
       case 'txt': return <FileText size={32} className="text-white/60" />;
       case 'jpg':
+      case 'jpeg':
+      case 'tiff':
       case 'png': return <ImageIcon size={32} className="text-purple-400" />;
+      case 'gdraw': return <BoxIcon size={32} className="text-blue-400" />;
+      case 'gpaint': return <Palette size={32} className="text-pink-400" />;
       case 'sys': return <Cpu size={32} className="text-red-400" />;
       case 'b': return <FileCode size={32} className="text-green-400" />;
       case 'exe':
@@ -558,12 +568,20 @@ export function FilesApp({
         openWindow('notepad', 'Notepad');
       } else if (ext === 'exe' || ext === 'pkg') {
         handleExecuteBinary(item);
-      } else if (ext === 'jpg' || ext === 'png') {
+      } else if (['jpg', 'jpeg', 'png', 'tiff'].includes(ext || '')) {
         openWindow('photos', 'Photos');
+        if (setPhotosAppProps) {
+           setPhotosAppProps({ selectedFile: item });
+        }
       } else if (ext === 'gdoc') {
         setGlassWordContent(item.content || '');
         setActiveFileInGlassWord({ name: item.name, path: currentPath });
         openWindow('glassword', 'GlassWord 2026');
+      } else if (ext === 'gdraw') {
+        openWindow('glassdraw', 'Glass Draw Vector');
+        if (setGlassDrawProps) {
+          setGlassDrawProps({ selectedFile: item });
+        }
       } else if (ext === 'gsheet') {
         try {
           const data = JSON.parse(item.content || '[]');

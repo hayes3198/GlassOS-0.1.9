@@ -35,12 +35,13 @@ import {
   SkipBack, 
   SkipForward,
   Cpu,
-  HardDrive,
+   HardDrive,
   Code,
   Code2,
   Package,
   Check,
   RefreshCw,
+  RefreshCcw,
   Plus,
   Trash2,
   Circle,
@@ -50,6 +51,7 @@ import {
   Send,
   Upload,
   Download,
+  FolderOpen,
   Calendar,
   Table as TableIcon,
   Columns,
@@ -57,6 +59,7 @@ import {
   Database as DatabaseIcon,
   Calculator,
   Grid,
+  Pencil,
   Cloud,
   MoreVertical,
   FilePlus,
@@ -124,6 +127,7 @@ import {
   BarChart3,
   GanttChartSquare,
   Binary,
+  Hash,
   Presentation,
   Filter,
   Briefcase,
@@ -141,6 +145,10 @@ import {
   Baseline,
   ShieldCheck,
   Sparkles,
+  Sun,
+  Contrast,
+  RotateCw,
+  FlipHorizontal,
 } from 'lucide-react';
 import { motion, AnimatePresence, useDragControls } from 'motion/react';
 import { 
@@ -366,11 +374,13 @@ export default function App() {
   const [networkTraffic, setNetworkTraffic] = useState<TrafficEvent[]>([]);
   const [networkStatus, setNetworkStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connected');
   const [connectedNetwork, setConnectedNetwork] = useState('GlassFiber_5G');
-  const [installedApps, setInstalledApps] = useState<AppId[]>(['terminal', 'settings', 'notepad', 'browser', 'photos', 'music', 'appfolder', 'codestudio', 'files', 'systemmonitor', 'glassword', 'glassdraw', 'glasspaint', 'spreadsheet', 'calendar', 'glassmail', 'glassdatabase', 'glassmessaging', 'printers', 'taskscheduler']);
+  const [installedApps, setInstalledApps] = useState<AppId[]>(['terminal', 'settings', 'notepad', 'browser', 'photos', 'music', 'appfolder', 'codestudio', 'files', 'systemmonitor', 'glassword', 'glassdraw', 'glasspaint', 'glassphoto', 'spreadsheet', 'calendar', 'glassmail', 'glassdatabase', 'glassmessaging', 'printers', 'taskscheduler']);
   const [notepadContent, setNotepadContent] = useState('');
   const [glassWordContent, setGlassWordContent] = useState(DEFAULT_GLASSWORD_CONTENT);
   const [activeFileInGlassWord, setActiveFileInGlassWord] = useState<{name: string, path: string[]} | null>(null);
   const [activeFileInSheets, setActiveFileInSheets] = useState<{name: string, path: string[]} | null>(null);
+  const [photosAppSelectedFile, setPhotosAppSelectedFile] = useState<any>(null);
+  const [glassDrawSelectedFile, setGlassDrawSelectedFile] = useState<any>(null);
   const [notepadStyle, setNotepadStyle] = useState<any>({ fontSize: '14px', fontWeight: 'normal', textAlign: 'left' });
   const [glassScriptLine, setGlassScriptLine] = useState<number>(-1);
   const [brainscriptLine, setBrainscriptLine] = useState<number>(-1);
@@ -1109,6 +1119,7 @@ export default function App() {
               <DesktopIcon icon={<Database />} label="Database" onClick={() => openWindow('glassdatabase', 'GlassDatabase Engine')} />
               <DesktopIcon icon={<BoxIcon className="text-orange-400" />} label="GlassDraw" onClick={() => openWindow('glassdraw', 'Glass Draw Vector')} />
               <DesktopIcon icon={<Palette className="text-pink-400" />} label="GlassPaint" onClick={() => openWindow('glasspaint', 'Glass Paint Raster')} />
+              <DesktopIcon icon={<ImageIcon className="text-purple-400" />} label="GlassPhoto" onClick={() => openWindow('glassphoto', 'Glass Photo Editor')} />
               <DesktopIcon icon={<SettingsIcon />} label="Settings" onClick={() => openWindow('settings', 'Settings')} />
             </div>
 
@@ -1148,6 +1159,8 @@ export default function App() {
                     sheetData, setSheetData,
                     activeFileInSheets, setActiveFileInSheets,
                     activeFileInNotepad, setActiveFileInNotepad,
+                    photosAppSelectedFile, setPhotosAppSelectedFile,
+                    glassDrawSelectedFile, setGlassDrawSelectedFile,
                     builds, setBuilds,
                     openWindow,
                     fs,
@@ -1304,6 +1317,7 @@ export default function App() {
                           { id: 'taskscheduler', label: 'Tasks', color: 'bg-cyan-500/20 text-cyan-400' },
                           { id: 'glassdraw', label: 'GlassDraw', color: 'bg-orange-500/20 text-orange-400' },
                           { id: 'glasspaint', label: 'GlassPaint', color: 'bg-pink-500/20 text-pink-400' },
+                          { id: 'glassphoto', label: 'GlassPhoto', color: 'bg-purple-500/20 text-purple-400' },
                           { id: 'clipboard', label: 'Clipboard', color: 'bg-indigo-500/20 text-indigo-400' },
                         ].map(app => (
                           <button 
@@ -2444,6 +2458,7 @@ function getAppIcon(id: AppId, size: number, color?: string) {
     case 'glassmessaging': return <MessageSquare size={size} />;
     case 'glassdraw': return <BoxIcon size={size} className="text-orange-400" />;
     case 'glasspaint': return <Palette size={size} className="text-pink-400" />;
+    case 'glassphoto': return <ImageIcon size={size} className="text-purple-400" />;
     default: return <Box size={size} />;
   }
 }
@@ -3523,16 +3538,78 @@ function GlassMail(props: any) {
   );
 }
 
-function GlassDrawApp({ fs, setFs, fsLib, addNotification }: any) {
+function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, openWindow, selectedFile }: any) {
   const [elements, setElements] = useState<any[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [tool, setTool] = useState<'select' | 'rect' | 'circle' | 'line'>('select');
+  const [tool, setTool] = useState<'select' | 'rect' | 'circle' | 'line' | 'pencil'>('select');
   const [fillColor, setFillColor] = useState('#3b82f6');
+  const [strokeColor, setStrokeColor] = useState('#ffffff');
   const [strokeWidth, setStrokeWidth] = useState(2);
+  const [opacity, setOpacity] = useState(0.8);
+  const [blur, setBlur] = useState(0);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showOpenDialog, setShowOpenDialog] = useState(false);
+  const [remoteFiles, setRemoteFiles] = useState<FileSystemItem[]>([]);
   const [saveName, setSaveName] = useState('untitled.gdraw');
   const [isDrawing, setIsDrawing] = useState(false);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
+  const [bgImage, setBgImage] = useState<string | null>(null);
+  const [gridVisible, setGridVisible] = useState(true);
+
+  useEffect(() => {
+    if (selectedFile) {
+      if (selectedFile.name.endsWith('.gdraw')) {
+        try {
+          setElements(JSON.parse(selectedFile.content || '[]'));
+          setSaveName(selectedFile.name);
+        } catch (e) {
+          console.error('Failed to parse gdraw', e);
+        }
+      } else {
+        setBgImage(selectedFile.content || null);
+      }
+    }
+  }, [selectedFile]);
+
+  useEffect(() => {
+    // Poll for files to open
+    const fetchFiles = () => {
+      const drawings = fsLib.list('Documents/Drawings') || [];
+      const paintings = fsLib.list('Documents/Paintings') || [];
+      setRemoteFiles([...drawings, ...paintings]);
+    };
+    fetchFiles();
+  }, [fs]);
+
+  const handleOpenFile = (file: FileSystemItem) => {
+    if (file.name.endsWith('.gdraw')) {
+      try {
+        const data = JSON.parse(file.content || '[]');
+        setElements(data);
+        setBgImage(null);
+        addNotification('GlassDraw', `Opened ${file.name}`, 'info');
+      } catch (e) {
+        addNotification('GlassDraw', 'Error parsing drawing', 'error');
+      }
+    } else if (file.name.endsWith('.gpaint')) {
+      // Import paint raster as background
+      setBgImage(file.content || null);
+      addNotification('GlassDraw', `Imported ${file.name} as reference`, 'info');
+    }
+    setShowOpenDialog(false);
+  };
+
+  const handleImportToWord = () => {
+    const svg = document.getElementById('draw-canvas');
+    if (!svg) return;
+    const serializer = new XMLSerializer();
+    const svgStr = serializer.serializeToString(svg);
+    const dataUri = 'data:image/svg+xml;base64,' + btoa(svgStr);
+    
+    setGlassWordContent((prev: string) => prev + `<br/><br/><div style="text-align:center"><img src="${dataUri}" style="max-width: 80%; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.1);" alt="Drawing Export" /></div><br/>`);
+    addNotification('GlassDraw', 'Imported to GlassWord Pro', 'success');
+    openWindow('glassword', 'GlassWord Professional');
+  };
 
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
     const svg = e.currentTarget;
@@ -3557,9 +3634,12 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification }: any) {
       x, y, width: 0, height: 0,
       radius: 0,
       x2: x, y2: y,
+      points: tool === 'pencil' ? [{ x, y }] : [],
       fill: fillColor,
-      stroke: '#ffffff',
-      strokeWidth: strokeWidth
+      stroke: strokeColor,
+      strokeWidth: strokeWidth,
+      opacity: opacity,
+      blur: blur
     };
     setElements([...elements, newElement]);
     setSelectedId(newId);
@@ -3588,6 +3668,8 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification }: any) {
         return { ...el, radius };
       } else if (el.type === 'line') {
         return { ...el, x2: x, y2: y };
+      } else if (el.type === 'pencil') {
+        return { ...el, points: [...el.points, { x, y }] };
       }
       return el;
     }));
@@ -3600,7 +3682,7 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification }: any) {
   const handleSave = async () => {
     const data = JSON.stringify(elements);
     try {
-      await fsLib.createFile(['Documents', 'Drawings'], saveName, data);
+      fsLib.write('Documents/Drawings/' + saveName, data);
       addNotification('GlassDraw', `Saved ${saveName}`, 'success');
       setShowSaveDialog(false);
     } catch (e) {
@@ -3609,7 +3691,14 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification }: any) {
   };
 
   const clearCanvas = () => {
-    if (confirm('Clear all elements?')) setElements([]);
+    setElements([]);
+  };
+
+  const deleteSelected = () => {
+    if (selectedId) {
+      setElements(elements.filter(el => el.id !== selectedId));
+      setSelectedId(null);
+    }
   };
 
   return (
@@ -3617,54 +3706,127 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification }: any) {
       <div className="h-10 border-b border-white/10 flex items-center px-4 justify-between bg-slate-900/50">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1 bg-white/5 p-1 rounded-lg">
-            <button onClick={() => setTool('select')} className={cn("p-1.5 rounded", tool === 'select' ? "bg-blue-500 text-white" : "hover:bg-white/10")}><MousePointer2 size={14} /></button>
-            <button onClick={() => setTool('rect')} className={cn("p-1.5 rounded", tool === 'rect' ? "bg-blue-500 text-white" : "hover:bg-white/10")}><Square size={14} /></button>
-            <button onClick={() => setTool('circle')} className={cn("p-1.5 rounded", tool === 'circle' ? "bg-blue-500 text-white" : "hover:bg-white/10")}><Circle size={14} /></button>
-            <button onClick={() => setTool('line')} className={cn("p-1.5 rounded", tool === 'line' ? "bg-blue-500 text-white" : "hover:bg-white/10")}><Minus size={14} /></button>
+            <button onClick={() => setTool('select')} className={cn("p-1.5 rounded", tool === 'select' ? "bg-blue-500 text-white" : "hover:bg-white/10")} title="Select"><MousePointer2 size={14} /></button>
+            <button onClick={() => setTool('pencil')} className={cn("p-1.5 rounded", tool === 'pencil' ? "bg-blue-500 text-white" : "hover:bg-white/10")} title="Pencil"><Pencil size={14} /></button>
+            <button onClick={() => setTool('rect')} className={cn("p-1.5 rounded", tool === 'rect' ? "bg-blue-500 text-white" : "hover:bg-white/10")} title="Rectangle"><Square size={14} /></button>
+            <button onClick={() => setTool('circle')} className={cn("p-1.5 rounded", tool === 'circle' ? "bg-blue-500 text-white" : "hover:bg-white/10")} title="Circle"><Circle size={14} /></button>
+            <button onClick={() => setTool('line')} className={cn("p-1.5 rounded", tool === 'line' ? "bg-blue-500 text-white" : "hover:bg-white/10")} title="Line"><Minus size={14} /></button>
           </div>
           <div className="h-6 w-[1px] bg-white/10" />
-          <input type="color" value={fillColor} onChange={e => setFillColor(e.target.value)} className="w-6 h-6 rounded border-0 bg-transparent cursor-pointer" />
+          <div className="flex items-center gap-2">
+            <div className="flex flex-col">
+              <span className="text-[8px] uppercase font-bold text-white/40">Fill</span>
+              <input type="color" value={fillColor} onChange={e => setFillColor(e.target.value)} className="w-4 h-4 rounded border-0 bg-transparent cursor-pointer" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[8px] uppercase font-bold text-white/40">Stroke</span>
+              <input type="color" value={strokeColor} onChange={e => setStrokeColor(e.target.value)} className="w-4 h-4 rounded border-0 bg-transparent cursor-pointer" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[8px] uppercase font-bold text-white/40">Size</span>
+              <input type="range" min="1" max="20" value={strokeWidth} onChange={e => setStrokeWidth(parseInt(e.target.value))} className="w-16 accent-blue-500 h-1" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[8px] uppercase font-bold text-white/40">Blur</span>
+              <input type="range" min="0" max="10" value={blur} onChange={e => setBlur(parseInt(e.target.value))} className="w-16 accent-purple-500 h-1" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[8px] uppercase font-bold text-white/40">Glass</span>
+              <input type="range" min="0" max="1" step="0.1" value={opacity} onChange={e => setOpacity(parseFloat(e.target.value))} className="w-16 accent-emerald-500 h-1" />
+            </div>
+          </div>
+          <div className="flex gap-1 bg-white/5 p-1 rounded-lg ml-2">
+            <button onClick={() => setGridVisible(!gridVisible)} className={cn("p-1.5 rounded", gridVisible ? "text-blue-400" : "text-white/40")} title="Toggle Grid"><Grid size={14} /></button>
+            <button onClick={() => setShowOpenDialog(true)} className="p-1.5 hover:bg-white/10 rounded" title="Open Drawing or Paint"><FolderOpen size={14} /></button>
+            <button onClick={handleImportToWord} className="p-1.5 hover:bg-white/10 rounded text-amber-400 font-bold text-[10px]" title="Export to Word">WORD</button>
+          </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={clearCanvas} className="p-1.5 hover:bg-white/10 rounded text-red-400"><Trash2 size={14} /></button>
+          {selectedId && (
+            <button onClick={deleteSelected} className="p-1.5 hover:bg-white/10 rounded text-red-500" title="Delete Selected">
+              <Trash2 size={14} />
+            </button>
+          )}
+          <button onClick={clearCanvas} className="p-1.5 hover:bg-white/10 rounded text-red-400" title="Clear"><RefreshCcw size={14} /></button>
           <button onClick={() => setShowSaveDialog(true)} className="flex items-center gap-2 px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-[10px] font-bold uppercase tracking-wider"><Save size={14} /> Save</button>
         </div>
       </div>
-      <div className="flex-1 relative overflow-hidden bg-white/5 pattern-dots">
+      <div className={cn("flex-1 relative overflow-hidden bg-white/5", gridVisible && "pattern-dots")}>
         <svg 
+          id="draw-canvas"
           className="w-full h-full cursor-crosshair"
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
         >
-          {elements.map(el => (
-            <React.Fragment key={el.id}>
-              {el.type === 'rect' && (
-                <rect 
-                  x={el.x} y={el.y} width={el.width} height={el.height} 
-                  fill={el.fill} stroke={el.stroke} strokeWidth={el.strokeWidth}
-                  data-id={el.id}
-                  className={cn("transition-all", selectedId === el.id && "stroke-blue-400 stroke-2")}
-                />
-              )}
-              {el.type === 'circle' && (
-                <circle 
-                  cx={el.x} cy={el.y} r={el.radius} 
-                  fill={el.fill} stroke={el.stroke} strokeWidth={el.strokeWidth}
-                  data-id={el.id}
-                  className={cn("transition-all", selectedId === el.id && "stroke-blue-400 stroke-2")}
-                />
-              )}
-              {el.type === 'line' && (
-                <line 
-                  x1={el.x} y1={el.y} x2={el.x2} y2={el.y2}
-                  stroke={el.stroke} strokeWidth={el.strokeWidth}
-                  data-id={el.id}
-                  className={cn("transition-all", selectedId === el.id && "stroke-blue-400 stroke-2")}
-                />
-              )}
-            </React.Fragment>
-          ))}
+          <defs>
+            <filter id="glass-shadow" x="-50%" y="-50%" width="200%" height="200%">
+              <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#000000" floodOpacity="0.3" />
+            </filter>
+            <filter id="frosted-glass">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
+              <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" result="goo" />
+              <feComposite in="SourceGraphic" in2="goo" operator="atop" />
+            </filter>
+            <linearGradient id="glass-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="rgba(255,255,255,0.1)" />
+              <stop offset="100%" stopColor="rgba(255,255,255,0.02)" />
+            </linearGradient>
+          </defs>
+
+          {bgImage && <image href={bgImage} x="0" y="0" width="100%" height="100%" opacity="0.3" />}
+          
+          <g filter="url(#glass-shadow)">
+            {elements.map(el => (
+              <React.Fragment key={el.id}>
+                {el.type === 'rect' && (
+                  <rect 
+                    x={el.x} y={el.y} width={el.width} height={el.height} 
+                    fill={el.fill} stroke={el.stroke} strokeWidth={el.strokeWidth}
+                    fillOpacity={el.opacity || 0.8}
+                    style={{ filter: el.blur > 0 ? `blur(${el.blur}px)` : undefined }}
+                    data-id={el.id}
+                    rx="4"
+                    className={cn("transition-all", selectedId === el.id && "stroke-blue-400 stroke-2 ring-4 ring-blue-500/20")}
+                  />
+                )}
+                {el.type === 'circle' && (
+                  <circle 
+                    cx={el.x} cy={el.y} r={el.radius} 
+                    fill={el.fill} stroke={el.stroke} strokeWidth={el.strokeWidth}
+                    fillOpacity={el.opacity || 0.8}
+                    style={{ filter: el.blur > 0 ? `blur(${el.blur}px)` : undefined }}
+                    data-id={el.id}
+                    className={cn("transition-all", selectedId === el.id && "stroke-blue-400 stroke-2")}
+                  />
+                )}
+                {el.type === 'line' && (
+                  <line 
+                    x1={el.x} y1={el.y} x2={el.x2} y2={el.y2}
+                    stroke={el.stroke} strokeWidth={el.strokeWidth}
+                    strokeOpacity={el.opacity || 1}
+                    style={{ filter: el.blur > 0 ? `blur(${el.blur}px)` : undefined }}
+                    data-id={el.id}
+                    className={cn("transition-all", selectedId === el.id && "stroke-blue-400 stroke-2")}
+                  />
+                )}
+                {el.type === 'pencil' && (
+                  <path 
+                    d={`M ${(el.points || []).map((p: any) => `${p.x} ${p.y}`).join(' L ')}`}
+                    fill="transparent"
+                    stroke={el.stroke}
+                    strokeWidth={el.strokeWidth}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeOpacity={el.opacity || 1}
+                    style={{ filter: el.blur > 0 ? `blur(${el.blur}px)` : undefined }}
+                    data-id={el.id}
+                    className={cn("transition-all", selectedId === el.id && "stroke-blue-400 stroke-2")}
+                  />
+                )}
+              </React.Fragment>
+            ))}
+          </g>
         </svg>
       </div>
 
@@ -3681,7 +3843,35 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification }: any) {
               />
               <div className="flex gap-2">
                 <button onClick={() => setShowSaveDialog(false)} className="flex-1 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs">Cancel</button>
-                <button onClick={handleSave} className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-bold">Save</button>
+                <button onClick={handleSave} className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white">Save</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+        {showOpenDialog && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-dark p-4 rounded-2xl w-full max-w-md border border-white/10 shadow-2xl flex flex-col h-[60%]">
+              <div className="flex justify-between items-center mb-4">
+                 <h3 className="text-sm font-bold">Open Drawing</h3>
+                 <button onClick={() => setShowOpenDialog(false)}><X size={16} /></button>
+              </div>
+              <div className="flex-1 overflow-y-auto space-y-2">
+                {remoteFiles.length === 0 && <div className="text-center text-white/20 text-xs p-8 italic">No drawings or paintings found</div>}
+                {remoteFiles.map(file => (
+                  <button 
+                    key={file.name} 
+                    onClick={() => handleOpenFile(file)}
+                    className="w-full p-3 bg-white/5 hover:bg-white/10 rounded-lg flex items-center gap-3 text-left group"
+                  >
+                    {file.name.endsWith('.gdraw') ? <BoxIcon size={16} className="text-blue-400" /> : <Palette size={16} className="text-pink-400" />}
+                    <div className="flex-1 overflow-hidden">
+                      <div className="text-xs font-bold truncate">{file.name}</div>
+                      <div className="text-[9px] text-white/40 uppercase font-bold tracking-tighter">
+                        {file.name.endsWith('.gdraw') ? 'Vector Graphics' : 'Raster Image'}
+                      </div>
+                    </div>
+                  </button>
+                ))}
               </div>
             </motion.div>
           </div>
@@ -3691,14 +3881,81 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification }: any) {
   );
 }
 
-function GlassPaintApp({ fsLib, addNotification }: any) {
+function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow, fs }: any) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [brushColor, setBrushColor] = useState('#3b82f6');
   const [brushSize, setBrushSize] = useState(5);
   const [tool, setTool] = useState<'brush' | 'eraser'>('brush');
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showOpenDialog, setShowOpenDialog] = useState(false);
+  const [remoteFiles, setRemoteFiles] = useState<FileSystemItem[]>([]);
   const [saveName, setSaveName] = useState('sketch.gpaint');
+
+  useEffect(() => {
+    const fetchFiles = () => {
+      const drawings = fsLib.list('Documents/Drawings') || [];
+      const paintings = fsLib.list('Documents/Paintings') || [];
+      setRemoteFiles([...drawings, ...paintings]);
+    };
+    fetchFiles();
+  }, [fs]);
+
+  const handleOpenFile = (file: FileSystemItem) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    if (file.name.endsWith('.gpaint')) {
+      const img = new Image();
+      img.onload = () => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+      };
+      img.src = file.content || '';
+      addNotification('GlassPaint', `Opened ${file.name}`, 'info');
+    } else if (file.name.endsWith('.gdraw')) {
+      // Render vector elements to canvas
+      try {
+        const elements = JSON.parse(file.content || '[]');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        elements.forEach((el: any) => {
+          ctx.strokeStyle = el.stroke || '#000000';
+          ctx.fillStyle = el.fill || 'transparent';
+          ctx.lineWidth = el.strokeWidth || 1;
+          
+          if (el.type === 'rect') {
+            ctx.fillRect(el.x, el.y, el.width, el.height);
+            ctx.strokeRect(el.x, el.y, el.width, el.height);
+          } else if (el.type === 'circle') {
+            ctx.beginPath();
+            ctx.arc(el.x, el.y, el.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          } else if (el.type === 'line') {
+            ctx.beginPath();
+            ctx.moveTo(el.x, el.y);
+            ctx.lineTo(el.x2, el.y2);
+            ctx.stroke();
+          }
+        });
+        addNotification('GlassPaint', `Imported vector ${file.name}`, 'info');
+      } catch (e) {
+        addNotification('GlassPaint', 'Failed to import vector mapping', 'error');
+      }
+    }
+    setShowOpenDialog(false);
+  };
+
+  const handleImportToWord = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dataUri = canvas.toDataURL('image/png');
+    setGlassWordContent((prev: string) => prev + `<br/><br/><div style="text-align:center"><img src="${dataUri}" style="max-width: 80%; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.1);" alt="Painting Export" /></div><br/>`);
+    addNotification('GlassPaint', 'Imported to GlassWord Pro', 'success');
+    openWindow('glassword', 'GlassWord Professional');
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -3716,8 +3973,10 @@ function GlassPaintApp({ fsLib, addNotification }: any) {
     if (!ctx) return;
     
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
     
     ctx.beginPath();
     ctx.moveTo(x, y);
@@ -3732,8 +3991,10 @@ function GlassPaintApp({ fsLib, addNotification }: any) {
     if (!ctx) return;
     
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
     
     ctx.strokeStyle = tool === 'eraser' ? '#ffffff' : brushColor;
     if (tool === 'eraser') {
@@ -3754,7 +4015,7 @@ function GlassPaintApp({ fsLib, addNotification }: any) {
     if (!canvas) return;
     const data = canvas.toDataURL('image/png');
     try {
-      await fsLib.createFile(['Documents', 'Paintings'], saveName, data);
+      fsLib.write('Documents/Paintings/' + saveName, data);
       addNotification('GlassPaint', `Saved ${saveName}`, 'success');
       setShowSaveDialog(false);
     } catch (e) {
@@ -3775,14 +4036,18 @@ function GlassPaintApp({ fsLib, addNotification }: any) {
       <div className="h-10 border-b border-white/10 flex items-center px-4 justify-between bg-slate-900/80">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1 bg-white/5 p-1 rounded-lg">
-            <button onClick={() => setTool('brush')} className={cn("p-1.5 rounded", tool === 'brush' ? "bg-blue-500" : "hover:bg-white/10")}><PaintBucket size={14} /></button>
-            <button onClick={() => setTool('eraser')} className={cn("p-1.5 rounded", tool === 'eraser' ? "bg-blue-500" : "hover:bg-white/10")}><Eraser size={14} /></button>
+            <button onClick={() => setTool('brush')} className={cn("p-1.5 rounded", tool === 'brush' ? "bg-blue-500" : "hover:bg-white/10")} title="Brush"><PaintBucket size={14} /></button>
+            <button onClick={() => setTool('eraser')} className={cn("p-1.5 rounded", tool === 'eraser' ? "bg-blue-500" : "hover:bg-white/10")} title="Eraser"><Eraser size={14} /></button>
           </div>
           <input type="color" value={brushColor} onChange={e => setBrushColor(e.target.value)} className="w-6 h-6 rounded cursor-pointer" />
           <input type="range" min="1" max="50" value={brushSize} onChange={e => setBrushSize(parseInt(e.target.value))} className="w-24 accent-blue-500" />
+          <div className="flex gap-1 bg-white/5 p-1 rounded-lg ml-2">
+            <button onClick={() => setShowOpenDialog(true)} className="p-1.5 hover:bg-white/10 rounded" title="Open Paint or Drawing"><FolderOpen size={14} /></button>
+            <button onClick={handleImportToWord} className="p-1.5 hover:bg-white/10 rounded text-amber-400 font-bold text-[10px]" title="Export to Word">WORD</button>
+          </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={clearCanvas} className="p-1.5 hover:bg-white/10 rounded text-white/40"><RefreshCw size={14} /></button>
+          <button onClick={clearCanvas} className="p-1.5 hover:bg-white/10 rounded text-white/40" title="Clear"><RefreshCw size={14} /></button>
           <button onClick={() => setShowSaveDialog(true)} className="flex items-center gap-2 px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-[10px] font-bold uppercase tracking-wider"><Save size={14} /> Save</button>
         </div>
       </div>
@@ -3811,6 +4076,397 @@ function GlassPaintApp({ fsLib, addNotification }: any) {
                 className="w-full glass-input mb-4 text-xs" 
               />
               <div className="flex gap-2">
+                <button onClick={() => setShowSaveDialog(false)} className="flex-1 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs">Cancel</button>
+                <button onClick={handleSave} className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white">Save</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+        {showOpenDialog && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-dark p-4 rounded-2xl w-full max-w-md border border-white/10 shadow-2xl flex flex-col h-[60%]">
+              <div className="flex justify-between items-center mb-4 text-white">
+                 <h3 className="text-sm font-bold">Open Canvas</h3>
+                 <button onClick={() => setShowOpenDialog(false)}><X size={16} /></button>
+              </div>
+              <div className="flex-1 overflow-y-auto space-y-2 translate-z-0">
+                {remoteFiles.length === 0 && <div className="text-center text-white/20 text-xs p-8 italic">No paintings or drawings found</div>}
+                {remoteFiles.map(file => (
+                  <button 
+                    key={file.name} 
+                    onClick={() => handleOpenFile(file)}
+                    className="w-full p-3 bg-white/5 hover:bg-white/10 rounded-lg flex items-center gap-3 text-left group"
+                  >
+                    {file.name.endsWith('.gpaint') ? <Palette size={16} className="text-pink-400" /> : <BoxIcon size={16} className="text-blue-400" />}
+                    <div className="flex-1 overflow-hidden">
+                      <div className="text-xs font-bold truncate text-white">{file.name}</div>
+                      <div className="text-[9px] text-white/40 uppercase font-bold tracking-tighter">
+                        {file.name.endsWith('.gpaint') ? 'Bitmap/Raster' : 'Vector Elements'}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function GlassPhotoApp({ fsLib, addNotification }: any) {
+  const [image, setImage] = useState<string | null>(null);
+  const [brightness, setBrightness] = useState(100);
+  const [contrast, setContrast] = useState(100);
+  const [grayscale, setGrayscale] = useState(0);
+  const [sepia, setSepia] = useState(0);
+  const [invert, setInvert] = useState(0);
+  const [hueRotate, setHueRotate] = useState(0);
+  const [rotation, setRotation] = useState(0);
+  const [flipH, setFlipH] = useState(false);
+  const [flipV, setFlipV] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showOpenDialog, setShowOpenDialog] = useState(false);
+  const [remoteFiles, setRemoteFiles] = useState<any[]>([]);
+  const [saveFormat, setSaveFormat] = useState<'png' | 'jpeg' | 'tiff'>('png');
+  const [saveName, setSaveName] = useState('edited_photo');
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showOpenDialog) {
+      const fetchFiles = () => {
+        const photos = fsLib.list('Documents/Photos') || [];
+        // Also include paintings just in case
+        const paintings = fsLib.list('Documents/Paintings') || [];
+        setRemoteFiles([...photos, ...paintings].filter(f => f.type === 'file'));
+      };
+      fetchFiles();
+    }
+  }, [showOpenDialog, fsLib]);
+
+  const handleOpenRemote = (file: any) => {
+    setImage(file.content);
+    resetFilters();
+    setShowOpenDialog(false);
+    addNotification('GlassPhoto', `Loaded ${file.name} from gallery`, 'success');
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setImage(event.target?.result as string);
+        resetFilters();
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const resetFilters = () => {
+    setBrightness(100);
+    setContrast(100);
+    setGrayscale(0);
+    setSepia(0);
+    setInvert(0);
+    setHueRotate(0);
+    setRotation(0);
+    setFlipH(false);
+    setFlipV(false);
+  };
+
+  const applyFilters = () => {
+    if (!image) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = image;
+    img.onload = () => {
+      canvas.width = img.width;
+      canvas.height = img.height;
+      
+      ctx.filter = `brightness(${brightness}%) contrast(${contrast}%) grayscale(${grayscale}%) sepia(${sepia}%) invert(${invert}%) hue-rotate(${hueRotate}deg)`;
+      
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      if (rotation !== 0) ctx.rotate((rotation * Math.PI) / 180);
+      ctx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+    };
+  };
+
+  useEffect(() => {
+    applyFilters();
+  }, [image, brightness, contrast, grayscale, sepia, invert, hueRotate, rotation, flipH, flipV]);
+
+  const handleSave = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !image) return;
+    
+    let mimeType = 'image/png';
+    let extension = '.png';
+    
+    if (saveFormat === 'jpeg') {
+      mimeType = 'image/jpeg';
+      extension = '.jpg';
+    } else if (saveFormat === 'tiff') {
+      mimeType = 'image/tiff';
+      extension = '.tiff';
+    }
+
+    const data = canvas.toDataURL(mimeType, 0.9);
+    const finalName = saveName.endsWith(extension) ? saveName : saveName + extension;
+    
+    try {
+      fsLib.write('Documents/Photos/' + finalName, data);
+      addNotification('GlassPhoto', `Saved ${finalName}`, 'success');
+      setShowSaveDialog(false);
+    } catch (e) {
+      addNotification('GlassPhoto', 'Error saving photo', 'error');
+    }
+  };
+
+  return (
+    <div className="h-full flex flex-col bg-[#0f172a] text-white overflow-hidden">
+      <div className="h-10 border-b border-white/10 flex items-center px-4 justify-between bg-slate-900/80">
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-2 px-3 py-1 bg-white/5 hover:bg-white/10 rounded text-[10px] font-bold uppercase tracking-wider"
+          >
+            <Upload size={14} /> Open
+          </button>
+          <button 
+            onClick={() => setShowOpenDialog(true)}
+            className="flex items-center gap-2 px-3 py-1 bg-white/5 hover:bg-white/10 rounded text-[10px] font-bold uppercase tracking-wider"
+          >
+            <FolderOpen size={14} /> Gallery
+          </button>
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            className="hidden" 
+            accept="image/*" 
+            onChange={handleImageUpload} 
+          />
+          {image && (
+            <div className="flex items-center gap-1 border-l border-white/10 pl-4">
+              <button 
+                onClick={() => setRotation(prev => (prev + 90) % 360)}
+                className="p-1.5 hover:bg-white/10 rounded"
+                title="Rotate"
+              >
+                <RotateCw size={14} />
+              </button>
+              <button 
+                onClick={() => setFlipH(!flipH)}
+                className="p-1.5 hover:bg-white/10 rounded"
+                title="Flip Horizontal"
+              >
+                <FlipHorizontal size={14} />
+              </button>
+              <button 
+                onClick={resetFilters}
+                className="p-1.5 hover:bg-white/10 rounded text-red-400"
+                title="Reset Filters"
+              >
+                <RefreshCw size={14} />
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button 
+            disabled={!image}
+            onClick={() => setShowSaveDialog(true)} 
+            className="flex items-center gap-2 px-3 py-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed rounded text-[10px] font-bold uppercase tracking-wider"
+          >
+            <Save size={14} /> Save
+          </button>
+        </div>
+      </div>
+      
+      <div className="flex-1 flex overflow-hidden">
+        {/* Controls Sidebar */}
+        {image && (
+          <div className="w-64 border-r border-white/10 bg-slate-900/40 p-4 space-y-6 overflow-y-auto no-scrollbar">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex justify-between text-[10px] uppercase font-bold text-white/40">
+                  <span className="flex items-center gap-1"><Sun size={10} /> Brightness</span>
+                  <span>{brightness}%</span>
+                </div>
+                <input 
+                  type="range" min="0" max="200" value={brightness} 
+                  onChange={e => setBrightness(parseInt(e.target.value))}
+                  className="w-full accent-blue-500" 
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between text-[10px] uppercase font-bold text-white/40">
+                  <span className="flex items-center gap-1"><Contrast size={10} /> Contrast</span>
+                  <span>{contrast}%</span>
+                </div>
+                <input 
+                  type="range" min="0" max="200" value={contrast} 
+                  onChange={e => setContrast(parseInt(e.target.value))}
+                  className="w-full accent-blue-500" 
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between text-[10px] uppercase font-bold text-white/40">
+                  <span>Grayscale</span>
+                  <span>{grayscale}%</span>
+                </div>
+                <input 
+                  type="range" min="0" max="100" value={grayscale} 
+                  onChange={e => setGrayscale(parseInt(e.target.value))}
+                  className="w-full accent-blue-500" 
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between text-[10px] uppercase font-bold text-white/40">
+                  <span>Sepia</span>
+                  <span>{sepia}%</span>
+                </div>
+                <input 
+                  type="range" min="0" max="100" value={sepia} 
+                  onChange={e => setSepia(parseInt(e.target.value))}
+                  className="w-full accent-blue-500" 
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between text-[10px] uppercase font-bold text-white/40">
+                  <span>Invert</span>
+                  <span>{invert}%</span>
+                </div>
+                <input 
+                  type="range" min="0" max="100" value={invert} 
+                  onChange={e => setInvert(parseInt(e.target.value))}
+                  className="w-full accent-blue-500" 
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between text-[10px] uppercase font-bold text-white/40">
+                  <span>Hue Rotate</span>
+                  <span>{hueRotate}°</span>
+                </div>
+                <input 
+                  type="range" min="0" max="360" value={hueRotate} 
+                  onChange={e => setHueRotate(parseInt(e.target.value))}
+                  className="w-full accent-blue-500" 
+                />
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-white/5">
+              <h3 className="text-[10px] font-bold text-white/20 uppercase tracking-widest mb-4">Quick Filters</h3>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => { resetFilters(); setGrayscale(100); }} className="px-2 py-2 bg-white/5 hover:bg-white/10 rounded text-[9px] font-bold uppercase tracking-tighter transition-all">Mono</button>
+                <button onClick={() => { resetFilters(); setSepia(80); setBrightness(110); }} className="px-2 py-2 bg-white/5 hover:bg-white/10 rounded text-[9px] font-bold uppercase tracking-tighter transition-all">Vintage</button>
+                <button onClick={() => { resetFilters(); setContrast(150); setBrightness(120); }} className="px-2 py-2 bg-white/5 hover:bg-white/10 rounded text-[9px] font-bold uppercase tracking-tighter transition-all">Punchy</button>
+                <button onClick={() => { resetFilters(); setInvert(100); }} className="px-2 py-2 bg-white/5 hover:bg-white/10 rounded text-[9px] font-bold uppercase tracking-tighter transition-all">Negative</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Canvas Area */}
+        <div className="flex-1 bg-black/40 flex items-center justify-center p-8 overflow-auto relative pattern-dots">
+          {!image && (
+            <div className="text-center">
+              <ImageIcon size={48} className="mx-auto text-white/10 mb-4" />
+              <p className="text-white/30 text-sm">Open a photo to start editing</p>
+            </div>
+          )}
+          <canvas 
+            ref={canvasRef} 
+            className={cn(
+              "max-w-full max-h-full shadow-2xl transition-all duration-300",
+              !image && "hidden"
+            )} 
+          />
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {showOpenDialog && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-dark p-6 rounded-2xl w-full max-w-sm border border-white/10 shadow-2xl flex flex-col max-h-[80%]">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold">Gallery Library</h3>
+                <button onClick={() => setShowOpenDialog(false)} className="p-1 hover:bg-white/10 rounded-full"><X size={16} /></button>
+              </div>
+              <div className="flex-1 overflow-y-auto space-y-2 pr-2">
+                {remoteFiles.length === 0 ? (
+                  <div className="text-center py-8 text-white/20">
+                    <ImageIcon size={32} className="mx-auto mb-2 opacity-10" />
+                    <p className="text-[10px]">No photos found in Documents/Photos</p>
+                  </div>
+                ) : (
+                  remoteFiles.map((file, i) => (
+                    <button 
+                      key={i}
+                      onClick={() => handleOpenRemote(file)}
+                      className="w-full flex items-center gap-3 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all border border-white/5 group"
+                    >
+                      <div className="w-12 h-12 rounded-lg bg-black/40 overflow-hidden flex items-center justify-center text-white/20">
+                        {file.content?.startsWith('data:image') ? (
+                          <img src={file.content} alt={file.name} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" />
+                        ) : (
+                          <ImageIcon size={20} />
+                        )}
+                      </div>
+                      <div className="flex-1 text-left min-w-0">
+                        <div className="text-[11px] font-bold truncate">{file.name}</div>
+                        <div className="text-[9px] text-white/40 uppercase tracking-tighter">{(file.content?.length || 0) / 1024 > 1024 ? `${((file.content?.length || 0) / 1048576).toFixed(1)} MB` : `${((file.content?.length || 0) / 1024).toFixed(0)} KB`}</div>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showSaveDialog && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-dark p-6 rounded-2xl w-full max-w-xs border border-white/10 shadow-2xl">
+              <h3 className="text-sm font-bold mb-4">Save Photo</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-white/40 block mb-1">File Name</label>
+                  <input 
+                    type="text" 
+                    value={saveName} 
+                    onChange={e => setSaveName(e.target.value)}
+                    className="w-full glass-input text-xs" 
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-white/40 block mb-1">Format</label>
+                  <select 
+                    value={saveFormat}
+                    onChange={e => setSaveFormat(e.target.value as any)}
+                    className="w-full glass-input text-xs bg-slate-800"
+                  >
+                    <option value="png">PNG (Lossless)</option>
+                    <option value="jpeg">JPEG (Compressed)</option>
+                    <option value="tiff">TIFF (Professional)</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-2 mt-6">
                 <button onClick={() => setShowSaveDialog(false)} className="flex-1 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs">Cancel</button>
                 <button onClick={handleSave} className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white">Save</button>
               </div>
@@ -5857,11 +6513,17 @@ function renderApp(id: AppId, props: any) {
     case 'settings': return <SettingsApp {...props} />;
     case 'notepad': return <NotepadApp {...props} />;
     case 'browser': return <BrowserApp {...props} />;
-    case 'photos': return <PhotosApp {...props} />;
+    case 'photos': return <PhotosApp {...props} selectedFile={props.photosAppSelectedFile} />;
     case 'music': return <MusicApp {...props} />;
     case 'appfolder': return <AppFolderApp {...props} />;
     case 'codestudio': return <CodeStudioApp {...props} />;
-    case 'files': return <FilesApp {...props} />;
+    case 'files': return (
+      <FilesApp 
+        {...props} 
+        setPhotosAppProps={(p: any) => props.setPhotosAppSelectedFile(p.selectedFile)}
+        setGlassDrawProps={(p: any) => props.setGlassDrawSelectedFile(p.selectedFile)}
+      />
+    );
     case 'taskscheduler': return <TaskSchedulerApp {...props} />;
     case 'systemmonitor': return <SystemMonitorApp {...props} />;
     case 'glassword': return <GlassWordProcessor {...props} />;
@@ -5871,8 +6533,9 @@ function renderApp(id: AppId, props: any) {
     case 'glassmail': return <GlassMail {...props} />;
     case 'glassdatabase': return <GlassDatabase {...props} />;
     case 'glassmessaging': return <GlassMessaging {...props} />;
-    case 'glassdraw': return <GlassDrawApp {...props} />;
+    case 'glassdraw': return <GlassDrawApp {...props} selectedFile={props.glassDrawSelectedFile} />;
     case 'glasspaint': return <GlassPaintApp {...props} />;
+    case 'glassphoto': return <GlassPhotoApp {...props} />;
     default: return <div className="p-4">App not found</div>;
   }
 }
@@ -7806,10 +8469,16 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
       const ext = file.name.split('.').pop()?.toLowerCase();
       if (['jpeg', 'jpg', 'png', 'gif', 'img', 'gdraw', 'gpaint'].includes(ext || '')) {
         let contentToInsert = '';
-        if (['gdraw', 'gpaint'].includes(ext || '')) {
+        if (ext === 'gdraw') {
           contentToInsert = `<div style="padding: 20px; background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 12px; text-align: center; margin: 15px 0; color: #64748b;">
             <div style="font-weight: bold; margin-bottom: 4px;">Drawing: ${file.name}</div>
-            <div style="font-size: 10px; opacity: 0.7;">Vector data embedded from ${ext === 'gdraw' ? 'BridgeDraw' : 'BridgePaint'}</div>
+            <div style="font-size: 10px; opacity: 0.7;">Vector data from GlassDraw</div>
+          </div>`;
+        } else if (ext === 'gpaint') {
+          const src = file.content || '';
+          contentToInsert = `<div style="text-align: center; margin: 15px 0;">
+            <img src="${src}" style="max-width: 80%; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.1);" alt="Painting: ${file.name}" />
+            <div style="font-size: 9px; color: #94a3b8; margin-top: 4px; font-weight: bold;">PAINTING: ${file.name}</div>
           </div>`;
         } else {
           const src = file.content?.startsWith('data:') ? file.content : `data:image/${ext};base64,${file.content}`;
@@ -9491,7 +10160,8 @@ function SettingsApp(props: any) {
 function NotepadApp({ 
   notepadContent, 
   setNotepadContent, 
-  notepadStyle,
+  notepadStyle = { fontSize: '14px', fontWeight: 'normal', textAlign: 'left' },
+  setNotepadStyle,
   activeFileInNotepad, 
   setActiveFileInNotepad,
   setFs, 
@@ -9510,6 +10180,27 @@ function NotepadApp({
   accentColor
 }: any) {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
+
+  const AVAILABLE_FONTS = [
+    { id: 'monospace', name: 'JetBrains Mono', value: 'JetBrains Mono, ui-monospace, monospace' },
+    { id: 'sans-serif', name: 'Inter', value: 'Inter, system-ui, sans-serif' },
+    { id: 'serif', name: 'Playfair Display', value: 'Playfair Display, Georgia, serif' },
+    { id: 'roboto', name: 'Roboto', value: 'Roboto, sans-serif' },
+    { id: 'open-sans', name: 'Open Sans', value: 'Open Sans, sans-serif' },
+    { id: 'montserrat', name: 'Montserrat', value: 'Montserrat, sans-serif' },
+    { id: 'poppins', name: 'Poppins', value: 'Poppins, sans-serif' }
+  ];
+
+  const getFontFamilyValue = (fontFamilyId: string) => {
+    const font = AVAILABLE_FONTS.find(f => f.id === fontFamilyId);
+    return font ? font.value : 'JetBrains Mono, ui-monospace, monospace';
+  };
+
+  const getFontName = (fontFamilyId: string) => {
+    const font = AVAILABLE_FONTS.find(f => f.id === fontFamilyId);
+    return font ? font.name : 'JetBrains Mono';
+  };
+
   const [showOpenDialog, setShowOpenDialog] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveFileName, setSaveFileName] = useState('');
@@ -9519,6 +10210,294 @@ function NotepadApp({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
+
+  const [showFindReplace, setShowFindReplace] = useState(false);
+  const [findText, setFindText] = useState('');
+  const [replaceText, setReplaceText] = useState('');
+  const [matchCase, setMatchCase] = useState(false);
+  const [searchIndex, setSearchIndex] = useState(-1);
+  const [showStats, setShowStats] = useState(false);
+  const [showStatusBar, setShowStatusBar] = useState(true);
+  const [showLineNumbers, setShowLineNumbers] = useState(true);
+  const [showGoToLine, setShowGoToLine] = useState(false);
+  const [goToLineInput, setGoToLineInput] = useState('');
+  const [showFontDialog, setShowFontDialog] = useState(false);
+  const [tempFontFamily, setTempFontFamily] = useState(notepadStyle?.fontFamily || 'monospace');
+
+  useEffect(() => {
+    if (showFontDialog) {
+      setTempFontFamily(notepadStyle?.fontFamily || 'monospace');
+    }
+  }, [showFontDialog, notepadStyle?.fontFamily]);
+
+  const gutterRef = useRef<HTMLDivElement>(null);
+  const previewGutterRef = useRef<HTMLDivElement>(null);
+
+  const getThemeClasses = () => {
+    const currentTheme = notepadStyle?.theme || 'classic-dark';
+    switch (currentTheme) {
+      case 'classic-light':
+        return 'bg-white text-slate-900 selection:bg-blue-200';
+      case 'terminal':
+        return 'bg-black text-green-400 selection:bg-green-900/50 font-mono';
+      case 'sepia':
+        return 'bg-[#fcf7ec] text-[#4d3a24] selection:bg-[#ebd8b7]';
+      case 'cyberpunk':
+        return 'bg-[#0f051d] text-[#ff007f] selection:bg-[#00ffff]/30';
+      case 'classic-dark':
+      default:
+        return 'bg-transparent text-white selection:bg-blue-500/30';
+    }
+  };
+
+  const getGutterClasses = () => {
+    const currentTheme = notepadStyle?.theme || 'classic-dark';
+    switch (currentTheme) {
+      case 'classic-light':
+        return 'text-slate-400 border-slate-200 bg-slate-50';
+      case 'terminal':
+        return 'text-green-700/60 border-green-950 bg-black/40';
+      case 'sepia':
+        return 'text-[#8c7456]/60 border-[#e2d5b8] bg-[#f5efe0]';
+      case 'cyberpunk':
+        return 'text-[#ff007f]/40 border-[#ff007f]/10 bg-[#070110]';
+      case 'classic-dark':
+      default:
+        return 'text-white/30 border-white/5 bg-white/[0.01]';
+    }
+  };
+
+  const handleNormalScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
+    if (gutterRef.current) {
+      gutterRef.current.scrollTop = e.currentTarget.scrollTop;
+    }
+  };
+
+  const handlePreviewScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
+    if (previewGutterRef.current) {
+      previewGutterRef.current.scrollTop = e.currentTarget.scrollTop;
+    }
+  };
+
+  const handleGutterWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (textareaRef.current) {
+      textareaRef.current.scrollTop += e.deltaY;
+    }
+  };
+
+  const handleGoToLineSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const lineNum = parseInt(goToLineInput, 10);
+    if (isNaN(lineNum) || lineNum < 1) {
+      addNotification('Notepad', 'Please enter a valid line number', 'warning');
+      return;
+    }
+
+    const lines = notepadContent.split('\n');
+    if (lineNum > lines.length) {
+      addNotification('Notepad', `The file only has ${lines.length} lines`, 'warning');
+      return;
+    }
+
+    let charIndex = 0;
+    for (let i = 0; i < lineNum - 1; i++) {
+      charIndex += lines[i].length + 1;
+    }
+
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.focus();
+      textarea.setSelectionRange(charIndex, charIndex);
+      const approxLineHeight = textarea.scrollHeight / Math.max(1, lines.length);
+      textarea.scrollTop = Math.max(0, (lineNum - 5) * approxLineHeight);
+    }
+
+    setShowGoToLine(false);
+    setGoToLineInput('');
+    addNotification('Notepad', `Navigated to line ${lineNum}`, 'success');
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'g') {
+      e.preventDefault();
+      setShowGoToLine(true);
+    }
+  };
+
+  const handleUpdateStyle = (key: string, value: any) => {
+    if (setNotepadStyle) {
+      setNotepadStyle((prev: any) => ({
+        ...(prev || { fontSize: '14px', fontWeight: 'normal', textAlign: 'left' }),
+        [key]: value
+      }));
+    }
+  };
+
+  const handleZoom = (direction: 'in' | 'out' | 'reset') => {
+    const currentSize = notepadStyle?.fontSize || '14px';
+    const numSize = parseInt(currentSize, 10) || 14;
+    let newSize = numSize;
+    if (direction === 'in') {
+      newSize = Math.min(72, numSize + 2);
+    } else if (direction === 'out') {
+      newSize = Math.max(8, numSize - 2);
+    } else {
+      newSize = 14;
+    }
+    handleUpdateStyle('fontSize', `${newSize}px`);
+  };
+
+  const handleSelectAll = () => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.focus();
+      textarea.select();
+      addNotification('Notepad', 'Selected all text', 'info');
+    }
+    setActiveMenu(null);
+  };
+
+  const handleTransformCase = (type: 'upper' | 'lower' | 'title') => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    
+    if (start === end) {
+      let newContent = notepadContent;
+      if (type === 'upper') newContent = notepadContent.toUpperCase();
+      else if (type === 'lower') newContent = notepadContent.toLowerCase();
+      else if (type === 'title') {
+        newContent = notepadContent.replace(/\b\w/g, (c: string) => c.toUpperCase());
+      }
+      setNotepadContent(newContent);
+      addNotification('Notepad', 'Transformed entire text case', 'info');
+    } else {
+      const selection = notepadContent.substring(start, end);
+      let transformed = selection;
+      if (type === 'upper') transformed = selection.toUpperCase();
+      else if (type === 'lower') transformed = selection.toLowerCase();
+      else if (type === 'title') {
+        transformed = selection.replace(/\b\w/g, (c: string) => c.toUpperCase());
+      }
+      const newContent = notepadContent.substring(0, start) + transformed + notepadContent.substring(end);
+      setNotepadContent(newContent);
+      setTimeout(() => {
+        textarea.focus();
+        textarea.setSelectionRange(start, start + transformed.length);
+      }, 0);
+      addNotification('Notepad', 'Transformed selection case', 'info');
+    }
+    setActiveMenu(null);
+  };
+
+  const handleTrimWhitespace = () => {
+    const trimmed = notepadContent.split('\n').map((line: string) => line.trimEnd()).join('\n').trim();
+    setNotepadContent(trimmed);
+    addNotification('Notepad', 'Trimmed trailing whitespace', 'success');
+    setActiveMenu(null);
+  };
+
+  const handleRemoveEmptyLines = () => {
+    const cleaned = notepadContent.split('\n').filter((line: string) => line.trim() !== '').join('\n');
+    setNotepadContent(cleaned);
+    addNotification('Notepad', 'Removed empty lines', 'success');
+    setActiveMenu(null);
+  };
+
+  const handleFindNext = () => {
+    if (!findText) return;
+    const content = notepadContent;
+    const searchStr = matchCase ? findText : findText.toLowerCase();
+    const sourceStr = matchCase ? content : content.toLowerCase();
+    
+    let index = sourceStr.indexOf(searchStr, searchIndex + 1);
+    if (index === -1) {
+      index = sourceStr.indexOf(searchStr, 0);
+    }
+    
+    if (index !== -1) {
+      setSearchIndex(index);
+      const textarea = textareaRef.current;
+      if (textarea) {
+        textarea.focus();
+        textarea.setSelectionRange(index, index + findText.length);
+        const row = content.substring(0, index).split('\n').length;
+        textarea.scrollTop = (row - 5) * 20;
+      }
+    } else {
+      addNotification('Notepad', 'Text not found', 'warning');
+    }
+  };
+
+  const handleFindPrev = () => {
+    if (!findText) return;
+    const content = notepadContent;
+    const searchStr = matchCase ? findText : findText.toLowerCase();
+    const sourceStr = matchCase ? content : content.toLowerCase();
+    
+    let index = -1;
+    const subStr = sourceStr.substring(0, searchIndex > 0 ? searchIndex : sourceStr.length);
+    index = subStr.lastIndexOf(searchStr);
+    
+    if (index === -1 && searchIndex !== -1) {
+      index = sourceStr.lastIndexOf(searchStr);
+    }
+    
+    if (index !== -1) {
+      setSearchIndex(index);
+      const textarea = textareaRef.current;
+      if (textarea) {
+        textarea.focus();
+        textarea.setSelectionRange(index, index + findText.length);
+        const row = content.substring(0, index).split('\n').length;
+        textarea.scrollTop = (row - 5) * 20;
+      }
+    } else {
+      addNotification('Notepad', 'Text not found', 'warning');
+    }
+  };
+
+  const handleReplace = () => {
+    if (!findText) return;
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = notepadContent.substring(start, end);
+    const searchStr = matchCase ? findText : findText.toLowerCase();
+    const compareText = matchCase ? selectedText : selectedText.toLowerCase();
+    
+    if (compareText === searchStr && start !== end) {
+      const newContent = notepadContent.substring(0, start) + replaceText + notepadContent.substring(end);
+      setNotepadContent(newContent);
+      setTimeout(() => {
+        textarea.focus();
+        textarea.setSelectionRange(start, start + replaceText.length);
+      }, 0);
+      addNotification('Notepad', 'Replaced text', 'success');
+    } else {
+      handleFindNext();
+    }
+  };
+
+  const handleReplaceAll = () => {
+    if (!findText) return;
+    const searchStr = findText;
+    const flags = matchCase ? 'g' : 'gi';
+    const escaped = searchStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(escaped, flags);
+    const count = (notepadContent.match(regex) || []).length;
+    
+    if (count > 0) {
+      const newContent = notepadContent.replace(regex, replaceText);
+      setNotepadContent(newContent);
+      addNotification('Notepad', `Replaced ${count} occurrences`, 'success');
+    } else {
+      addNotification('Notepad', 'No matches found to replace', 'warning');
+    }
+  };
 
   useEffect(() => {
     BridgeLib.registerApp('notepad', {
@@ -9647,13 +10626,167 @@ function NotepadApp({
     setPrintQueue((prev: PrintJob[]) => [...prev, newJob]);
     addNotification('Print Manager', `Sending "${filename}" to printer...`, 'info');
     
-    // Simulate printing process
+    // Simulate printing process for local log
     setTimeout(() => {
       setPrintQueue((prev: PrintJob[]) => 
         prev.map(job => job.id === newJob.id ? { ...job, status: 'completed' } : job)
       );
       addNotification('Print Manager', `Finished printing "${filename}"`, 'success');
     }, 5000);
+
+    const escapeHtml = (text: string) => {
+      return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    };
+
+    const charCount = notepadContent.length;
+    const wordCount = notepadContent.trim() === '' ? 0 : notepadContent.trim().split(/\s+/).length;
+    const lineCount = notepadContent.split('\n').length;
+
+    // Create a hidden printing iframe
+    const printFrame = document.createElement('iframe');
+    printFrame.style.position = 'fixed';
+    printFrame.style.right = '0';
+    printFrame.style.bottom = '0';
+    printFrame.style.width = '0';
+    printFrame.style.height = '0';
+    printFrame.style.border = '0';
+    document.body.appendChild(printFrame);
+
+    const doc = printFrame.contentWindow?.document;
+    if (doc) {
+      const currentTimestamp = new Date().toLocaleString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+
+      const fontValue = getFontFamilyValue(notepadStyle?.fontFamily);
+
+      doc.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Print - ${filename}</title>
+          <style>
+            @page {
+              size: auto;
+              margin: 20mm 15mm 20mm 15mm;
+            }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+              color: #1a202c;
+              margin: 0;
+              padding: 0;
+              line-height: 1.6;
+              font-size: 11pt;
+            }
+            .print-header {
+              border-bottom: 2px solid #2d3748;
+              padding-bottom: 12px;
+              margin-bottom: 24px;
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-end;
+            }
+            .doc-info {
+              flex: 1;
+            }
+            .doc-title {
+              font-size: 18pt;
+              font-weight: 700;
+              color: #1a202c;
+              margin: 0 0 4px 0;
+              word-break: break-all;
+            }
+            .doc-meta {
+              font-size: 9pt;
+              color: #718096;
+              margin: 0;
+              display: flex;
+              gap: 16px;
+            }
+            .print-meta {
+              text-align: right;
+              font-size: 9pt;
+              color: #4a5568;
+              min-width: 180px;
+            }
+            .print-time {
+              font-weight: 500;
+              color: #2d3748;
+            }
+            .print-system {
+              font-size: 8pt;
+              color: #a0aec0;
+              margin-top: 2px;
+            }
+            .print-content {
+              white-space: pre-wrap;
+              word-wrap: break-word;
+              font-family: ${fontValue};
+              font-size: 10.5pt;
+              color: #2d3748;
+              tab-size: 4;
+            }
+            @media print {
+              body {
+                background: transparent;
+                color: #000;
+              }
+              .print-header {
+                border-bottom-color: #000;
+              }
+              .doc-title {
+                color: #000;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="print-header">
+            <div class="doc-info">
+              <h1 class="doc-title">${escapeHtml(filename)}</h1>
+              <p class="doc-meta">
+                <span><strong>Lines:</strong> ${lineCount}</span>
+                <span><strong>Words:</strong> ${wordCount}</span>
+                <span><strong>Characters:</strong> ${charCount}</span>
+              </p>
+            </div>
+            <div class="print-meta">
+              <div class="print-time">${escapeHtml(currentTimestamp)}</div>
+              <div class="print-system">Printed from Notepad Desktop</div>
+            </div>
+          </div>
+          <div class="print-content">${escapeHtml(notepadContent)}</div>
+        </body>
+        </html>
+      `);
+      doc.close();
+
+      setTimeout(() => {
+        try {
+          printFrame.contentWindow?.focus();
+          printFrame.contentWindow?.print();
+        } catch (err) {
+          console.error("Print failed:", err);
+        } finally {
+          setTimeout(() => {
+            if (document.body.contains(printFrame)) {
+              document.body.removeChild(printFrame);
+            }
+          }, 1000);
+        }
+      }, 500);
+    }
   };
 
   const handleEdit = async (action: 'cut' | 'copy' | 'paste') => {
@@ -9739,19 +10872,14 @@ function NotepadApp({
   return (
     <div className="h-full flex flex-col relative" onClick={() => setActiveMenu(null)}>
       {/* Menu Bar */}
-      <div className="h-8 bg-white/5 border-b border-white/10 flex items-center px-2 gap-1 text-[11px]">
+      <div className="h-8 bg-white/5 border-b border-white/10 flex items-center px-2 gap-1 text-[11px] select-none">
+        {/* File Menu */}
         <div className="relative">
           <button 
             onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'file' ? null : 'file'); }}
             className={cn("px-3 py-1 rounded hover:bg-white/10 transition-colors", activeMenu === 'file' && "bg-white/10")}
           >
             File
-          </button>
-          <button 
-            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'office' ? null : 'office'); }}
-            className={cn("px-3 py-1 rounded hover:bg-white/10 transition-colors", activeMenu === 'office' && "bg-white/10")}
-          >
-            Office
           </button>
           <AnimatePresence>
             {activeMenu === 'file' && (
@@ -9762,12 +10890,13 @@ function NotepadApp({
                 className="absolute top-full left-0 w-48 glass-dark border border-white/20 rounded-xl shadow-2xl z-50 py-2 mt-1"
               >
                 <MenuButton icon={<FilePlus size={14} />} label="New File" onClick={handleNew} />
-                <MenuButton icon={<Folder size={14} />} label="Open File..." onClick={() => setShowOpenDialog(true)} />
-                <MenuButton icon={<Save size={14} />} label="Save" onClick={handleSave} />
+                <MenuButton icon={<FolderOpen size={14} />} label="Open File..." onClick={() => { setShowOpenDialog(true); setActiveMenu(null); }} />
+                <MenuButton icon={<Save size={14} />} label="Save" onClick={() => { handleSave(); setActiveMenu(null); }} />
+                <MenuButton icon={<Save size={14} />} label="Save As..." onClick={() => { setShowSaveDialog(true); setActiveMenu(null); }} />
                 <div className="h-px bg-white/10 my-1 mx-2" />
-                <MenuButton icon={<Printer size={14} />} label="Print File" onClick={handlePrint} />
+                <MenuButton icon={<Printer size={14} />} label="Print File" onClick={() => { handlePrint(); setActiveMenu(null); }} />
                 <div className="relative group/sub">
-                  <button className="w-full px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/20 text-white/70 hover:text-white transition-all">
+                  <button className="w-full px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/20 text-white/70 hover:text-white transition-all text-left">
                     <div className="flex items-center gap-3">
                       <Mail size={14} />
                       <span>Send File</span>
@@ -9779,12 +10908,13 @@ function NotepadApp({
                   </div>
                 </div>
                 <div className="h-px bg-white/10 my-1 mx-2" />
-                <MenuButton icon={<LogOut size={14} />} label="Quit" onClick={() => closeWindow('notepad')} variant="danger" />
+                <MenuButton icon={<LogOut size={14} />} label="Quit" onClick={() => { closeWindow('notepad'); setActiveMenu(null); }} variant="danger" />
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
+        {/* Edit Menu */}
         <div className="relative">
           <button 
             onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'edit' ? null : 'edit'); }}
@@ -9800,15 +10930,300 @@ function NotepadApp({
                 exit={{ opacity: 0, y: 5 }}
                 className="absolute top-full left-0 w-48 glass-dark border border-white/20 rounded-xl shadow-2xl z-50 py-2 mt-1"
               >
-                <MenuButton icon={<Scissors size={14} />} label="Cut" onClick={() => handleEdit('cut')} />
-                <MenuButton icon={<Copy size={14} />} label="Copy" onClick={() => handleEdit('copy')} />
-                <MenuButton icon={<Clipboard size={14} />} label="Paste" onClick={() => handleEdit('paste')} />
+                <MenuButton icon={<Scissors size={14} />} label="Cut" onClick={() => { handleEdit('cut'); setActiveMenu(null); }} />
+                <MenuButton icon={<Copy size={14} />} label="Copy" onClick={() => { handleEdit('copy'); setActiveMenu(null); }} />
+                <MenuButton icon={<Clipboard size={14} />} label="Paste" onClick={() => { handleEdit('paste'); setActiveMenu(null); }} />
+                <div className="h-px bg-white/10 my-1 mx-2" />
+                <MenuButton icon={<Search size={14} />} label="Find & Replace..." onClick={() => { setShowFindReplace(true); setActiveMenu(null); }} />
+                <MenuButton label="Select All" onClick={handleSelectAll} />
+                <MenuButton icon={<Hash size={14} />} label="Go to Line..." onClick={() => { setShowGoToLine(true); setActiveMenu(null); }} />
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
+        {/* Format Menu */}
         <div className="relative">
+          <button 
+            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'format' ? null : 'format'); }}
+            className={cn("px-3 py-1 rounded hover:bg-white/10 transition-colors", activeMenu === 'format' && "bg-white/10")}
+          >
+            Format
+          </button>
+          <AnimatePresence>
+            {activeMenu === 'format' && (
+              <motion.div 
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 5 }}
+                className="absolute top-full left-0 w-48 glass-dark border border-white/20 rounded-xl shadow-2xl z-50 py-2 mt-1"
+              >
+                <MenuButton 
+                  icon={<Type size={14} />} 
+                  label="Font Family..." 
+                  onClick={() => { setShowFontDialog(true); setActiveMenu(null); }} 
+                />
+
+                {/* Font Size sub-menu */}
+                <div className="relative group/sub">
+                  <button className="w-full px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/20 text-white/70 hover:text-white transition-all text-left">
+                    <div className="flex items-center gap-3">
+                      <Baseline size={14} />
+                      <span>Font Size</span>
+                    </div>
+                    <ChevronRight size={12} />
+                  </button>
+                  <div className="absolute top-0 left-full ml-1 w-40 glass-dark border border-white/20 rounded-xl shadow-2xl hidden group-hover/sub:block py-2">
+                    <MenuButton 
+                      icon={(notepadStyle?.fontSize === '12px') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="Small (12px)" 
+                      onClick={() => { handleUpdateStyle('fontSize', '12px'); setActiveMenu(null); }} 
+                    />
+                    <MenuButton 
+                      icon={(!notepadStyle?.fontSize || notepadStyle?.fontSize === '14px') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="Medium (14px)" 
+                      onClick={() => { handleUpdateStyle('fontSize', '14px'); setActiveMenu(null); }} 
+                    />
+                    <MenuButton 
+                      icon={(notepadStyle?.fontSize === '18px') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="Large (18px)" 
+                      onClick={() => { handleUpdateStyle('fontSize', '18px'); setActiveMenu(null); }} 
+                    />
+                    <MenuButton 
+                      icon={(notepadStyle?.fontSize === '24px') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="X-Large (24px)" 
+                      onClick={() => { handleUpdateStyle('fontSize', '24px'); setActiveMenu(null); }} 
+                    />
+                  </div>
+                </div>
+
+                {/* Font Weight sub-menu */}
+                <div className="relative group/sub">
+                  <button className="w-full px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/20 text-white/70 hover:text-white transition-all text-left">
+                    <div className="flex items-center gap-3">
+                      <Bold size={14} />
+                      <span>Font Weight</span>
+                    </div>
+                    <ChevronRight size={12} />
+                  </button>
+                  <div className="absolute top-0 left-full ml-1 w-40 glass-dark border border-white/20 rounded-xl shadow-2xl hidden group-hover/sub:block py-2">
+                    <MenuButton 
+                      icon={(!notepadStyle?.fontWeight || notepadStyle?.fontWeight === 'normal') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="Normal" 
+                      onClick={() => { handleUpdateStyle('fontWeight', 'normal'); setActiveMenu(null); }} 
+                    />
+                    <MenuButton 
+                      icon={(notepadStyle?.fontWeight === 'medium') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="Medium" 
+                      onClick={() => { handleUpdateStyle('fontWeight', 'medium'); setActiveMenu(null); }} 
+                    />
+                    <MenuButton 
+                      icon={(notepadStyle?.fontWeight === 'bold') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="Bold" 
+                      onClick={() => { handleUpdateStyle('fontWeight', 'bold'); setActiveMenu(null); }} 
+                    />
+                  </div>
+                </div>
+
+                {/* Text Align sub-menu */}
+                <div className="relative group/sub">
+                  <button className="w-full px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/20 text-white/70 hover:text-white transition-all text-left">
+                    <div className="flex items-center gap-3">
+                      <AlignLeft size={14} />
+                      <span>Text Align</span>
+                    </div>
+                    <ChevronRight size={12} />
+                  </button>
+                  <div className="absolute top-0 left-full ml-1 w-40 glass-dark border border-white/20 rounded-xl shadow-2xl hidden group-hover/sub:block py-2">
+                    <MenuButton 
+                      icon={(!notepadStyle?.textAlign || notepadStyle?.textAlign === 'left') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="Align Left" 
+                      onClick={() => { handleUpdateStyle('textAlign', 'left'); setActiveMenu(null); }} 
+                    />
+                    <MenuButton 
+                      icon={(notepadStyle?.textAlign === 'center') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="Align Center" 
+                      onClick={() => { handleUpdateStyle('textAlign', 'center'); setActiveMenu(null); }} 
+                    />
+                    <MenuButton 
+                      icon={(notepadStyle?.textAlign === 'right') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="Align Right" 
+                      onClick={() => { handleUpdateStyle('textAlign', 'right'); setActiveMenu(null); }} 
+                    />
+                    <MenuButton 
+                      icon={(notepadStyle?.textAlign === 'justify') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="Justify" 
+                      onClick={() => { handleUpdateStyle('textAlign', 'justify'); setActiveMenu(null); }} 
+                    />
+                  </div>
+                </div>
+
+                <div className="h-px bg-white/10 my-1 mx-2" />
+                <MenuButton 
+                  icon={notepadStyle?.wordWrap !== false ? <Check size={12} /> : <div className="w-3" />} 
+                  label="Word Wrap" 
+                  onClick={() => { 
+                    handleUpdateStyle('wordWrap', notepadStyle?.wordWrap === false ? true : false); 
+                    setActiveMenu(null); 
+                  }} 
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* View Menu */}
+        <div className="relative">
+          <button 
+            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'view' ? null : 'view'); }}
+            className={cn("px-3 py-1 rounded hover:bg-white/10 transition-colors", activeMenu === 'view' && "bg-white/10")}
+          >
+            View
+          </button>
+          <AnimatePresence>
+            {activeMenu === 'view' && (
+              <motion.div 
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 5 }}
+                className="absolute top-full left-0 w-48 glass-dark border border-white/20 rounded-xl shadow-2xl z-50 py-2 mt-1"
+              >
+                {/* Theme sub-menu */}
+                <div className="relative group/sub">
+                  <button className="w-full px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/20 text-white/70 hover:text-white transition-all text-left">
+                    <div className="flex items-center gap-3">
+                      <Palette size={14} />
+                      <span>Theme</span>
+                    </div>
+                    <ChevronRight size={12} />
+                  </button>
+                  <div className="absolute top-0 left-full ml-1 w-44 glass-dark border border-white/20 rounded-xl shadow-2xl hidden group-hover/sub:block py-2">
+                    <MenuButton 
+                      icon={(!notepadStyle?.theme || notepadStyle?.theme === 'classic-dark') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="Classic Dark" 
+                      onClick={() => { handleUpdateStyle('theme', 'classic-dark'); setActiveMenu(null); }} 
+                    />
+                    <MenuButton 
+                      icon={(notepadStyle?.theme === 'classic-light') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="Classic Light" 
+                      onClick={() => { handleUpdateStyle('theme', 'classic-light'); setActiveMenu(null); }} 
+                    />
+                    <MenuButton 
+                      icon={(notepadStyle?.theme === 'terminal') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="Retro Terminal" 
+                      onClick={() => { handleUpdateStyle('theme', 'terminal'); setActiveMenu(null); }} 
+                    />
+                    <MenuButton 
+                      icon={(notepadStyle?.theme === 'sepia') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="Warm Sepia" 
+                      onClick={() => { handleUpdateStyle('theme', 'sepia'); setActiveMenu(null); }} 
+                    />
+                    <MenuButton 
+                      icon={(notepadStyle?.theme === 'cyberpunk') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="Midnight Purple" 
+                      onClick={() => { handleUpdateStyle('theme', 'cyberpunk'); setActiveMenu(null); }} 
+                    />
+                  </div>
+                </div>
+
+                {/* Zoom sub-menu */}
+                <div className="relative group/sub">
+                  <button className="w-full px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/20 text-white/70 hover:text-white transition-all text-left">
+                    <div className="flex items-center gap-3">
+                      <Search size={14} />
+                      <span>Zoom</span>
+                    </div>
+                    <ChevronRight size={12} />
+                  </button>
+                  <div className="absolute top-0 left-full ml-1 w-40 glass-dark border border-white/20 rounded-xl shadow-2xl hidden group-hover/sub:block py-2">
+                    <MenuButton icon={<Plus size={12} />} label="Zoom In" onClick={() => { handleZoom('in'); setActiveMenu(null); }} />
+                    <MenuButton icon={<Minus size={12} />} label="Zoom Out" onClick={() => { handleZoom('out'); setActiveMenu(null); }} />
+                    <MenuButton label="Reset Zoom" onClick={() => { handleZoom('reset'); setActiveMenu(null); }} />
+                  </div>
+                </div>
+
+                <div className="h-px bg-white/10 my-1 mx-2" />
+                <MenuButton 
+                  icon={showStatusBar ? <Check size={12} /> : <div className="w-3" />} 
+                  label="Status Bar" 
+                  onClick={() => { setShowStatusBar(!showStatusBar); setActiveMenu(null); }} 
+                />
+                <MenuButton 
+                  icon={showLineNumbers ? <Check size={12} /> : <div className="w-3" />} 
+                  label="Line Numbers" 
+                  onClick={() => { setShowLineNumbers(!showLineNumbers); setActiveMenu(null); }} 
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Tools Menu */}
+        <div className="relative">
+          <button 
+            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'tools' ? null : 'tools'); }}
+            className={cn("px-3 py-1 rounded hover:bg-white/10 transition-colors", activeMenu === 'tools' && "bg-white/10")}
+          >
+            Tools
+          </button>
+          <AnimatePresence>
+            {activeMenu === 'tools' && (
+              <motion.div 
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 5 }}
+                className="absolute top-full left-0 w-48 glass-dark border border-white/20 rounded-xl shadow-2xl z-50 py-2 mt-1"
+              >
+                {/* Case Conversion sub-menu */}
+                <div className="relative group/sub">
+                  <button className="w-full px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/20 text-white/70 hover:text-white transition-all text-left">
+                    <div className="flex items-center gap-3">
+                      <Baseline size={14} />
+                      <span>Transform Case</span>
+                    </div>
+                    <ChevronRight size={12} />
+                  </button>
+                  <div className="absolute top-0 left-full ml-1 w-40 glass-dark border border-white/20 rounded-xl shadow-2xl hidden group-hover/sub:block py-2">
+                    <MenuButton label="UPPERCASE" onClick={() => handleTransformCase('upper')} />
+                    <MenuButton label="lowercase" onClick={() => handleTransformCase('lower')} />
+                    <MenuButton label="Title Case" onClick={() => handleTransformCase('title')} />
+                  </div>
+                </div>
+
+                {/* Format Operations sub-menu */}
+                <div className="relative group/sub">
+                  <button className="w-full px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/20 text-white/70 hover:text-white transition-all text-left">
+                    <div className="flex items-center gap-3">
+                      <Eraser size={14} />
+                      <span>Cleanups</span>
+                    </div>
+                    <ChevronRight size={12} />
+                  </button>
+                  <div className="absolute top-0 left-full ml-1 w-44 glass-dark border border-white/20 rounded-xl shadow-2xl hidden group-hover/sub:block py-2">
+                    <MenuButton label="Trim Whitespace" onClick={handleTrimWhitespace} />
+                    <MenuButton label="Remove Empty Lines" onClick={handleRemoveEmptyLines} />
+                  </div>
+                </div>
+
+                <div className="h-px bg-white/10 my-1 mx-2" />
+                <MenuButton 
+                  icon={<Info size={14} />} 
+                  label="Document Stats" 
+                  onClick={() => { setShowStats(true); setActiveMenu(null); }} 
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Office Menu */}
+        <div className="relative">
+          <button 
+            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'office' ? null : 'office'); }}
+            className={cn("px-3 py-1 rounded hover:bg-white/10 transition-colors", activeMenu === 'office' && "bg-white/10")}
+          >
+            Office
+          </button>
           <AnimatePresence>
             {activeMenu === 'office' && (
               <motion.div 
@@ -9847,64 +11262,190 @@ function NotepadApp({
             )}
           </AnimatePresence>
         </div>
+
+        {/* Inline Font Selector in Menu Bar */}
+        <div className="ml-auto flex items-center gap-1.5 mr-2 relative z-50">
+          <span className="text-white/40 text-[9px] font-bold tracking-wider uppercase">Font:</span>
+          <button
+            type="button"
+            onClick={(e) => { 
+              e.stopPropagation(); 
+              setShowFontDialog(true); 
+              setActiveMenu(null);
+            }}
+            className="h-5 px-2 rounded border border-white/10 hover:bg-white/10 bg-white/5 flex items-center gap-1.5 transition-all text-left min-w-[125px] justify-between cursor-pointer"
+          >
+            <span 
+              style={{ fontFamily: getFontFamilyValue(notepadStyle?.fontFamily) }}
+              className="truncate text-white text-[11px] leading-none"
+            >
+              {getFontName(notepadStyle?.fontFamily)}
+            </span>
+            <ChevronDown size={10} className="text-white/40 flex-shrink-0" />
+          </button>
+        </div>
       </div>
+
+      {/* Find and Replace Bar */}
+      {showFindReplace && (
+        <div className="bg-white/5 border-b border-white/10 px-4 py-2 flex flex-wrap items-center gap-3 text-xs select-none">
+          <div className="flex items-center gap-2">
+            <span className="text-white/45 text-[10px]">Find:</span>
+            <input 
+              type="text" 
+              value={findText} 
+              onChange={e => setFindText(e.target.value)} 
+              placeholder="Text to find..." 
+              className="bg-black/20 border border-white/10 rounded px-2 py-1 text-white outline-none w-36 text-[11px] focus:border-blue-500/50"
+              onKeyDown={e => { if (e.key === 'Enter') handleFindNext(); }}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-white/45 text-[10px]">Replace:</span>
+            <input 
+              type="text" 
+              value={replaceText} 
+              onChange={e => setReplaceText(e.target.value)} 
+              placeholder="Replace with..." 
+              className="bg-black/20 border border-white/10 rounded px-2 py-1 text-white outline-none w-36 text-[11px] focus:border-blue-500/50"
+              onKeyDown={e => { if (e.key === 'Enter') handleReplace(); }}
+            />
+          </div>
+          
+          <label className="flex items-center gap-1.5 cursor-pointer select-none text-[10px] text-white/60 hover:text-white">
+            <input 
+              type="checkbox" 
+              checked={matchCase} 
+              onChange={e => setMatchCase(e.target.checked)}
+              className="rounded border-white/15 bg-black/20 text-blue-500 focus:ring-0"
+            />
+            Match Case
+          </label>
+          
+          <div className="flex items-center gap-1">
+            <button 
+              onClick={handleFindNext} 
+              className="px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-[10px] text-white font-medium transition-all"
+            >
+              Find Next
+            </button>
+            <button 
+              onClick={handleFindPrev} 
+              className="px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-[10px] text-white font-medium transition-all"
+            >
+              Find Prev
+            </button>
+            <button 
+              onClick={handleReplace} 
+              className="px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-[10px] text-white font-medium transition-all"
+            >
+              Replace
+            </button>
+            <button 
+              onClick={handleReplaceAll} 
+              className="px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-[10px] text-white font-medium transition-all"
+            >
+              Replace All
+            </button>
+          </div>
+          
+          <button 
+            onClick={() => setShowFindReplace(false)} 
+            className="ml-auto text-white/40 hover:text-white"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Status Bar */}
-      <div className="h-6 bg-white/5 border-b border-white/10 flex items-center px-4 justify-between">
-        <div className="flex items-center gap-2">
-          <FileText size={12} className={cn("transition-colors", isRenaming ? "text-blue-400" : "text-white/40")} />
-          {isRenaming ? (
-            <input
-              autoFocus
-              className="bg-blue-500/10 border border-blue-500/30 text-[9px] text-white px-1 outline-none rounded"
-              value={renameValue}
-              onChange={e => setRenameValue(e.target.value)}
-              onBlur={handleRenameSubmit}
-              onKeyDown={e => e.key === 'Enter' && handleRenameSubmit()}
-            />
-          ) : (
-            <span 
-              className="text-[9px] text-white/60 truncate max-w-[200px] cursor-pointer hover:text-white transition-colors"
-              onClick={() => {
-                if (activeFileInNotepad) {
-                  setRenameValue(activeFileInNotepad.name);
-                  setIsRenaming(true);
-                } else {
-                  addNotification('Notepad', 'Save the file first to enable renaming', 'info');
-                }
-              }}
-            >
-              {activeFileInNotepad ? `/${activeFileInNotepad.path.join('/')}/${activeFileInNotepad.name}` : 'Untitled.txt'}
-            </span>
-          )}
+      {showStatusBar && (
+        <div className="h-6 bg-white/5 border-b border-white/10 flex items-center px-4 justify-between">
+          <div className="flex items-center gap-2">
+            <FileText size={12} className={cn("transition-colors", isRenaming ? "text-blue-400" : "text-white/40")} />
+            {isRenaming ? (
+              <input
+                autoFocus
+                className="bg-blue-500/10 border border-blue-500/30 text-[9px] text-white px-1 outline-none rounded"
+                value={renameValue}
+                onChange={e => setRenameValue(e.target.value)}
+                onBlur={handleRenameSubmit}
+                onKeyDown={e => e.key === 'Enter' && handleRenameSubmit()}
+              />
+            ) : (
+              <span 
+                className="text-[9px] text-white/60 truncate max-w-[200px] cursor-pointer hover:text-white transition-colors"
+                onClick={() => {
+                  if (activeFileInNotepad) {
+                    setRenameValue(activeFileInNotepad.name);
+                    setIsRenaming(true);
+                  } else {
+                    addNotification('Notepad', 'Save the file first to enable renaming', 'info');
+                  }
+                }}
+              >
+                {activeFileInNotepad ? `/${activeFileInNotepad.path.join('/')}/${activeFileInNotepad.name}` : 'Untitled.txt'}
+              </span>
+            )}
+          </div>
+          <div className="text-[9px] text-white/30 uppercase tracking-widest flex items-center gap-4">
+            {activeFileInNotepad?.name.endsWith('.html') && (
+              <button 
+                onClick={() => setShowPreview(!showPreview)}
+                className={cn(
+                  "px-2 py-0.5 rounded transition-all flex items-center gap-1.5 border",
+                  showPreview ? "bg-blue-500/20 border-blue-500/50 text-blue-400" : "bg-white/5 border-white/10 text-white/40 hover:text-white"
+                )}
+              >
+                <Eye size={10} />
+                {showPreview ? 'Stop Preview' : 'Preview HTML'}
+              </button>
+            )}
+            <span>UTF-8 • {notepadContent.length} chars • {notepadContent.trim().split(/\s+/).filter(Boolean).length} words</span>
+          </div>
         </div>
-        <div className="text-[9px] text-white/30 uppercase tracking-widest flex items-center gap-4">
-          {activeFileInNotepad?.name.endsWith('.html') && (
-            <button 
-              onClick={() => setShowPreview(!showPreview)}
-              className={cn(
-                "px-2 py-0.5 rounded transition-all flex items-center gap-1.5 border",
-                showPreview ? "bg-blue-500/20 border-blue-500/50 text-blue-400" : "bg-white/5 border-white/10 text-white/40 hover:text-white"
-              )}
-            >
-              <Eye size={10} />
-              {showPreview ? 'Stop Preview' : 'Preview HTML'}
-            </button>
-          )}
-          <span>UTF-8 • {notepadContent.length} chars</span>
-        </div>
-      </div>
+      )}
 
-      <div className="flex-1 flex overflow-hidden">
+      {/* Main Editing Area */}
+      <div className={cn("flex-1 flex overflow-hidden transition-all duration-300", getThemeClasses())}>
         {showPreview && activeFileInNotepad?.name.endsWith('.html') ? (
           <div className="flex-1 flex gap-4 p-4 overflow-hidden">
-             <textarea 
-              ref={textareaRef}
-              className="flex-1 bg-white/5 p-4 outline-none resize-none font-mono text-sm leading-relaxed rounded-xl border border-white/10"
-              placeholder="<html>..."
-              value={notepadContent}
-              onChange={(e) => setNotepadContent(e.target.value)}
-            />
+             <div className="flex-1 flex bg-white/5 rounded-xl border border-white/10 overflow-hidden relative">
+                {showLineNumbers && (
+                  <div 
+                    ref={previewGutterRef}
+                    onWheel={handleGutterWheel}
+                    style={{ 
+                      fontSize: notepadStyle?.fontSize || '14px', 
+                      fontFamily: getFontFamilyValue(notepadStyle?.fontFamily),
+                      paddingTop: '1rem',
+                      paddingBottom: '1rem',
+                      lineHeight: '1.625',
+                    }}
+                    className={cn("w-11 select-none text-right pr-2.5 border-r overflow-hidden font-mono text-[11px] shrink-0", getGutterClasses())}
+                  >
+                    {Array.from({ length: Math.max(1, notepadContent.split('\n').length) }).map((_, i) => (
+                      <div key={i} className="h-[1.625em]">{i + 1}</div>
+                    ))}
+                  </div>
+                )}
+                <textarea 
+                  ref={textareaRef}
+                  onScroll={handlePreviewScroll}
+                  onKeyDown={handleKeyDown}
+                  style={{ 
+                    fontSize: notepadStyle?.fontSize || '14px', 
+                    fontWeight: notepadStyle?.fontWeight || 'normal', 
+                    textAlign: notepadStyle?.textAlign || 'left',
+                    fontFamily: getFontFamilyValue(notepadStyle?.fontFamily),
+                    whiteSpace: notepadStyle?.wordWrap === false ? 'pre' : 'pre-wrap',
+                  }}
+                  className="flex-1 bg-transparent p-4 outline-none resize-none leading-relaxed overflow-auto"
+                  placeholder="<html>..."
+                  value={notepadContent}
+                  onChange={(e) => setNotepadContent(e.target.value)}
+                />
+             </div>
             <div className="flex-1 bg-white rounded-xl border border-white/10 overflow-auto">
               <div 
                 className="w-full h-full p-4 text-black select-text"
@@ -9913,20 +11454,281 @@ function NotepadApp({
             </div>
           </div>
         ) : (
-          <textarea 
-            ref={textareaRef}
-            style={{ 
-              fontSize: notepadStyle.fontSize, 
-              fontWeight: notepadStyle.fontWeight, 
-              textAlign: notepadStyle.textAlign 
-            }}
-            className="flex-1 bg-transparent p-6 outline-none resize-none font-mono leading-relaxed selection:bg-blue-500/30 transition-all duration-300"
-            placeholder="Start typing your thoughts..."
-            value={notepadContent}
-            onChange={(e) => setNotepadContent(e.target.value)}
-          />
+          <div className="flex-1 flex overflow-hidden relative">
+            {showLineNumbers && (
+              <div 
+                ref={gutterRef}
+                onWheel={handleGutterWheel}
+                style={{ 
+                  fontSize: notepadStyle?.fontSize || '14px', 
+                  fontFamily: getFontFamilyValue(notepadStyle?.fontFamily),
+                  paddingTop: '1.5rem',
+                  paddingBottom: '1.5rem',
+                  lineHeight: '1.625',
+                }}
+                className={cn("w-12 select-none text-right pr-3 border-r overflow-hidden font-mono text-[11px] shrink-0", getGutterClasses())}
+              >
+                {Array.from({ length: Math.max(1, notepadContent.split('\n').length) }).map((_, i) => (
+                  <div key={i} className="h-[1.625em]">{i + 1}</div>
+                ))}
+              </div>
+            )}
+            <textarea 
+              ref={textareaRef}
+              onScroll={handleNormalScroll}
+              onKeyDown={handleKeyDown}
+              style={{ 
+                fontSize: notepadStyle?.fontSize || '14px', 
+                fontWeight: notepadStyle?.fontWeight || 'normal', 
+                textAlign: notepadStyle?.textAlign || 'left',
+                fontFamily: getFontFamilyValue(notepadStyle?.fontFamily),
+                whiteSpace: notepadStyle?.wordWrap === false ? 'pre' : 'pre-wrap',
+              }}
+              className="flex-1 bg-transparent py-6 pr-6 pl-4 outline-none resize-none leading-relaxed transition-all duration-300 overflow-auto"
+              placeholder="Start typing your thoughts..."
+              value={notepadContent}
+              onChange={(e) => setNotepadContent(e.target.value)}
+            />
+          </div>
         )}
       </div>
+
+      {/* Statistics Modal */}
+      <AnimatePresence>
+        {showStats && (
+          <div className="absolute inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowStats(false)} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="relative w-full max-w-sm glass-dark rounded-3xl border border-white/20 shadow-2xl overflow-hidden flex flex-col">
+              <div className="p-4 border-b border-white/10 flex items-center justify-between">
+                <h3 className="text-sm font-medium flex items-center gap-2">
+                  <Info size={16} className="text-blue-400" />
+                  <span>Document Statistics</span>
+                </h3>
+                <button onClick={() => setShowStats(false)} className="text-white/40 hover:text-white transition-colors"><X size={16} /></button>
+              </div>
+              <div className="p-5 space-y-3.5 text-xs">
+                <div className="flex justify-between items-center py-1.5 border-b border-white/5">
+                  <span className="text-white/50">Characters (with spaces):</span>
+                  <span className="font-mono text-white font-medium">{notepadContent.length}</span>
+                </div>
+                <div className="flex justify-between items-center py-1.5 border-b border-white/5">
+                  <span className="text-white/50">Characters (no spaces):</span>
+                  <span className="font-mono text-white font-medium">{notepadContent.replace(/\s/g, '').length}</span>
+                </div>
+                <div className="flex justify-between items-center py-1.5 border-b border-white/5">
+                  <span className="text-white/50">Words:</span>
+                  <span className="font-mono text-white font-medium">
+                    {notepadContent.trim().split(/\s+/).filter(Boolean).length}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center py-1.5 border-b border-white/5">
+                  <span className="text-white/50">Lines:</span>
+                  <span className="font-mono text-white font-medium">
+                    {notepadContent.split('\n').length}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center py-1.5 border-b border-white/5">
+                  <span className="text-white/50">Sentences:</span>
+                  <span className="font-mono text-white font-medium">
+                    {notepadContent.split(/[.!?]+/).filter(Boolean).length}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center py-1.5 border-b border-white/5">
+                  <span className="text-white/50">Avg. Word Length:</span>
+                  <span className="font-mono text-white font-medium">
+                    {(() => {
+                      const words = notepadContent.trim().split(/\s+/).filter(Boolean);
+                      if (words.length === 0) return '0';
+                      const totalLength = words.reduce((acc, w) => acc + w.length, 0);
+                      return (totalLength / words.length).toFixed(1);
+                    })()} chars
+                  </span>
+                </div>
+                <div className="flex justify-between items-center py-1.5">
+                  <span className="text-white/50">Est. Reading Time:</span>
+                  <span className="font-medium text-blue-400">
+                    {(() => {
+                      const words = notepadContent.trim().split(/\s+/).filter(Boolean).length;
+                      return Math.max(1, Math.ceil(words / 200));
+                    })()} min
+                  </span>
+                </div>
+              </div>
+              <div className="p-4 bg-white/5 border-t border-white/10 flex justify-end">
+                <button 
+                  onClick={() => setShowStats(false)} 
+                  className="px-4 py-1.5 bg-blue-500 hover:bg-blue-600 rounded-xl text-xs font-semibold text-white transition-all shadow-lg shadow-blue-500/20"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Go to Line Modal */}
+      <AnimatePresence>
+        {showGoToLine && (
+          <div className="absolute inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowGoToLine(false)} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="relative w-full max-w-xs glass-dark rounded-3xl border border-white/20 shadow-2xl overflow-hidden flex flex-col">
+              <div className="p-4 border-b border-white/10 flex items-center justify-between">
+                <h3 className="text-sm font-medium flex items-center gap-2">
+                  <Hash size={16} className="text-blue-400" />
+                  <span>Go to Line</span>
+                </h3>
+                <button onClick={() => setShowGoToLine(false)} className="text-white/40 hover:text-white transition-colors"><X size={16} /></button>
+              </div>
+              <form onSubmit={handleGoToLineSubmit} className="p-5 flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] text-white/50 font-medium">LINE NUMBER (1 - {notepadContent.split('\n').length}):</label>
+                  <input 
+                    type="number"
+                    min="1"
+                    max={notepadContent.split('\n').length}
+                    value={goToLineInput}
+                    onChange={(e) => setGoToLineInput(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors font-mono"
+                    placeholder="Enter line number..."
+                    autoFocus
+                  />
+                </div>
+                <div className="flex justify-end gap-2.5">
+                  <button 
+                    type="button"
+                    onClick={() => setShowGoToLine(false)}
+                    className="px-4 py-1.5 bg-white/5 hover:bg-white/10 rounded-xl text-xs font-medium text-white transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit"
+                    className="px-4 py-1.5 bg-blue-500 hover:bg-blue-600 rounded-xl text-xs font-semibold text-white transition-all shadow-lg shadow-blue-500/20"
+                  >
+                    Go
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Font Family Selector Modal */}
+      <AnimatePresence>
+        {showFontDialog && (
+          <div className="absolute inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowFontDialog(false)} 
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm" 
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }} 
+              animate={{ opacity: 1, scale: 1 }} 
+              exit={{ opacity: 0, scale: 0.9 }} 
+              className="relative w-full max-w-xl glass-dark rounded-3xl border border-white/20 shadow-2xl overflow-hidden flex flex-col"
+            >
+              {/* Header */}
+              <div className="p-4 border-b border-white/10 flex items-center justify-between">
+                <h3 className="text-sm font-medium flex items-center gap-2 text-white">
+                  <Type size={16} className="text-blue-400" />
+                  <span>Font Settings</span>
+                </h3>
+                <button 
+                  onClick={() => setShowFontDialog(false)} 
+                  className="text-white/40 hover:text-white transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Grid Content */}
+              <div className="p-5 flex flex-col md:flex-row gap-5 min-h-[320px]">
+                {/* Left Side: Font List */}
+                <div className="flex-1 flex flex-col gap-2">
+                  <span className="text-[10px] text-white/50 font-bold tracking-wider uppercase">Select Font Family</span>
+                  <div className="flex-1 overflow-y-auto max-h-[220px] pr-1 flex flex-col gap-1 scrollbar-thin">
+                    {AVAILABLE_FONTS.map((font) => {
+                      const isSelected = tempFontFamily === font.id;
+                      return (
+                        <button
+                          key={font.id}
+                          type="button"
+                          onClick={() => setTempFontFamily(font.id)}
+                          className={cn(
+                            "w-full px-3.5 py-2.5 rounded-xl flex items-center justify-between transition-all text-left border cursor-pointer",
+                            isSelected 
+                              ? "bg-blue-500/15 border-blue-500/40 text-blue-400 font-semibold" 
+                              : "bg-white/5 border-white/5 hover:bg-white/10 text-white/75 hover:text-white hover:border-white/10"
+                          )}
+                        >
+                          <span style={{ fontFamily: font.value }} className="text-xs">
+                            {font.name}
+                          </span>
+                          {isSelected && (
+                            <Check size={14} className="text-blue-400 flex-shrink-0" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Right Side: Sample Preview */}
+                <div className="flex-1 flex flex-col gap-2">
+                  <span className="text-[10px] text-white/50 font-bold tracking-wider uppercase">Live Preview</span>
+                  <div className="flex-1 bg-black/30 border border-white/10 rounded-2xl p-4 flex flex-col justify-between min-h-[160px]">
+                    <div 
+                      style={{ 
+                        fontFamily: getFontFamilyValue(tempFontFamily),
+                        fontSize: notepadStyle?.fontSize || '14px',
+                        fontWeight: notepadStyle?.fontWeight || 'normal',
+                        textAlign: notepadStyle?.textAlign || 'left',
+                      }}
+                      className="text-white leading-relaxed overflow-y-auto max-h-[160px] pr-1 select-none"
+                    >
+                      <div className="text-lg font-bold mb-1">Aa Bb Cc</div>
+                      <div className="opacity-90">
+                        The quick brown fox jumps over the lazy dog. 1234567890
+                      </div>
+                    </div>
+                    <div className="text-[9px] text-white/30 border-t border-white/5 pt-2 mt-2 font-mono flex justify-between">
+                      <span>Preview Font: {getFontName(tempFontFamily)}</span>
+                      <span>Size: {notepadStyle?.fontSize || '14px'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-white/[0.02] border-t border-white/10 flex justify-end gap-2.5">
+                <button 
+                  type="button"
+                  onClick={() => setShowFontDialog(false)}
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-xs font-medium text-white transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => {
+                    handleUpdateStyle('fontFamily', tempFontFamily);
+                    setShowFontDialog(false);
+                    addNotification('Notepad', `Font family applied: ${getFontName(tempFontFamily)}`, 'success');
+                  }}
+                  className="px-4 py-2 bg-blue-500 hover:bg-blue-600 rounded-xl text-xs font-semibold text-white transition-all shadow-lg shadow-blue-500/20 cursor-pointer"
+                >
+                  Apply Font
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Open Dialog */}
       <AnimatePresence>
@@ -9991,10 +11793,11 @@ function NotepadApp({
   );
 }
 
-function MenuButton({ icon, label, onClick, variant = 'default' }: { icon?: React.ReactNode, label: string, onClick: () => void, variant?: 'default' | 'danger' }) {
+function MenuButton({ icon, label, onClick, variant = 'default', style }: { icon?: React.ReactNode, label: string, onClick: () => void, variant?: 'default' | 'danger', style?: React.CSSProperties, key?: any }) {
   return (
     <button 
       onClick={(e) => { e.stopPropagation(); onClick(); }}
+      style={style}
       className={cn(
         "w-full px-4 py-1.5 flex items-center gap-3 transition-all",
         variant === 'danger' ? "hover:bg-red-500/20 text-red-400" : "hover:bg-blue-500/20 text-white/70 hover:text-white"
@@ -10380,28 +12183,118 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
   );
 }
 
-function PhotosApp({ addNotification }: any) {
-  const photos = [
-    'https://images.unsplash.com/photo-1501785888041-af3ef285b470?q=80&w=800&auto=format&fit=crop',
-    'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?q=80&w=800&auto=format&fit=crop',
-    'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?q=80&w=800&auto=format&fit=crop',
-    'https://images.unsplash.com/photo-1500673922987-e212871fec22?q=80&w=800&auto=format&fit=crop',
-    'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?q=80&w=800&auto=format&fit=crop',
-  ];
+function PhotosApp({ fsLib, addNotification, selectedFile }: any) {
+  const [currentView, setCurrentView] = useState<string | null>(selectedFile?.content || null);
+  const [photos, setPhotos] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchPhotos = () => {
+      const photoFiles = fsLib.list('Documents/Photos') || [];
+      const paintingFiles = fsLib.list('Documents/Paintings') || [];
+      const stockPhotos = [
+        { name: 'Mountain Lake', content: 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?q=80&w=800&auto=format&fit=crop', stock: true },
+        { name: 'Forest Path', content: 'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?q=80&w=800&auto=format&fit=crop', stock: true },
+        { name: 'Deep Forest', content: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?q=80&w=800&auto=format&fit=crop', stock: true },
+        { name: 'Ocean View', content: 'https://images.unsplash.com/photo-1500673922987-e212871fec22?q=80&w=800&auto=format&fit=crop', stock: true },
+        { name: 'Alpine Peak', content: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?q=80&w=800&auto=format&fit=crop', stock: true },
+      ];
+      setPhotos([...photoFiles, ...paintingFiles, ...stockPhotos]);
+    };
+    fetchPhotos();
+  }, [fsLib]);
+
+  useEffect(() => {
+    if (selectedFile) {
+      setCurrentView(selectedFile.content);
+    }
+  }, [selectedFile]);
 
   return (
-    <div className="h-full p-4 overflow-y-auto">
-      <div className="grid grid-cols-3 gap-4">
-        {photos.map((p, i) => (
+    <div className="h-full bg-slate-950 text-white flex flex-col relative overflow-hidden">
+      {/* Viewer Overlay */}
+      <AnimatePresence>
+        {currentView && (
           <motion.div 
-            key={i}
-            whileHover={{ scale: 1.05 }}
-            onClick={() => addNotification('Photos', `Viewing image ${i + 1}`, 'info')}
-            className="aspect-square rounded-xl overflow-hidden glass cursor-pointer"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[100] bg-black/95 flex flex-col"
           >
-            <img src={p} alt={`Photo ${i}`} className="w-full h-full object-cover" />
+            <div className="h-12 flex items-center justify-between px-4 bg-gradient-to-b from-black/60 to-transparent">
+              <span className="text-xs font-bold text-white/60">IMAGE VIEWER</span>
+              <button 
+                onClick={() => setCurrentView(null)}
+                className="p-1.5 hover:bg-white/10 rounded-full transition-all"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
+              <motion.img 
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                src={currentView} 
+                alt="Viewer" 
+                className="max-w-full max-h-full object-contain shadow-2xl rounded-lg" 
+              />
+            </div>
+            <div className="h-20 flex items-center justify-center gap-4 bg-gradient-to-t from-black/60 to-transparent">
+               <button className="p-2 hover:bg-white/10 rounded-full text-white/40 hover:text-white transition-all"><Download size={20} /></button>
+               <button className="p-2 hover:bg-white/10 rounded-full text-white/40 hover:text-white transition-all"><Share2 size={20} /></button>
+               <button 
+                onClick={() => {
+                  addNotification('Photos', 'Photo sent to Printer', 'success');
+                }}
+                className="p-2 hover:bg-white/10 rounded-full text-white/40 hover:text-white transition-all"
+               >
+                 <Printer size={20} />
+               </button>
+            </div>
           </motion.div>
-        ))}
+        )}
+      </AnimatePresence>
+
+      <div className="flex-1 p-6 overflow-y-auto no-scrollbar">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold tracking-tight">Camera Roll</h2>
+          <div className="bg-white/5 rounded-full px-3 py-1 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] font-bold text-emerald-500 tracking-tighter uppercase">Syncing...</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          {photos.map((p, i) => (
+            <motion.div 
+              key={i}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05 }}
+              whileHover={{ scale: 1.02, y: -4 }}
+              onClick={() => {
+                setCurrentView(p.content);
+                addNotification('Photos', `Viewing ${p.name || 'Image'}`, 'info');
+              }}
+              className="aspect-square rounded-2xl overflow-hidden glass cursor-pointer border border-white/5 relative group shadow-lg"
+            >
+              <img src={p.content} alt={p.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity translate-y-2 group-hover:translate-y-0 duration-300">
+                <span className="text-[8px] font-bold text-white truncate max-w-[70%]">{p.name || 'Photo'}</span>
+                <div className="flex gap-1">
+                  {p.stock ? <div className="text-[8px] bg-white/20 px-1 rounded">STOCK</div> : <div className="text-[8px] bg-blue-500/40 px-1 rounded">LOCAL</div>}
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+
+        {photos.length === 0 && (
+          <div className="h-64 flex flex-col items-center justify-center text-white/20 gap-4 border-2 border-dashed border-white/5 rounded-3xl">
+            <ImageIcon size={48} strokeWidth={1} />
+            <p className="text-sm font-medium">No photos found in Library</p>
+          </div>
+        )}
       </div>
     </div>
   );
