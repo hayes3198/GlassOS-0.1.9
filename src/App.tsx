@@ -69,6 +69,7 @@ import {
   Palette,
   Info,
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   Edit2,
   Trash,
@@ -10223,48 +10224,80 @@ function NotepadApp({
   const [goToLineInput, setGoToLineInput] = useState('');
   const [showFontDialog, setShowFontDialog] = useState(false);
   const [tempFontFamily, setTempFontFamily] = useState(notepadStyle?.fontFamily || 'monospace');
+  const [tempFontSize, setTempFontSize] = useState(notepadStyle?.fontSize || '14px');
+  const [tempFontWeight, setTempFontWeight] = useState(notepadStyle?.fontWeight || 'normal');
+  const [tempColor, setTempColor] = useState(notepadStyle?.color || '');
+  const [tempFontStyle, setTempFontStyle] = useState(notepadStyle?.fontStyle || 'normal');
+  const [tempTextDecoration, setTempTextDecoration] = useState(notepadStyle?.textDecoration || 'none');
+  const [tempTextTransform, setTempTextTransform] = useState(notepadStyle?.textTransform || 'none');
+  const [tempTextAlign, setTempTextAlign] = useState(notepadStyle?.textAlign || 'left');
+
+  // New Theme Dialog States
+  const [showThemeDialog, setShowThemeDialog] = useState(false);
+  const [tempTheme, setTempTheme] = useState(notepadStyle?.theme || 'classic-dark');
+  const [tempCustomBg, setTempCustomBg] = useState(notepadStyle?.customBg || '#1e1e2e');
+  const [tempCustomText, setTempCustomText] = useState(notepadStyle?.customText || '#ffffff');
+
+  const NOTEPAD_THEMES = [
+    { id: 'classic-dark', name: 'Classic Dark', bg: 'bg-transparent', text: 'text-white', selection: 'selection:bg-blue-500/30', gutter: 'text-white/30 border-white/5 bg-white/[0.01]', previewBg: '#111827', desc: 'Elegant dark with transparent background' },
+    { id: 'classic-light', name: 'Classic Light', bg: 'bg-white', text: 'text-slate-900', selection: 'selection:bg-blue-200', gutter: 'text-slate-400 border-slate-200 bg-slate-50', previewBg: '#ffffff', desc: 'Clean bright light theme' },
+    { id: 'terminal', name: 'Retro Terminal', bg: 'bg-black', text: 'text-green-400', selection: 'selection:bg-green-900/50', gutter: 'text-green-700/60 border-green-950 bg-black/40', previewBg: '#000000', desc: 'Vintage hacker green-on-black' },
+    { id: 'sepia', name: 'Warm Sepia', bg: 'bg-[#fcf7ec]', text: 'text-[#4d3a24]', selection: 'selection:bg-[#ebd8b7]', gutter: 'text-[#8c7456]/60 border-[#e2d5b8] bg-[#f5efe0]', previewBg: '#fcf7ec', desc: 'Easy on the eyes reading sepia' },
+    { id: 'cyberpunk', name: 'Midnight Purple', bg: 'bg-[#0f051d]', text: 'text-[#ff007f]', selection: 'selection:bg-[#00ffff]/30', gutter: 'text-[#ff007f]/40 border-[#ff007f]/10 bg-[#070110]', previewBg: '#0f051d', desc: 'Vibrant neon purple and hot pink' },
+    { id: 'solarized-dark', name: 'Solarized Dark', bg: 'bg-[#002b36]', text: 'text-[#93a1a1]', selection: 'selection:bg-[#073642]', gutter: 'text-[#586e75] border-[#073642] bg-[#00212b]', previewBg: '#002b36', desc: 'Low-contrast solarized dark' },
+    { id: 'solarized-light', name: 'Solarized Light', bg: 'bg-[#fdf6e3]', text: 'text-[#586e75]', selection: 'selection:bg-[#eee8d5]', gutter: 'text-[#93a1a1] border-[#eee8d5] bg-[#f4ebd0]', previewBg: '#fdf6e3', desc: 'Low-contrast solarized light' },
+    { id: 'dracula', name: 'Dracula', bg: 'bg-[#282a36]', text: 'text-[#f8f8f2]', selection: 'selection:bg-[#44475a]', gutter: 'text-[#6272a4] border-[#44475a] bg-[#21222c]', previewBg: '#282a36', desc: 'Classic developer Dracula theme' },
+    { id: 'nord', name: 'Nordic Frost', bg: 'bg-[#2e3440]', text: 'text-[#d8dee9]', selection: 'selection:bg-[#434c5e]', gutter: 'text-[#4c566a] border-[#3b4252] bg-[#242933]', previewBg: '#2e3440', desc: 'Clean arctic dark-blue theme' },
+    { id: 'forest', name: 'Forest Moss', bg: 'bg-[#1e2a22]', text: 'text-[#d4ebd4]', selection: 'selection:bg-[#2d4c2d]', gutter: 'text-[#486348] border-[#25372a] bg-[#141e18]', previewBg: '#1e2a22', desc: 'Calming organic forest green' },
+    { id: 'oceanic', name: 'Ocean Abyss', bg: 'bg-[#0b132b]', text: 'text-[#48cae4]', selection: 'selection:bg-[#1c2541]', gutter: 'text-[#3a506b] border-[#1c2541] bg-[#050914]', previewBg: '#0b132b', desc: 'Deep sea navy and bright cyan' },
+    { id: 'sunset', name: 'Sunset Amber', bg: 'bg-[#211107]', text: 'text-[#f59e0b]', selection: 'selection:bg-[#451a03]', gutter: 'text-[#78350f] border-[#451a03] bg-[#140a04]', previewBg: '#211107', desc: 'Warm glowing amber and deep crimson' },
+    { id: 'sakura', name: 'Sakura Blossom', bg: 'bg-[#fff5f5]', text: 'text-[#d53f8c]', selection: 'selection:bg-[#fed7d7]', gutter: 'text-[#feb2b2] border-[#fed7d7] bg-[#fffafb]', previewBg: '#fff5f5', desc: 'Soft pastel cherry blossom' },
+    { id: 'custom', name: 'Custom Theme', bg: '', text: '', selection: 'selection:bg-blue-500/30', gutter: 'border-white/10 bg-white/[0.02]', previewBg: '', isCustom: true, desc: 'Your personalized background & text color' }
+  ];
 
   useEffect(() => {
     if (showFontDialog) {
       setTempFontFamily(notepadStyle?.fontFamily || 'monospace');
+      setTempFontSize(notepadStyle?.fontSize || '14px');
+      setTempFontWeight(notepadStyle?.fontWeight || 'normal');
+      setTempColor(notepadStyle?.color || '');
+      setTempFontStyle(notepadStyle?.fontStyle || 'normal');
+      setTempTextDecoration(notepadStyle?.textDecoration || 'none');
+      setTempTextTransform(notepadStyle?.textTransform || 'none');
+      setTempTextAlign(notepadStyle?.textAlign || 'left');
     }
-  }, [showFontDialog, notepadStyle?.fontFamily]);
+  }, [showFontDialog, notepadStyle]);
+
+  useEffect(() => {
+    if (showThemeDialog) {
+      setTempTheme(notepadStyle?.theme || 'classic-dark');
+      setTempCustomBg(notepadStyle?.customBg || '#1e1e2e');
+      setTempCustomText(notepadStyle?.customText || '#ffffff');
+    }
+  }, [showThemeDialog, notepadStyle]);
 
   const gutterRef = useRef<HTMLDivElement>(null);
   const previewGutterRef = useRef<HTMLDivElement>(null);
 
   const getThemeClasses = () => {
     const currentTheme = notepadStyle?.theme || 'classic-dark';
-    switch (currentTheme) {
-      case 'classic-light':
-        return 'bg-white text-slate-900 selection:bg-blue-200';
-      case 'terminal':
-        return 'bg-black text-green-400 selection:bg-green-900/50 font-mono';
-      case 'sepia':
-        return 'bg-[#fcf7ec] text-[#4d3a24] selection:bg-[#ebd8b7]';
-      case 'cyberpunk':
-        return 'bg-[#0f051d] text-[#ff007f] selection:bg-[#00ffff]/30';
-      case 'classic-dark':
-      default:
-        return 'bg-transparent text-white selection:bg-blue-500/30';
+    const found = NOTEPAD_THEMES.find(t => t.id === currentTheme);
+    if (found && !found.isCustom) {
+      return `${found.bg} ${found.text} ${found.selection}`;
     }
+    if (currentTheme === 'custom') {
+      return 'selection:bg-blue-500/30';
+    }
+    return 'bg-transparent text-white selection:bg-blue-500/30';
   };
 
   const getGutterClasses = () => {
     const currentTheme = notepadStyle?.theme || 'classic-dark';
-    switch (currentTheme) {
-      case 'classic-light':
-        return 'text-slate-400 border-slate-200 bg-slate-50';
-      case 'terminal':
-        return 'text-green-700/60 border-green-950 bg-black/40';
-      case 'sepia':
-        return 'text-[#8c7456]/60 border-[#e2d5b8] bg-[#f5efe0]';
-      case 'cyberpunk':
-        return 'text-[#ff007f]/40 border-[#ff007f]/10 bg-[#070110]';
-      case 'classic-dark':
-      default:
-        return 'text-white/30 border-white/5 bg-white/[0.01]';
+    const found = NOTEPAD_THEMES.find(t => t.id === currentTheme);
+    if (found) {
+      return found.gutter;
     }
+    return 'text-white/30 border-white/5 bg-white/[0.01]';
   };
 
   const handleNormalScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
@@ -10960,7 +10993,7 @@ function NotepadApp({
               >
                 <MenuButton 
                   icon={<Type size={14} />} 
-                  label="Font Family..." 
+                  label="Font & Formatting..." 
                   onClick={() => { setShowFontDialog(true); setActiveMenu(null); }} 
                 />
 
@@ -11093,11 +11126,11 @@ function NotepadApp({
                   <button className="w-full px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/20 text-white/70 hover:text-white transition-all text-left">
                     <div className="flex items-center gap-3">
                       <Palette size={14} />
-                      <span>Theme</span>
+                      <span>Quick Themes</span>
                     </div>
                     <ChevronRight size={12} />
                   </button>
-                  <div className="absolute top-0 left-full ml-1 w-44 glass-dark border border-white/20 rounded-xl shadow-2xl hidden group-hover/sub:block py-2">
+                  <div className="absolute top-0 left-full ml-1 w-48 glass-dark border border-white/20 rounded-xl shadow-2xl hidden group-hover/sub:block py-2 max-h-80 overflow-y-auto scrollbar-thin">
                     <MenuButton 
                       icon={(!notepadStyle?.theme || notepadStyle?.theme === 'classic-dark') ? <Check size={12} /> : <div className="w-3" />} 
                       label="Classic Dark" 
@@ -11123,8 +11156,32 @@ function NotepadApp({
                       label="Midnight Purple" 
                       onClick={() => { handleUpdateStyle('theme', 'cyberpunk'); setActiveMenu(null); }} 
                     />
+                    <MenuButton 
+                      icon={(notepadStyle?.theme === 'dracula') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="Dracula" 
+                      onClick={() => { handleUpdateStyle('theme', 'dracula'); setActiveMenu(null); }} 
+                    />
+                    <MenuButton 
+                      icon={(notepadStyle?.theme === 'nord') ? <Check size={12} /> : <div className="w-3" />} 
+                      label="Nordic Frost" 
+                      onClick={() => { handleUpdateStyle('theme', 'nord'); setActiveMenu(null); }} 
+                    />
+                    <div className="h-px bg-white/10 my-1 mx-2" />
+                    <MenuButton 
+                      icon={<Palette size={12} className="text-blue-400" />} 
+                      label="More Themes..." 
+                      onClick={() => { setShowThemeDialog(true); setActiveMenu(null); }} 
+                    />
                   </div>
                 </div>
+
+                <MenuButton 
+                  icon={<Palette size={14} className="text-blue-400" />} 
+                  label="Themes & Colors..." 
+                  onClick={() => { setShowThemeDialog(true); setActiveMenu(null); }} 
+                />
+
+                <div className="h-px bg-white/10 my-1 mx-2" />
 
                 {/* Zoom sub-menu */}
                 <div className="relative group/sub">
@@ -11407,7 +11464,13 @@ function NotepadApp({
       )}
 
       {/* Main Editing Area */}
-      <div className={cn("flex-1 flex overflow-hidden transition-all duration-300", getThemeClasses())}>
+      <div 
+        className={cn("flex-1 flex overflow-hidden transition-all duration-300", getThemeClasses())}
+        style={notepadStyle?.theme === 'custom' ? {
+          backgroundColor: notepadStyle?.customBg || '#1e1e2e',
+          color: notepadStyle?.customText || '#ffffff',
+        } : undefined}
+      >
         {showPreview && activeFileInNotepad?.name.endsWith('.html') ? (
           <div className="flex-1 flex gap-4 p-4 overflow-hidden">
              <div className="flex-1 flex bg-white/5 rounded-xl border border-white/10 overflow-hidden relative">
@@ -11415,7 +11478,16 @@ function NotepadApp({
                   <div 
                     ref={previewGutterRef}
                     onWheel={handleGutterWheel}
-                    style={{ 
+                    style={notepadStyle?.theme === 'custom' ? {
+                      fontSize: notepadStyle?.fontSize || '14px', 
+                      fontFamily: getFontFamilyValue(notepadStyle?.fontFamily),
+                      paddingTop: '1rem',
+                      paddingBottom: '1rem',
+                      lineHeight: '1.625',
+                      borderColor: `${notepadStyle?.customText || '#ffffff'}15`,
+                      backgroundColor: 'rgba(0,0,0,0.15)',
+                      color: `${notepadStyle?.customText || '#ffffff'}60`,
+                    } : {
                       fontSize: notepadStyle?.fontSize || '14px', 
                       fontFamily: getFontFamilyValue(notepadStyle?.fontFamily),
                       paddingTop: '1rem',
@@ -11439,6 +11511,10 @@ function NotepadApp({
                     textAlign: notepadStyle?.textAlign || 'left',
                     fontFamily: getFontFamilyValue(notepadStyle?.fontFamily),
                     whiteSpace: notepadStyle?.wordWrap === false ? 'pre' : 'pre-wrap',
+                    color: notepadStyle?.color || (notepadStyle?.theme === 'custom' ? (notepadStyle?.customText || '#ffffff') : undefined),
+                    fontStyle: notepadStyle?.fontStyle || 'normal',
+                    textDecoration: notepadStyle?.textDecoration || 'none',
+                    textTransform: notepadStyle?.textTransform || 'none',
                   }}
                   className="flex-1 bg-transparent p-4 outline-none resize-none leading-relaxed overflow-auto"
                   placeholder="<html>..."
@@ -11459,7 +11535,16 @@ function NotepadApp({
               <div 
                 ref={gutterRef}
                 onWheel={handleGutterWheel}
-                style={{ 
+                style={notepadStyle?.theme === 'custom' ? {
+                  fontSize: notepadStyle?.fontSize || '14px', 
+                  fontFamily: getFontFamilyValue(notepadStyle?.fontFamily),
+                  paddingTop: '1.5rem',
+                  paddingBottom: '1.5rem',
+                  lineHeight: '1.625',
+                  borderColor: `${notepadStyle?.customText || '#ffffff'}15`,
+                  backgroundColor: 'rgba(0,0,0,0.15)',
+                  color: `${notepadStyle?.customText || '#ffffff'}60`,
+                } : {
                   fontSize: notepadStyle?.fontSize || '14px', 
                   fontFamily: getFontFamilyValue(notepadStyle?.fontFamily),
                   paddingTop: '1.5rem',
@@ -11483,6 +11568,10 @@ function NotepadApp({
                 textAlign: notepadStyle?.textAlign || 'left',
                 fontFamily: getFontFamilyValue(notepadStyle?.fontFamily),
                 whiteSpace: notepadStyle?.wordWrap === false ? 'pre' : 'pre-wrap',
+                color: notepadStyle?.color || (notepadStyle?.theme === 'custom' ? (notepadStyle?.customText || '#ffffff') : undefined),
+                fontStyle: notepadStyle?.fontStyle || 'normal',
+                textDecoration: notepadStyle?.textDecoration || 'none',
+                textTransform: notepadStyle?.textTransform || 'none',
               }}
               className="flex-1 bg-transparent py-6 pr-6 pl-4 outline-none resize-none leading-relaxed transition-all duration-300 overflow-auto"
               placeholder="Start typing your thoughts..."
@@ -11615,7 +11704,300 @@ function NotepadApp({
         )}
       </AnimatePresence>
 
-      {/* Font Family Selector Modal */}
+      {/* Theme & Color Settings Modal */}
+      <AnimatePresence>
+        {showThemeDialog && (
+          <div className="absolute inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowThemeDialog(false)} 
+              className="absolute inset-0 bg-black/65 backdrop-blur-sm" 
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 15 }} 
+              animate={{ opacity: 1, scale: 1, y: 0 }} 
+              exit={{ opacity: 0, scale: 0.95, y: 15 }} 
+              className="relative w-full max-w-xl glass-dark rounded-3xl border border-white/20 shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+            >
+              {/* Header */}
+              <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/5">
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2.5">
+                  <Palette size={16} className="text-blue-400" />
+                  <span>Notepad Theme & Colors</span>
+                </h3>
+                <button 
+                  onClick={() => setShowThemeDialog(false)} 
+                  className="text-white/40 hover:text-white hover:bg-white/10 p-1.5 rounded-lg transition-all"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Scrollable Content */}
+              <div className="flex-1 p-5 overflow-y-auto space-y-5 scrollbar-thin">
+                
+                {/* Section 1: Preset Themes */}
+                <div className="space-y-2">
+                  <label className="text-[10px] text-white/50 uppercase tracking-wider font-semibold">
+                    Select a Theme Preset
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin">
+                    {NOTEPAD_THEMES.map((theme) => {
+                      const isActive = tempTheme === theme.id;
+                      // Determine background color for preset preview
+                      let previewBgStyle = {};
+                      let previewTextColor = '#ffffff';
+                      
+                      if (theme.isCustom) {
+                        previewBgStyle = { backgroundColor: tempCustomBg };
+                        previewTextColor = tempCustomText;
+                      } else {
+                        // Rough preview approximations for pre-defined themes
+                        previewTextColor = theme.id === 'classic-light' || theme.id === 'solarized-light' || theme.id === 'sakura' ? '#000000' : '#ffffff';
+                        switch (theme.id) {
+                          case 'classic-light': previewBgStyle = { backgroundColor: '#ffffff' }; break;
+                          case 'terminal': previewBgStyle = { backgroundColor: '#000000' }; break;
+                          case 'sepia': previewBgStyle = { backgroundColor: '#fcf7ec' }; break;
+                          case 'cyberpunk': previewBgStyle = { backgroundColor: '#0f051d' }; break;
+                          case 'solarized-dark': previewBgStyle = { backgroundColor: '#002b36' }; break;
+                          case 'solarized-light': previewBgStyle = { backgroundColor: '#fdf6e3' }; break;
+                          case 'dracula': previewBgStyle = { backgroundColor: '#282a36' }; break;
+                          case 'nord': previewBgStyle = { backgroundColor: '#2e3440' }; break;
+                          case 'forest': previewBgStyle = { backgroundColor: '#1e2a22' }; break;
+                          case 'oceanic': previewBgStyle = { backgroundColor: '#0b132b' }; break;
+                          case 'sunset': previewBgStyle = { backgroundColor: '#211107' }; break;
+                          case 'sakura': previewBgStyle = { backgroundColor: '#fff5f5' }; break;
+                          default: previewBgStyle = { backgroundColor: '#111827' }; break;
+                        }
+                      }
+
+                      return (
+                        <button
+                          key={theme.id}
+                          onClick={() => setTempTheme(theme.id)}
+                          style={previewBgStyle}
+                          className={cn(
+                            "group p-3 rounded-2xl border text-left flex flex-col justify-between h-20 transition-all duration-200 outline-none select-none relative overflow-hidden",
+                            isActive 
+                              ? "border-blue-500 ring-2 ring-blue-500/30 scale-[0.98]" 
+                              : "border-white/10 hover:border-white/25 hover:scale-[1.01]"
+                          )}
+                        >
+                          {/* Checked indicator */}
+                          {isActive && (
+                            <div className="absolute top-2 right-2 text-blue-500 bg-white rounded-full p-0.5 shadow-md">
+                              <Check size={10} className="stroke-[3]" />
+                            </div>
+                          )}
+
+                          <div className="flex flex-col">
+                            <span 
+                              style={{ color: previewTextColor }} 
+                              className="text-xs font-semibold tracking-tight truncate max-w-[85%]"
+                            >
+                              {theme.name}
+                            </span>
+                            <span 
+                              style={{ color: previewTextColor + '90' }} 
+                              className="text-[9px] mt-0.5 line-clamp-2 leading-normal"
+                            >
+                              {theme.desc}
+                            </span>
+                          </div>
+
+                          {/* Quick color dots at the bottom */}
+                          <div className="flex gap-1 mt-1">
+                            <span className="w-1.5 h-1.5 rounded-full border border-white/20" style={previewBgStyle} />
+                            <span className="w-1.5 h-1.5 rounded-full border border-white/20" style={{ backgroundColor: previewTextColor }} />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Section 2: Custom Theme Configuration (Only shown if Custom is selected) */}
+                {tempTheme === 'custom' && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: -10 }} 
+                    animate={{ opacity: 1, y: 0 }} 
+                    className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-4"
+                  >
+                    <div className="flex items-center justify-between border-b border-white/5 pb-2 mb-1">
+                      <span className="text-xs font-semibold text-blue-400">Custom Colors Customizer</span>
+                      <span className="text-[9px] text-white/40 uppercase font-mono">Create any combination</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Custom Background Color Picker */}
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-medium text-white/75">Background Color</span>
+                          <span className="text-[10px] font-mono text-white/40">{tempCustomBg.toUpperCase()}</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <input 
+                            type="color" 
+                            value={tempCustomBg}
+                            onChange={(e) => setTempCustomBg(e.target.value)}
+                            className="w-10 h-10 rounded-xl bg-transparent border border-white/10 cursor-pointer overflow-hidden outline-none"
+                          />
+                          <input 
+                            type="text" 
+                            value={tempCustomBg}
+                            onChange={(e) => setTempCustomBg(e.target.value)}
+                            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500/50 transition-colors font-mono"
+                          />
+                        </div>
+                        
+                        {/* Handpicked background Swatches */}
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {['#0f172a', '#1e1b4b', '#064e3b', '#4c0519', '#172554', '#2d1b00', '#1c1917', '#f1f5f9', '#fffbeb', '#fff5f5'].map(sw => (
+                            <button 
+                              key={sw}
+                              onClick={() => setTempCustomBg(sw)}
+                              className="w-5 h-5 rounded-md border border-white/10 hover:scale-110 active:scale-95 transition-all"
+                              style={{ backgroundColor: sw }}
+                              title={sw}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Custom Text Color Picker */}
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-medium text-white/75">Text Color</span>
+                          <span className="text-[10px] font-mono text-white/40">{tempCustomText.toUpperCase()}</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <input 
+                            type="color" 
+                            value={tempCustomText}
+                            onChange={(e) => setTempCustomText(e.target.value)}
+                            className="w-10 h-10 rounded-xl bg-transparent border border-white/10 cursor-pointer overflow-hidden outline-none"
+                          />
+                          <input 
+                            type="text" 
+                            value={tempCustomText}
+                            onChange={(e) => setTempCustomText(e.target.value)}
+                            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500/50 transition-colors font-mono"
+                          />
+                        </div>
+
+                        {/* Handpicked text Swatches */}
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {['#ffffff', '#38bdf8', '#4ade80', '#f472b6', '#fbbf24', '#a78bfa', '#94a3b8', '#0f172a', '#e11d48', '#d97706'].map(sw => (
+                            <button 
+                              key={sw}
+                              onClick={() => setTempCustomText(sw)}
+                              className="w-5 h-5 rounded-md border border-white/10 hover:scale-110 active:scale-95 transition-all"
+                              style={{ backgroundColor: sw }}
+                              title={sw}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Section 3: Live Real-time Miniature Preview */}
+                <div className="space-y-2">
+                  <label className="text-[10px] text-white/50 uppercase tracking-wider font-semibold">
+                    Real-Time Live Preview
+                  </label>
+                  {(() => {
+                    // Determine preview styling
+                    let previewBg = '#111827';
+                    let previewText = '#ffffff';
+                    
+                    if (tempTheme === 'custom') {
+                      previewBg = tempCustomBg;
+                      previewText = tempCustomText;
+                    } else {
+                      const t = NOTEPAD_THEMES.find(p => p.id === tempTheme);
+                      if (t) {
+                        previewBg = t.previewBg;
+                        // Map some preset colors
+                        switch (t.id) {
+                          case 'classic-light': previewText = '#0f172a'; break;
+                          case 'terminal': previewText = '#4ade80'; break;
+                          case 'sepia': previewText = '#4d3a24'; break;
+                          case 'cyberpunk': previewText = '#ff007f'; break;
+                          case 'solarized-dark': previewText = '#93a1a1'; break;
+                          case 'solarized-light': previewText = '#586e75'; break;
+                          case 'dracula': previewText = '#f8f8f2'; break;
+                          case 'nord': previewText = '#d8dee9'; break;
+                          case 'forest': previewText = '#d4ebd4'; break;
+                          case 'oceanic': previewText = '#48cae4'; break;
+                          case 'sunset': previewText = '#f59e0b'; break;
+                          case 'sakura': previewText = '#d53f8c'; break;
+                          default: previewText = '#ffffff'; break;
+                        }
+                      }
+                    }
+
+                    return (
+                      <div 
+                        style={{ backgroundColor: previewBg, color: previewText }}
+                        className="w-full h-28 rounded-2xl border border-white/10 overflow-hidden font-mono p-4 text-xs relative select-none transition-all duration-300 shadow-inner flex"
+                      >
+                        {/* Fake line numbers column */}
+                        <div className="w-6 border-r pr-2 text-right text-[10px] shrink-0 select-none opacity-30 flex flex-col gap-1" style={{ borderColor: `${previewText}15` }}>
+                          <span>1</span>
+                          <span>2</span>
+                          <span>3</span>
+                        </div>
+                        {/* Fake code/text */}
+                        <div className="pl-3 flex-1 flex flex-col gap-1 overflow-hidden leading-normal">
+                          <span className="truncate">const app = "Notepad Professional";</span>
+                          <span className="truncate font-sans italic opacity-80">// This theme style updates live on screen!</span>
+                          <span className="truncate">Welcome to customized writing environment.</span>
+                        </div>
+                        {/* Corner tag */}
+                        <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-black/40 text-[8px] text-white/50 tracking-wider uppercase border border-white/5">
+                          Theme Preview
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+              </div>
+
+              {/* Actions Footer */}
+              <div className="p-4 bg-white/5 border-t border-white/10 flex justify-end gap-2.5">
+                <button 
+                  onClick={() => setShowThemeDialog(false)} 
+                  className="px-4 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-semibold text-white transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => {
+                    handleUpdateStyle('theme', tempTheme);
+                    if (tempTheme === 'custom') {
+                      handleUpdateStyle('customBg', tempCustomBg);
+                      handleUpdateStyle('customText', tempCustomText);
+                    }
+                    setShowThemeDialog(false);
+                    addNotification('Notepad', `Applied theme: ${NOTEPAD_THEMES.find(t => t.id === tempTheme)?.name || 'Custom'}`, 'success');
+                  }} 
+                  className="px-5 py-1.5 bg-blue-500 hover:bg-blue-600 rounded-xl text-xs font-semibold text-white transition-all shadow-lg shadow-blue-500/20"
+                >
+                  Apply Theme
+                </button>
+              </div>
+
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Font & Formatting Selector Modal */}
       <AnimatePresence>
         {showFontDialog && (
           <div className="absolute inset-0 z-[60] flex items-center justify-center p-4">
@@ -11627,78 +12009,346 @@ function NotepadApp({
               className="absolute inset-0 bg-black/40 backdrop-blur-sm" 
             />
             <motion.div 
-              initial={{ opacity: 0, scale: 0.9 }} 
+              initial={{ opacity: 0, scale: 0.95 }} 
               animate={{ opacity: 1, scale: 1 }} 
-              exit={{ opacity: 0, scale: 0.9 }} 
-              className="relative w-full max-w-xl glass-dark rounded-3xl border border-white/20 shadow-2xl overflow-hidden flex flex-col"
+              exit={{ opacity: 0, scale: 0.95 }} 
+              className="relative w-full max-w-3xl glass-dark rounded-3xl border border-white/20 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
             >
               {/* Header */}
               <div className="p-4 border-b border-white/10 flex items-center justify-between">
                 <h3 className="text-sm font-medium flex items-center gap-2 text-white">
                   <Type size={16} className="text-blue-400" />
-                  <span>Font Settings</span>
+                  <span>Font & Formatting Settings</span>
                 </h3>
                 <button 
                   onClick={() => setShowFontDialog(false)} 
-                  className="text-white/40 hover:text-white transition-colors"
+                  className="text-white/40 hover:text-white transition-colors cursor-pointer p-1 rounded-lg hover:bg-white/5"
                 >
                   <X size={16} />
                 </button>
               </div>
 
-              {/* Grid Content */}
-              <div className="p-5 flex flex-col md:flex-row gap-5 min-h-[320px]">
-                {/* Left Side: Font List */}
-                <div className="flex-1 flex flex-col gap-2">
-                  <span className="text-[10px] text-white/50 font-bold tracking-wider uppercase">Select Font Family</span>
-                  <div className="flex-1 overflow-y-auto max-h-[220px] pr-1 flex flex-col gap-1 scrollbar-thin">
-                    {AVAILABLE_FONTS.map((font) => {
-                      const isSelected = tempFontFamily === font.id;
-                      return (
-                        <button
-                          key={font.id}
-                          type="button"
-                          onClick={() => setTempFontFamily(font.id)}
-                          className={cn(
-                            "w-full px-3.5 py-2.5 rounded-xl flex items-center justify-between transition-all text-left border cursor-pointer",
-                            isSelected 
-                              ? "bg-blue-500/15 border-blue-500/40 text-blue-400 font-semibold" 
-                              : "bg-white/5 border-white/5 hover:bg-white/10 text-white/75 hover:text-white hover:border-white/10"
-                          )}
-                        >
-                          <span style={{ fontFamily: font.value }} className="text-xs">
-                            {font.name}
-                          </span>
-                          {isSelected && (
-                            <Check size={14} className="text-blue-400 flex-shrink-0" />
-                          )}
-                        </button>
-                      );
-                    })}
+              {/* Scrollable Content Area */}
+              <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+                  {/* Column 1: Font Family (4 cols) */}
+                  <div className="md:col-span-4 flex flex-col gap-2">
+                    <span className="text-[10px] text-white/50 font-bold tracking-wider uppercase flex items-center gap-1.5">
+                      <Type size={12} className="text-blue-400" />
+                      Font Family
+                    </span>
+                    <div className="flex-1 overflow-y-auto max-h-[280px] pr-1 flex flex-col gap-1.5 scrollbar-thin">
+                      {AVAILABLE_FONTS.map((font) => {
+                        const isSelected = tempFontFamily === font.id;
+                        return (
+                          <button
+                            key={font.id}
+                            type="button"
+                            onClick={() => setTempFontFamily(font.id)}
+                            className={cn(
+                              "w-full px-3.5 py-2.5 rounded-xl flex items-center justify-between transition-all text-left border cursor-pointer",
+                              isSelected 
+                                ? "bg-blue-500/15 border-blue-500/40 text-blue-400 font-semibold" 
+                                : "bg-white/5 border-white/5 hover:bg-white/10 text-white/75 hover:text-white hover:border-white/10"
+                            )}
+                          >
+                            <div className="flex flex-col gap-0.5">
+                              <span style={{ fontFamily: font.value }} className="text-xs">
+                                {font.name}
+                              </span>
+                              <span className="text-[9px] text-white/30 font-mono">
+                                {font.id}
+                              </span>
+                            </div>
+                            {isSelected && (
+                              <Check size={14} className="text-blue-400 flex-shrink-0" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
 
-                {/* Right Side: Sample Preview */}
-                <div className="flex-1 flex flex-col gap-2">
-                  <span className="text-[10px] text-white/50 font-bold tracking-wider uppercase">Live Preview</span>
-                  <div className="flex-1 bg-black/30 border border-white/10 rounded-2xl p-4 flex flex-col justify-between min-h-[160px]">
-                    <div 
-                      style={{ 
-                        fontFamily: getFontFamilyValue(tempFontFamily),
-                        fontSize: notepadStyle?.fontSize || '14px',
-                        fontWeight: notepadStyle?.fontWeight || 'normal',
-                        textAlign: notepadStyle?.textAlign || 'left',
-                      }}
-                      className="text-white leading-relaxed overflow-y-auto max-h-[160px] pr-1 select-none"
-                    >
-                      <div className="text-lg font-bold mb-1">Aa Bb Cc</div>
-                      <div className="opacity-90">
-                        The quick brown fox jumps over the lazy dog. 1234567890
+                  {/* Column 2: Formatting Options (5 cols) */}
+                  <div className="md:col-span-5 flex flex-col gap-5">
+                    {/* Size Selector */}
+                    <div className="flex flex-col gap-2">
+                      <span className="text-[10px] text-white/50 font-bold tracking-wider uppercase flex items-center gap-1.5">
+                        <Baseline size={12} className="text-blue-400" />
+                        Font Size
+                      </span>
+                      <div className="flex items-center gap-3">
+                        <input 
+                          type="range" 
+                          min="10" 
+                          max="48" 
+                          value={parseInt(tempFontSize) || 14} 
+                          onChange={(e) => setTempFontSize(`${e.target.value}px`)}
+                          className="flex-1 h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        />
+                        <div className="flex items-center gap-1 shrink-0">
+                          <input 
+                            type="text" 
+                            value={tempFontSize} 
+                            onChange={(e) => setTempFontSize(e.target.value)}
+                            className="w-16 px-2 py-1 text-xs bg-white/5 border border-white/10 rounded-lg text-center text-white font-mono"
+                          />
+                        </div>
+                      </div>
+                      {/* Size presets */}
+                      <div className="flex gap-1 overflow-x-auto py-1 scrollbar-none">
+                        {['12px', '14px', '16px', '18px', '20px', '24px', '32px'].map((sz) => (
+                          <button
+                            key={sz}
+                            type="button"
+                            onClick={() => setTempFontSize(sz)}
+                            className={cn(
+                              "px-2 py-0.5 text-[10px] font-mono rounded border cursor-pointer shrink-0 transition-all",
+                              tempFontSize === sz 
+                                ? "bg-blue-500/25 border-blue-500/50 text-blue-400" 
+                                : "bg-white/5 border-white/5 hover:bg-white/10 text-white/60"
+                            )}
+                          >
+                            {sz}
+                          </button>
+                        ))}
                       </div>
                     </div>
-                    <div className="text-[9px] text-white/30 border-t border-white/5 pt-2 mt-2 font-mono flex justify-between">
-                      <span>Preview Font: {getFontName(tempFontFamily)}</span>
-                      <span>Size: {notepadStyle?.fontSize || '14px'}</span>
+
+                    {/* Weight Selector */}
+                    <div className="flex flex-col gap-2">
+                      <span className="text-[10px] text-white/50 font-bold tracking-wider uppercase flex items-center gap-1.5">
+                        <Bold size={12} className="text-blue-400" />
+                        Font Weight
+                      </span>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {[
+                          { id: 'normal', label: 'Normal' },
+                          { id: 'medium', label: 'Medium' },
+                          { id: 'bold', label: 'Bold' }
+                        ].map((wg) => (
+                          <button
+                            key={wg.id}
+                            type="button"
+                            onClick={() => setTempFontWeight(wg.id)}
+                            className={cn(
+                              "py-1.5 px-2 text-xs rounded-xl border text-center cursor-pointer transition-all",
+                              tempFontWeight === wg.id 
+                                ? "bg-blue-500/15 border-blue-500/40 text-blue-400 font-semibold" 
+                                : "bg-white/5 border-white/5 hover:bg-white/10 text-white/70"
+                            )}
+                          >
+                            {wg.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Color Selector */}
+                    <div className="flex flex-col gap-2">
+                      <span className="text-[10px] text-white/50 font-bold tracking-wider uppercase flex items-center gap-1.5">
+                        <Palette size={12} className="text-blue-400" />
+                        Text Color
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          { id: '', name: 'Theme', value: 'transparent' },
+                          { id: '#ffffff', name: 'White', value: '#ffffff' },
+                          { id: '#94a3b8', name: 'Slate', value: '#94a3b8' },
+                          { id: '#ef4444', name: 'Red', value: '#ef4444' },
+                          { id: '#f59e0b', name: 'Amber', value: '#f59e0b' },
+                          { id: '#10b981', name: 'Emerald', value: '#10b981' },
+                          { id: '#3b82f6', name: 'Blue', value: '#3b82f6' },
+                          { id: '#a855f7', name: 'Purple', value: '#a855f7' },
+                          { id: '#ec4899', name: 'Pink', value: '#ec4899' },
+                        ].map((col) => {
+                          const isSelected = tempColor === col.id;
+                          return (
+                            <button
+                              key={col.name}
+                              type="button"
+                              onClick={() => setTempColor(col.id)}
+                              title={col.name}
+                              className={cn(
+                                "w-6 h-6 rounded-full border flex items-center justify-center cursor-pointer transition-all relative overflow-hidden",
+                                isSelected ? "border-blue-500 scale-110 shadow-lg shadow-blue-500/20" : "border-white/10 hover:border-white/30"
+                              )}
+                              style={{ backgroundColor: col.id ? col.id : undefined }}
+                            >
+                              {!col.id && (
+                                <div className="absolute inset-0 bg-gradient-to-tr from-slate-700 to-slate-400 flex items-center justify-center text-[8px] text-white/90">
+                                  Auto
+                                </div>
+                              )}
+                              {isSelected && (
+                                <Check size={10} className={cn("text-shadow shrink-0", col.id === '#ffffff' ? "text-black" : "text-white")} />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {/* Custom Color Hex Input */}
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[9px] text-white/40 font-mono">Hex Code:</span>
+                        <input 
+                          type="text"
+                          placeholder="#FFFFFF"
+                          value={tempColor}
+                          onChange={(e) => setTempColor(e.target.value)}
+                          className="flex-1 max-w-[120px] px-2 py-0.5 text-xs bg-white/5 border border-white/10 rounded-lg text-white font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Formatting & Alignment Row */}
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Formatting Toggles */}
+                      <div className="flex flex-col gap-2">
+                        <span className="text-[10px] text-white/50 font-bold tracking-wider uppercase">Style</span>
+                        <div className="flex gap-1">
+                          {/* Italic */}
+                          <button
+                            type="button"
+                            onClick={() => setTempFontStyle(tempFontStyle === 'italic' ? 'normal' : 'italic')}
+                            title="Italic"
+                            className={cn(
+                              "w-8 h-8 rounded-lg border flex items-center justify-center cursor-pointer transition-all",
+                              tempFontStyle === 'italic' 
+                                ? "bg-blue-500/20 border-blue-500/50 text-blue-400" 
+                                : "bg-white/5 border-white/5 hover:bg-white/10 text-white/60"
+                            )}
+                          >
+                            <Italic size={14} />
+                          </button>
+                          {/* Underline */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = tempTextDecoration.includes('underline') ? 'none' : 'underline';
+                              setTempTextDecoration(next);
+                            }}
+                            title="Underline"
+                            className={cn(
+                              "w-8 h-8 rounded-lg border flex items-center justify-center cursor-pointer transition-all",
+                              tempTextDecoration.includes('underline')
+                                ? "bg-blue-500/20 border-blue-500/50 text-blue-400" 
+                                : "bg-white/5 border-white/5 hover:bg-white/10 text-white/60"
+                            )}
+                          >
+                            <Underline size={14} />
+                          </button>
+                          {/* Strikethrough */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = tempTextDecoration.includes('line-through') ? 'none' : 'line-through';
+                              setTempTextDecoration(next);
+                            }}
+                            title="Strikethrough"
+                            className={cn(
+                              "w-8 h-8 rounded-lg border flex items-center justify-center cursor-pointer transition-all",
+                              tempTextDecoration.includes('line-through')
+                                ? "bg-blue-500/20 border-blue-500/50 text-blue-400" 
+                                : "bg-white/5 border-white/5 hover:bg-white/10 text-white/60"
+                            )}
+                          >
+                            <Strikethrough size={14} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Text Align */}
+                      <div className="flex flex-col gap-2">
+                        <span className="text-[10px] text-white/50 font-bold tracking-wider uppercase">Align</span>
+                        <div className="flex gap-1">
+                          {[
+                            { id: 'left', icon: <AlignLeft size={14} />, label: 'Left' },
+                            { id: 'center', icon: <AlignCenter size={14} />, label: 'Center' },
+                            { id: 'right', icon: <AlignRight size={14} />, label: 'Right' },
+                          ].map((al) => (
+                            <button
+                              key={al.id}
+                              type="button"
+                              onClick={() => setTempTextAlign(al.id)}
+                              title={al.label}
+                              className={cn(
+                                "w-8 h-8 rounded-lg border flex items-center justify-center cursor-pointer transition-all",
+                                tempTextAlign === al.id 
+                                  ? "bg-blue-500/20 border-blue-500/50 text-blue-400" 
+                                  : "bg-white/5 border-white/5 hover:bg-white/10 text-white/60"
+                              )}
+                            >
+                              {al.icon}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Text Transform (Casing) */}
+                    <div className="flex flex-col gap-2">
+                      <span className="text-[10px] text-white/50 font-bold tracking-wider uppercase">Text Transform (Casing)</span>
+                      <div className="grid grid-cols-4 gap-1">
+                        {[
+                          { id: 'none', label: 'None' },
+                          { id: 'uppercase', label: 'UPPER' },
+                          { id: 'lowercase', label: 'lower' },
+                          { id: 'capitalize', label: 'Cap' }
+                        ].map((tr) => (
+                          <button
+                            key={tr.id}
+                            type="button"
+                            onClick={() => setTempTextTransform(tr.id)}
+                            className={cn(
+                              "py-1 px-1.5 text-[10px] rounded-lg border text-center cursor-pointer transition-all",
+                              tempTextTransform === tr.id 
+                                ? "bg-blue-500/15 border-blue-500/40 text-blue-400 font-semibold" 
+                                : "bg-white/5 border-white/5 hover:bg-white/10 text-white/75"
+                            )}
+                          >
+                            {tr.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* Column 3: Live Preview (3 cols) */}
+                  <div className="md:col-span-3 flex flex-col gap-2">
+                    <span className="text-[10px] text-white/50 font-bold tracking-wider uppercase flex items-center gap-1.5">
+                      <Eye size={12} className="text-blue-400" />
+                      Preview Window
+                    </span>
+                    <div className="flex-1 bg-black/40 border border-white/15 rounded-2xl p-4 flex flex-col justify-between min-h-[220px] max-h-[280px]">
+                      <div 
+                        style={{ 
+                          fontFamily: getFontFamilyValue(tempFontFamily),
+                          fontSize: tempFontSize,
+                          fontWeight: tempFontWeight,
+                          textAlign: tempTextAlign as any,
+                          color: tempColor || undefined,
+                          fontStyle: tempFontStyle,
+                          textDecoration: tempTextDecoration,
+                          textTransform: tempTextTransform as any,
+                        }}
+                        className="text-white leading-normal overflow-y-auto max-h-[180px] pr-1 select-none flex-1 flex flex-col justify-center"
+                      >
+                        <div className="text-lg font-bold mb-1">Aa Bb Cc</div>
+                        <div className="opacity-95 text-xs">
+                          The quick brown fox jumps over the lazy dog. 1234567890
+                        </div>
+                      </div>
+                      <div className="text-[9px] text-white/30 border-t border-white/5 pt-2 mt-2 font-mono flex flex-col gap-0.5">
+                        <div className="flex justify-between">
+                          <span>Font: {getFontName(tempFontFamily)}</span>
+                          <span>Size: {tempFontSize}</span>
+                        </div>
+                        <div className="flex justify-between text-[8px] text-white/20">
+                          <span>Weight: {tempFontWeight}</span>
+                          <span>Align: {tempTextAlign}</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -11716,13 +12366,24 @@ function NotepadApp({
                 <button 
                   type="button"
                   onClick={() => {
-                    handleUpdateStyle('fontFamily', tempFontFamily);
+                    if (setNotepadStyle) {
+                      setNotepadStyle({
+                        fontFamily: tempFontFamily,
+                        fontSize: tempFontSize,
+                        fontWeight: tempFontWeight,
+                        color: tempColor,
+                        fontStyle: tempFontStyle,
+                        textDecoration: tempTextDecoration,
+                        textTransform: tempTextTransform,
+                        textAlign: tempTextAlign,
+                      });
+                    }
                     setShowFontDialog(false);
-                    addNotification('Notepad', `Font family applied: ${getFontName(tempFontFamily)}`, 'success');
+                    addNotification('Notepad', `Typography and formatting settings applied successfully!`, 'success');
                   }}
                   className="px-4 py-2 bg-blue-500 hover:bg-blue-600 rounded-xl text-xs font-semibold text-white transition-all shadow-lg shadow-blue-500/20 cursor-pointer"
                 >
-                  Apply Font
+                  Apply Styling
                 </button>
               </div>
             </motion.div>
@@ -12564,12 +13225,109 @@ function CodeStudioApp({
     });
     return unwatch;
   }, [activeFile, fsLib, code]);
-  const [targetArch, setTargetArch] = useState('x64 (Windows/Linux)');
+  const [targetArch, setTargetArch] = useState('x64 (64-bit Windows/Linux)');
   const [optimizationLevel, setOptimizationLevel] = useState('O2 (Balanced)');
   const [isCompiling, setIsCompiling] = useState(false);
   const [activeDialog, setActiveDialog] = useState<'new' | 'open' | 'send' | 'about' | null>(null);
   const [currentTheme, setCurrentTheme] = useState<keyof typeof THEMES>('glass');
   const [syntaxErrors, setSyntaxErrors] = useState<{line: number, message: string}[]>([]);
+  const [bitConflicts, setBitConflicts] = useState<{line: number, message: string, severity: 'warning'}[]>([]);
+
+  const getBitDepth = useCallback((arch: string): number => {
+    const lower = arch.toLowerCase();
+    if (lower.includes('8-bit') || lower.includes('8bit') || lower.includes('6502') || lower.includes('z80')) return 8;
+    if (lower.includes('16-bit') || lower.includes('16bit') || lower.includes('68000') || lower.includes('8086')) return 16;
+    if (lower.includes('32-bit') || lower.includes('32bit') || lower.includes('rv32') || lower.includes('cortex-m') || lower.includes('x86')) return 32;
+    return 64; // default to 64-bit
+  }, []);
+
+  const checkBitDepthConflicts = useCallback((content: string, arch: string) => {
+    if (!activeFile.endsWith('.b')) {
+      return [];
+    }
+
+    const conflicts: {line: number, message: string, severity: 'warning'}[] = [];
+    const targetBits = getBitDepth(arch);
+    const lines = content.split('\n');
+
+    // 64-bit patterns
+    const p64 = [
+      { regex: /\b(RAX|RBX|RCX|RDX|RSP|RBP|RDI|RSI|R8|R9|R10|R11|R12|R13|R14|R15)\b/i, name: '64-bit register' },
+      { regex: /\b(QWORD|INT64|64BIT)\b/i, name: '64-bit type' },
+      { regex: /\b(MOV64|ADD64|SUB64|MUL64|DIV64|PUSH64|POP64|LET64|SET64)\b/i, name: '64-bit operation' }
+    ];
+
+    // 32-bit patterns
+    const p32 = [
+      { regex: /\b(EAX|EBX|ECX|EDX|ESP|EBP|EDI|ESI)\b/i, name: '32-bit register' },
+      { regex: /\b(DWORD|INT32|32BIT)\b/i, name: '32-bit type' },
+      { regex: /\b(MOV32|ADD32|SUB32|MUL32|DIV32|PUSH32|POP32|LET32|SET32)\b/i, name: '32-bit operation' }
+    ];
+
+    // 16-bit patterns
+    const p16 = [
+      { regex: /\b(AX|BX|CX|DX|SP|BP|SI|DI)\b/, name: '16-bit register' },
+      { regex: /\b(WORD|INT16|16BIT)\b/i, name: '16-bit type' },
+      { regex: /\b(MOV16|ADD16|SUB16|MUL16|DIV16|PUSH16|POP16|LET16|SET16)\b/i, name: '16-bit operation' }
+    ];
+
+    lines.forEach((line, index) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('//') || trimmed.toUpperCase().startsWith('REM')) return;
+
+      // Check 64-bit syntax in 8/16/32-bit targets
+      if (targetBits < 64) {
+        for (const pattern of p64) {
+          const match = line.match(pattern.regex);
+          if (match) {
+            conflicts.push({
+              line: index + 1,
+              message: `Using ${pattern.name} "${match[0]}" is incompatible with ${targetBits}-bit architecture "${arch}".`,
+              severity: 'warning'
+            });
+            break;
+          }
+        }
+      }
+
+      // Check 32-bit syntax in 8/16-bit targets
+      if (targetBits < 32 && conflicts.find(c => c.line === index + 1) === undefined) {
+        for (const pattern of p32) {
+          const match = line.match(pattern.regex);
+          if (match) {
+            conflicts.push({
+              line: index + 1,
+              message: `Using ${pattern.name} "${match[0]}" is incompatible with ${targetBits}-bit architecture "${arch}".`,
+              severity: 'warning'
+            });
+            break;
+          }
+        }
+      }
+
+      // Check 16-bit syntax in 8-bit targets
+      if (targetBits < 16 && conflicts.find(c => c.line === index + 1) === undefined) {
+        for (const pattern of p16) {
+          const match = line.match(pattern.regex);
+          if (match) {
+            conflicts.push({
+              line: index + 1,
+              message: `Using ${pattern.name} "${match[0]}" is incompatible with ${targetBits}-bit architecture "${arch}".`,
+              severity: 'warning'
+            });
+            break;
+          }
+        }
+      }
+    });
+
+    return conflicts;
+  }, [activeFile, getBitDepth]);
+
+  useEffect(() => {
+    const conflicts = checkBitDepthConflicts(code, targetArch);
+    setBitConflicts(conflicts);
+  }, [code, targetArch, checkBitDepthConflicts]);
   const [outputLogs, setOutputLogs] = useState<string[]>([]);
   const [isOutputVisible, setIsOutputVisible] = useState(true);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
@@ -12887,7 +13645,18 @@ function CodeStudioApp({
     setIsOutputVisible(true);
 
     setTimeout(() => {
-      const type = targetArch.includes('6502') ? '8-bit' : targetArch.includes('68k') ? '16-bit' : targetArch.includes('x64') ? '64-bit' : '32-bit';
+      let type: '8-bit' | '16-bit' | '32-bit' | '64-bit' = '32-bit';
+      if (targetArch.toLowerCase().includes('8-bit') || targetArch.toLowerCase().includes('8bit')) {
+        type = '8-bit';
+      } else if (targetArch.toLowerCase().includes('16-bit') || targetArch.toLowerCase().includes('16bit')) {
+        type = '16-bit';
+      } else if (targetArch.toLowerCase().includes('64-bit') || targetArch.toLowerCase().includes('64bit')) {
+        type = '64-bit';
+      } else if (targetArch.toLowerCase().includes('32-bit') || targetArch.toLowerCase().includes('32bit')) {
+        type = '32-bit';
+      } else {
+        type = targetArch.includes('6502') ? '8-bit' : targetArch.includes('68k') ? '16-bit' : targetArch.includes('x64') ? '64-bit' : '32-bit';
+      }
       const exeName = activeFile.replace('.b', '.exe');
       
       const newBuild: BrainscriptBuild = {
@@ -13129,18 +13898,39 @@ function CodeStudioApp({
                     <div className="px-4 py-1 text-[9px] uppercase font-bold text-white/30 tracking-widest flex items-center gap-2">
                        <Cpu size={10} /> Target Architecture
                     </div>
-                    {['x64 (Windows/Linux)', 'ARM64 (Apple/Android)', 'RISC-V (Embedded)', 'MOS 6502 (Retro)'].map(arch => (
-                      <button 
-                        key={arch}
-                        onClick={() => { setTargetArch(arch); setActiveMenu(null); }}
-                        className={cn(
-                          "w-full text-left px-4 py-1.5 hover:bg-white/10 flex items-center justify-between text-[11px]",
-                          targetArch === arch ? "text-blue-400 bg-blue-500/5" : "text-white/60"
-                        )}
-                      >
-                        <span>{arch}</span>
-                        {targetArch === arch && <Check size={12} />}
-                      </button>
+                    {[
+                      { label: '64-bit Architectures', isHeader: true },
+                      { label: 'x64 (64-bit Windows/Linux)', isHeader: false },
+                      { label: 'ARM64 (64-bit Apple/Android)', isHeader: false },
+                      { label: 'RISC-V RV64 (64-bit)', isHeader: false },
+                      { label: '32-bit Architectures', isHeader: true },
+                      { label: 'Intel x86 (32-bit)', isHeader: false },
+                      { label: 'ARM Cortex-M (32-bit)', isHeader: false },
+                      { label: 'RISC-V RV32 (32-bit)', isHeader: false },
+                      { label: '16-bit Architectures', isHeader: true },
+                      { label: 'Motorola 68000 (16-bit)', isHeader: false },
+                      { label: 'Intel 8086 (16-bit)', isHeader: false },
+                      { label: '8-bit Architectures', isHeader: true },
+                      { label: 'MOS 6502 (8-bit Retro)', isHeader: false },
+                      { label: 'Zilog Z80 (8-bit Retro)', isHeader: false }
+                    ].map((item, idx) => (
+                      item.isHeader ? (
+                        <div key={idx} className="px-4 py-1 text-[8px] font-bold text-white/30 uppercase tracking-wider mt-1 border-t border-white/5 first:border-0 first:mt-0">
+                          {item.label}
+                        </div>
+                      ) : (
+                        <button 
+                          key={idx}
+                          onClick={() => { setTargetArch(item.label); setActiveMenu(null); }}
+                          className={cn(
+                            "w-full text-left px-4 py-1.5 hover:bg-white/10 flex items-center justify-between text-[11px]",
+                            targetArch === item.label ? "text-blue-400 bg-blue-500/5 font-semibold" : "text-white/60"
+                          )}
+                        >
+                          <span>{item.label}</span>
+                          {targetArch === item.label && <Check size={12} />}
+                        </button>
+                      )
                     ))}
 
                     <div className="h-[1px] bg-white/10 my-1" />
@@ -13294,11 +14084,24 @@ function CodeStudioApp({
             value={targetArch}
             onChange={(e) => setTargetArch(e.target.value)}
           >
-            <option className="bg-slate-800">x64 (Windows/Linux)</option>
-            <option className="bg-slate-800">ARM64 (Apple/Mobile)</option>
-            <option className="bg-slate-800">8bit 6502</option>
-            <option className="bg-slate-800">68k Architecture</option>
-            <option className="bg-slate-800">RISC-V</option>
+            <optgroup label="64-bit" className="bg-slate-900 text-white/50 text-[9px] font-bold">
+              <option className="bg-slate-800 text-white">x64 (64-bit Windows/Linux)</option>
+              <option className="bg-slate-800 text-white">ARM64 (64-bit Apple/Android)</option>
+              <option className="bg-slate-800 text-white">RISC-V RV64 (64-bit)</option>
+            </optgroup>
+            <optgroup label="32-bit" className="bg-slate-900 text-white/50 text-[9px] font-bold">
+              <option className="bg-slate-800 text-white">Intel x86 (32-bit)</option>
+              <option className="bg-slate-800 text-white">ARM Cortex-M (32-bit)</option>
+              <option className="bg-slate-800 text-white">RISC-V RV32 (32-bit)</option>
+            </optgroup>
+            <optgroup label="16-bit" className="bg-slate-900 text-white/50 text-[9px] font-bold">
+              <option className="bg-slate-800 text-white">Motorola 68000 (16-bit)</option>
+              <option className="bg-slate-800 text-white">Intel 8086 (16-bit)</option>
+            </optgroup>
+            <optgroup label="8-bit" className="bg-slate-900 text-white/50 text-[9px] font-bold">
+              <option className="bg-slate-800 text-white">MOS 6502 (8-bit Retro)</option>
+              <option className="bg-slate-800 text-white">Zilog Z80 (8-bit Retro)</option>
+            </optgroup>
           </select>
           <div className="h-4 w-[1px] bg-white/10 mx-2" />
           <button 
@@ -13514,17 +14317,33 @@ function CodeStudioApp({
               
               {/* Status Bar */}
               <div className="h-6 bg-black/40 border-t border-white/5 flex items-center px-4 justify-between text-[10px] text-white/40">
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-4 overflow-x-auto scrollbar-none py-0.5">
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
                     <div className={cn("w-1.5 h-1.5 rounded-full", isDirty ? "bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]" : "bg-emerald-500")} />
                     <span>{isDirty ? 'Unsaved Changes' : 'All Changes Saved'}</span>
                   </div>
-                  <div className="w-[1px] h-3 bg-white/10" />
-                  <span>UTF-8</span>
-                  <div className="w-[1px] h-3 bg-white/10" />
-                  <span>{activeFile.endsWith('.b') ? 'Brainscript' : activeFile.endsWith('.scr') ? 'GlassScript' : 'Text'}</span>
+                  <div className="w-[1px] h-3 bg-white/10 flex-shrink-0" />
+                  <span className="flex-shrink-0">UTF-8</span>
+                  <div className="w-[1px] h-3 bg-white/10 flex-shrink-0" />
+                  <span className="flex-shrink-0">{activeFile.endsWith('.b') ? 'Brainscript' : activeFile.endsWith('.scr') ? 'GlassScript' : 'Text'}</span>
+                  
+                  <div className="w-[1px] h-3 bg-white/10 flex-shrink-0" />
+                  <div className="flex items-center gap-1 text-white/50 flex-shrink-0">
+                    <Cpu size={10} className="text-blue-400" />
+                    <span>Arch: <strong className="text-white/80 font-mono">{targetArch}</strong></span>
+                  </div>
+
+                  {bitConflicts.length > 0 && (
+                    <>
+                      <div className="w-[1px] h-3 bg-white/10 flex-shrink-0" />
+                      <div className="flex items-center gap-1 bg-amber-500/10 text-amber-400 px-1.5 py-0.5 rounded border border-amber-500/30 font-semibold animate-pulse flex-shrink-0">
+                        <AlertTriangle size={10} />
+                        <span>{bitConflicts.length} Bit-Depth Conflict{bitConflicts.length > 1 ? 's' : ''}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 flex-shrink-0 ml-2">
                   <span>Line {code.substring(0, textareaRef.current?.selectionStart || 0).split('\n').length}, Col {(textareaRef.current?.selectionStart || 0) - code.lastIndexOf('\n', (textareaRef.current?.selectionStart || 0) - 1)}</span>
                   <span>{code.length} chars</span>
                 </div>
@@ -13541,6 +14360,21 @@ function CodeStudioApp({
               {syntaxErrors.map((err, i) => (
                 <div key={i} className="text-[11px] text-red-200/70 flex gap-2">
                   <span className="text-red-400/50 min-w-[40px]">Line {err.line}:</span>
+                  <span>{err.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {bitConflicts.length > 0 && (
+            <div className="h-24 bg-amber-500/10 border-t border-amber-500/20 overflow-y-auto p-3 space-y-1">
+              <div className="flex items-center gap-2 text-amber-400 text-[10px] font-bold uppercase mb-2">
+                <AlertTriangle size={12} />
+                <span>Architecture Bit-Depth Warnings ({bitConflicts.length})</span>
+              </div>
+              {bitConflicts.map((err, i) => (
+                <div key={i} className="text-[11px] text-amber-200/70 flex gap-2">
+                  <span className="text-amber-400/50 min-w-[40px]">Line {err.line}:</span>
                   <span>{err.message}</span>
                 </div>
               ))}
@@ -13596,10 +14430,16 @@ function CodeStudioApp({
           <span>Brainscript v1.0</span>
         </div>
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1 opacity-70">
-            <Cpu size={10} />
-            <span>{targetArch.split(' ')[0]}</span>
+          <div className="flex items-center gap-1.5 font-semibold">
+            <Cpu size={10} className="text-white animate-pulse" />
+            <span>Arch: <strong className="font-mono">{targetArch}</strong></span>
           </div>
+          {bitConflicts.length > 0 && (
+            <div className="flex items-center gap-1 bg-black/30 text-amber-300 px-2 py-0.5 rounded border border-amber-500/40 font-bold animate-pulse">
+              <AlertTriangle size={10} className="text-amber-400" />
+              <span>Bit Conflict!</span>
+            </div>
+          )}
           <div className="flex items-center gap-1 opacity-70">
             <Gauge size={10} />
             <span>{optimizationLevel.split(' ')[0]}</span>
