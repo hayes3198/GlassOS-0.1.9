@@ -1,5 +1,5 @@
 {
   "name": "GlassOS",
   "description": "A sleek glassmorphism OS with functional terminal, browser, IDE, and robust IndexedDB persistence for files and settings.",
-  "requestFramePermissions": []
+  "requestFramePermissions": ["camera", "microphone"]
 }

@@ -49,8 +49,11 @@ import {
   Box,
   Save,
   Undo,
+  Redo,
+  Paintbrush,
   Send,
   Upload,
+  Paperclip,
   Download,
   FolderOpen,
   Calendar,
@@ -157,6 +160,14 @@ import {
   Tag,
   FolderMinus,
   EyeOff,
+  Video,
+  Camera,
+  Mic,
+  MicOff,
+  VideoOff,
+  Phone,
+  PhoneOff,
+  Disc,
 } from 'lucide-react';
 import { motion, AnimatePresence, useDragControls } from 'motion/react';
 import { 
@@ -401,7 +412,80 @@ export default function App() {
   const [builds, setBuilds] = useState<BrainscriptBuild[]>([]);
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [collections, setCollections] = useState<DBCollections>({
-    emails: [],
+    emails: [
+      {
+        id: 'seed-1',
+        from: 'system@glass.os',
+        to: 'Administrator',
+        subject: 'Welcome to glassOS Professional Mail',
+        message: 'Hello Administrator,\n\nWe are pleased to welcome you to the new GlassOS enterprise mail client. Your secure gRPC channels are synchronized and the GlassDatabase is fully operational.\n\nAll outbound and inbound transmissions are secured via quantum-level cryptographic handshakes. If you experience any micro-latency during synchronization, please adjust the performance profile in the NOC Center.\n\nBest,\nSystem Core Engineering',
+        date: '2026-07-08 08:30',
+        folder: 'inbox',
+        read: false,
+        isFlagged: true,
+        attachments: []
+      },
+      {
+        id: 'seed-2',
+        from: 'sarah.nexus@glass.os',
+        to: 'Administrator',
+        subject: 'NOC Incident Report: Sub-Orbital Network Latency',
+        message: 'Hi Admin,\n\nWe noticed a minor fluctuation in packet routing between our Neo-Tokyo satellite node and the orbital backbone at 04:00 UTC.\n\nThe GlassDatabase failover handled it gracefully, but please keep an eye on the CPU and RAM load indicators in your NOC Center.\n\nLet me know if we need to schedule a manual disk trim or defragmentation.\n\nRegards,\nSarah Nexus\nNetwork Operations Team',
+        date: '2026-07-08 10:15',
+        folder: 'inbox',
+        read: true,
+        isFlagged: false,
+        attachments: []
+      },
+      {
+        id: 'seed-3',
+        from: 'noreply.billing@glass.os',
+        to: 'Administrator',
+        subject: 'GlassOS Professional Subscription Renewed',
+        message: 'Dear Customer,\n\nThis is a receipt confirming that your GlassOS Professional subscription has been automatically renewed for another billing cycle.\n\nYour access to advanced apps, such as GlassDraw Vector, GlassPaint Raster, and gRPC Unary sync, remains fully active. No action is required on your part.\n\nThank you for choosing GlassOS.',
+        date: '2026-07-07 15:40',
+        folder: 'inbox',
+        read: true,
+        isFlagged: false,
+        attachments: []
+      },
+      {
+        id: 'seed-sent-1',
+        from: 'Administrator',
+        to: 'sarah.nexus@glass.os',
+        subject: 'Re: NOC Incident Report: Sub-Orbital Network Latency',
+        message: 'Thanks for the heads-up, Sarah. I checked the NOC panel and things look stable. I\'ve adjusted the scaling profile to Balanced and the database is highly responsive. Let me know if the packet drops continue or if we need to expand the cluster.',
+        date: '2026-07-08 11:20',
+        folder: 'sent',
+        read: true,
+        isFlagged: false,
+        attachments: []
+      },
+      {
+        id: 'seed-draft-1',
+        from: 'Administrator',
+        to: 'dev-team@glass.os',
+        subject: 'Brainscript V3.5 Compiler Optimization Proposal',
+        message: 'Hey team,\n\nI have been looking into the Brainscript interpreter loop. By introducing native vector instructions at $0050, we could potentially reduce execution overhead by 15% on larger loops...\n\nDraft saved.',
+        date: '2026-07-08 11:55',
+        folder: 'drafts',
+        read: true,
+        isFlagged: true,
+        attachments: []
+      },
+      {
+        id: 'seed-trash-1',
+        from: 'spambot@quantumspams.io',
+        to: 'Administrator',
+        subject: '[SPAM] Buy Quantum Cryptographic Keys 90% OFF',
+        message: 'Guaranteed un-crackable by any sub-atomic supercomputer! Limited time discount on quantum keys. Act now! Reply with code QUANTUM90 to purchase.',
+        date: '2026-07-05 02:10',
+        folder: 'trash',
+        read: true,
+        isFlagged: false,
+        attachments: []
+      }
+    ],
     messages: []
   });
   const [cpuUsage, setCpuUsage] = useState(0);
@@ -3332,17 +3416,25 @@ function GlassDatabase(props: any) {
 }
 
 function GlassMail(props: any) {
-  const { collections, setCollections, fs, setFs, addNotification, currentUser, networkConfig } = props;
+  const { collections, setCollections, fs, setFs, addNotification, currentUser, networkConfig, openWindow, fsLib } = props;
   const [view, setView] = useState<'inbox' | 'compose'>('inbox');
   const [selectedMail, setSelectedMail] = useState<Email | null>(null);
   const [isGrpcSyncing, setIsGrpcSyncing] = useState(false);
+  const [activeFolder, setActiveFolder] = useState<'inbox' | 'sent' | 'drafts' | 'trash'>('inbox');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState<'all' | 'unread' | 'flagged'>('all');
+  const [showAttachmentPicker, setShowAttachmentPicker] = useState(false);
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
   
   const [composeData, setComposeData] = useState({
     to: '',
     subject: '',
     message: '',
-    attachments: [] as { name: string; path: string }[]
+    attachments: [] as { name: string; path: string[] }[]
   });
+
+  const inboxUnreadCount = collections.emails.filter((m: Email) => (m.folder === 'inbox' || !m.folder) && !m.read).length;
+  const draftsCount = collections.emails.filter((m: Email) => m.folder === 'drafts').length;
 
   const sendMail = async () => {
     if (!composeData.to || !composeData.subject) {
@@ -3364,22 +3456,47 @@ function GlassMail(props: any) {
       message: composeData.message,
       date: new Date().toLocaleString(),
       attachments: composeData.attachments,
-      read: true
+      read: true,
+      folder: 'sent'
     };
 
-    setCollections((prev: DBCollections) => ({
-      ...prev,
-      emails: [newMail, ...prev.emails]
-    }));
+    setCollections((prev: DBCollections) => {
+      let updatedEmails = prev.emails;
+      if (editingDraftId) {
+        updatedEmails = updatedEmails.filter(m => m.id !== editingDraftId);
+      }
+      return {
+        ...prev,
+        emails: [newMail, ...updatedEmails]
+      };
+    });
 
     // Logic to save to GlassMail folder in GlassDrive
-    // Find GlassDrive -> GlassMail
     const updateFS = (items: FileSystemItem[]): FileSystemItem[] => {
       return items.map(item => {
         if (item.name === 'GlassDrive') {
+          const hasGlassMail = item.children?.some(c => c.name === 'GlassMail');
+          let updatedChildren = item.children || [];
+          
+          if (!hasGlassMail) {
+            updatedChildren = [
+              ...updatedChildren,
+              {
+                name: 'GlassMail',
+                type: 'folder',
+                permissions: {
+                  owner: { r: true, w: true, x: true },
+                  group: { r: true, w: false, x: true },
+                  others: { r: false, w: false, x: false },
+                },
+                children: []
+              }
+            ];
+          }
+
           return {
             ...item,
-            children: item.children?.map(driveItem => {
+            children: updatedChildren.map(driveItem => {
               if (driveItem.name === 'GlassMail') {
                 return {
                   ...driveItem,
@@ -3410,8 +3527,287 @@ function GlassMail(props: any) {
     addNotification('GlassMail', 'Message dispatched via gRPC bridge', 'success');
     setView('inbox');
     setComposeData({ to: '', subject: '', message: '', attachments: [] });
+    setEditingDraftId(null);
     setIsGrpcSyncing(false);
   };
+
+  const saveDraft = async () => {
+    setIsGrpcSyncing(true);
+    await new Promise(r => setTimeout(r, 400));
+
+    const draftMail: Email = {
+      id: editingDraftId || Math.random().toString(36).substr(2, 9),
+      from: currentUser?.username || 'Administrator',
+      to: composeData.to || '',
+      subject: composeData.subject || '(No Subject)',
+      message: composeData.message || '',
+      date: new Date().toLocaleString(),
+      attachments: composeData.attachments || [],
+      read: true,
+      folder: 'drafts'
+    };
+
+    setCollections((prev: DBCollections) => {
+      let updatedEmails = [...prev.emails];
+      if (editingDraftId) {
+        updatedEmails = updatedEmails.map(m => m.id === editingDraftId ? draftMail : m);
+      } else {
+        updatedEmails = [draftMail, ...updatedEmails];
+      }
+      return {
+        ...prev,
+        emails: updatedEmails
+      };
+    });
+
+    addNotification('GlassMail', 'Draft saved locally', 'success');
+    setView('inbox');
+    setComposeData({ to: '', subject: '', message: '', attachments: [] });
+    setEditingDraftId(null);
+    setIsGrpcSyncing(false);
+  };
+
+  const toggleReadStatus = (mailId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setCollections((prev: DBCollections) => {
+      const updated = prev.emails.map((m: Email) => {
+        if (m.id === mailId) {
+          const newRead = !m.read;
+          if (selectedMail && selectedMail.id === mailId) {
+            setSelectedMail({ ...selectedMail, read: newRead });
+          }
+          return { ...m, read: newRead };
+        }
+        return m;
+      });
+      return { ...prev, emails: updated };
+    });
+  };
+
+  const toggleFlaggedStatus = (mailId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setCollections((prev: DBCollections) => {
+      const updated = prev.emails.map((m: Email) => {
+        if (m.id === mailId) {
+          const newFlagged = !m.isFlagged;
+          if (selectedMail && selectedMail.id === mailId) {
+            setSelectedMail({ ...selectedMail, isFlagged: newFlagged });
+          }
+          return { ...m, isFlagged: newFlagged };
+        }
+        return m;
+      });
+      return { ...prev, emails: updated };
+    });
+  };
+
+  const handleMailDeleteOrTrash = (mailId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setCollections((prev: DBCollections) => {
+      const mail = prev.emails.find((m: Email) => m.id === mailId);
+      if (!mail) return prev;
+
+      let updatedEmails = [...prev.emails];
+      if (mail.folder === 'trash') {
+        updatedEmails = updatedEmails.filter((m: Email) => m.id !== mailId);
+        addNotification('GlassMail', 'Message permanently deleted', 'info');
+        if (selectedMail?.id === mailId) {
+          setSelectedMail(null);
+        }
+      } else {
+        updatedEmails = updatedEmails.map((m: Email) => {
+          if (m.id === mailId) {
+            return { ...m, folder: 'trash' };
+          }
+          return m;
+        });
+        addNotification('GlassMail', 'Message moved to Trash', 'info');
+        if (selectedMail?.id === mailId) {
+          setSelectedMail({ ...selectedMail, folder: 'trash' });
+        }
+      }
+      return { ...prev, emails: updatedEmails };
+    });
+  };
+
+  const handleRestoreFromTrash = (mailId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setCollections((prev: DBCollections) => {
+      const updated = prev.emails.map((m: Email) => {
+        if (m.id === mailId) {
+          const isSentByMe = m.from === (currentUser?.username || 'Administrator');
+          const targetFolder = isSentByMe ? 'sent' : 'inbox';
+          if (selectedMail && selectedMail.id === mailId) {
+            setSelectedMail({ ...selectedMail, folder: targetFolder });
+          }
+          return { ...m, folder: targetFolder };
+        }
+        return m;
+      });
+      addNotification('GlassMail', 'Message restored to mailbox', 'success');
+      return { ...prev, emails: updated };
+    });
+  };
+
+  const handleReply = (mail: Email) => {
+    setComposeData({
+      to: mail.from || '',
+      subject: mail.subject?.startsWith('Re:') ? mail.subject : `Re: ${mail.subject}`,
+      message: `\n\n----- Original Message -----\nFrom: ${mail.from}\nDate: ${mail.date}\nTo: ${mail.to}\n\n${mail.message || mail.body}`,
+      attachments: []
+    });
+    setEditingDraftId(null);
+    setView('compose');
+  };
+
+  const handleDraftClick = (mail: Email) => {
+    setComposeData({
+      to: mail.to || '',
+      subject: mail.subject || '',
+      message: mail.message || mail.body || '',
+      attachments: mail.attachments || []
+    });
+    setEditingDraftId(mail.id);
+    setView('compose');
+  };
+
+  const handleSelectMail = (mail: Email) => {
+    setSelectedMail(mail);
+    if (!mail.read) {
+      setCollections((prev: DBCollections) => {
+        const updated = prev.emails.map((m: Email) => {
+          if (m.id === mail.id) {
+            return { ...m, read: true };
+          }
+          return m;
+        });
+        return { ...prev, emails: updated };
+      });
+    }
+  };
+
+  const handleAddAttachment = (path: string, file: FileSystemItem) => {
+    if (composeData.attachments.some(att => att.name === file.name)) {
+      addNotification('GlassMail', 'File is already attached', 'warning');
+      setShowAttachmentPicker(false);
+      return;
+    }
+
+    const pathArray = path.split('/');
+    setComposeData(prev => ({
+      ...prev,
+      attachments: [
+        ...prev.attachments,
+        { name: file.name, path: pathArray }
+      ]
+    }));
+    addNotification('GlassMail', `Attached file: ${file.name}`, 'success');
+    setShowAttachmentPicker(false);
+  };
+
+  const handleRemoveAttachment = (attName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setComposeData(prev => ({
+      ...prev,
+      attachments: prev.attachments.filter(att => att.name !== attName)
+    }));
+  };
+
+  const findFileInFs = (items: FileSystemItem[], name: string): FileSystemItem | null => {
+    for (const item of items) {
+      if (item.name === name) return item;
+      if (item.children) {
+        const found = findFileInFs(item.children, name);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const openAttachment = (att: { name: string; path: string[] }) => {
+    const file = findFileInFs(fs, att.name);
+    if (!file) {
+      addNotification('GlassMail', 'Attachment file not found in GlassOS filesystem', 'error');
+      return;
+    }
+
+    const ext = att.name.split('.').pop()?.toLowerCase();
+    const filePathInfo = { name: att.name, path: att.path || [] };
+
+    try {
+      if (ext === 'txt') {
+        if (props.setActiveFileInNotepad) {
+          props.setActiveFileInNotepad(filePathInfo);
+          openWindow('notepad', 'Notepad');
+          addNotification('GlassMail', `Opened ${att.name} in Notepad`, 'info');
+        }
+      } else if (ext === 'gsheet') {
+        if (props.setActiveFileInSheets) {
+          props.setActiveFileInSheets(filePathInfo);
+          openWindow('spreadsheet', 'Glass Sheets');
+          addNotification('GlassMail', `Opened ${att.name} in Glass Sheets`, 'info');
+        }
+      } else if (ext === 'gdoc') {
+        if (props.setActiveFileInGlassWord) {
+          props.setActiveFileInGlassWord(filePathInfo);
+          openWindow('glassword', 'GlassWord Pro');
+          addNotification('GlassMail', `Opened ${att.name} in GlassWord`, 'info');
+        }
+      } else if (ext === 'gdraw' || ext === 'gpaint') {
+        if (props.setGlassDrawSelectedFile) {
+          props.setGlassDrawSelectedFile({ name: file.name, content: file.content, path: att.path });
+          openWindow('glassdraw', 'Glass Draw Vector');
+          addNotification('GlassMail', `Opened ${att.name} in GlassDraw`, 'info');
+        }
+      } else if (['jpg', 'jpeg', 'png', 'gif'].includes(ext || '')) {
+        if (props.setPhotosAppSelectedFile) {
+          props.setPhotosAppSelectedFile({ name: file.name, content: file.content });
+          openWindow('photos', 'Photos');
+          addNotification('GlassMail', `Opened image ${att.name} in Photos`, 'info');
+        }
+      } else if (ext === 'b' || ext === 'scr') {
+        if (props.setActiveFileInNotepad) {
+          props.setActiveFileInNotepad(filePathInfo);
+          openWindow('notepad', 'Notepad');
+          addNotification('GlassMail', `Opened code file ${att.name} in Notepad`, 'info');
+        }
+      } else {
+        addNotification('GlassMail', `No registered app for .${ext} files. Viewing as text...`, 'warning');
+        if (props.setActiveFileInNotepad) {
+          props.setActiveFileInNotepad(filePathInfo);
+          openWindow('notepad', 'Notepad');
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      addNotification('GlassMail', 'Failed to route attachment to target application', 'error');
+    }
+  };
+
+  const filteredMails = useMemo(() => {
+    return collections.emails.filter((mail: Email) => {
+      const mailFolder = mail.folder || 'inbox';
+      if (mailFolder !== activeFolder) return false;
+
+      if (searchQuery.trim() !== '') {
+        const query = searchQuery.toLowerCase();
+        const fromMatch = mail.from?.toLowerCase().includes(query);
+        const toMatch = mail.to?.toLowerCase().includes(query);
+        const subjectMatch = mail.subject?.toLowerCase().includes(query);
+        const bodyMatch = (mail.message || mail.body || '').toLowerCase().includes(query);
+        if (!fromMatch && !toMatch && !subjectMatch && !bodyMatch) return false;
+      }
+
+      if (filterType === 'unread') {
+        return !mail.read;
+      }
+      if (filterType === 'flagged') {
+        return !!mail.isFlagged;
+      }
+
+      return true;
+    });
+  }, [collections.emails, activeFolder, searchQuery, filterType]);
 
   return (
     <div className="h-full flex flex-col bg-[#080808] text-white">
@@ -3420,7 +3816,15 @@ function GlassMail(props: any) {
         <h2 className="text-sm font-bold tracking-tight">GlassMail Professional</h2>
         <div className="flex-1" />
         <button 
-          onClick={() => setView(view === 'inbox' ? 'compose' : 'inbox')}
+          onClick={() => {
+            if (view === 'inbox') {
+              setComposeData({ to: '', subject: '', message: '', attachments: [] });
+              setEditingDraftId(null);
+              setView('compose');
+            } else {
+              setView('inbox');
+            }
+          }}
           className="glass-button h-8 px-4 text-[11px] font-bold"
         >
           {view === 'inbox' ? '+ New Message' : 'Back to Inbox'}
@@ -3429,19 +3833,55 @@ function GlassMail(props: any) {
 
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar */}
-        <div className="w-56 border-r border-white/10 flex flex-col p-4 gap-2">
-          {['Inbox', 'Sent', 'Drafts', 'Trash'].map((folder) => (
-            <button key={folder} className={cn("w-full text-left px-4 py-2 rounded-xl text-xs transition-colors", folder === 'Inbox' ? "bg-blue-500/20 text-blue-400" : "hover:bg-white/5 text-white/50")}>
-              {folder}
-            </button>
-          ))}
-          <div className="mt-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20">
-            <h4 className="flex items-center gap-2 text-[10px] font-bold text-amber-500 mb-2 uppercase">
-              <Shield size={12} />
-              Restriction
-            </h4>
-            <p className="text-[9px] text-amber-500/60 leading-relaxed italic">
-              Data is dual-stored in GlassDatabase and the protected GlassMail folder.
+        <div className="w-52 border-r border-white/10 flex flex-col p-3 gap-1 bg-[#0d0d0d] select-none">
+          <div className="text-[10px] font-bold text-white/30 uppercase tracking-widest px-3 py-2 mb-1">
+            Mailboxes
+          </div>
+          {[
+            { id: 'inbox', label: 'Inbox', icon: <Mail size={14} />, badge: inboxUnreadCount },
+            { id: 'sent', label: 'Sent', icon: <Send size={14} /> },
+            { id: 'drafts', label: 'Drafts', icon: <FileText size={14} />, badge: draftsCount },
+            { id: 'trash', label: 'Trash', icon: <Trash2 size={14} /> }
+          ].map((folder) => {
+            const isActive = activeFolder === folder.id;
+            return (
+              <button
+                key={folder.id}
+                onClick={() => {
+                  setActiveFolder(folder.id as any);
+                  setView('inbox');
+                  setSelectedMail(null);
+                }}
+                className={cn(
+                  "w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150",
+                  isActive 
+                    ? "bg-blue-600/15 text-blue-400 border border-blue-500/10 font-bold shadow-sm shadow-blue-500/5" 
+                    : "text-white/60 hover:text-white hover:bg-white/5 border border-transparent"
+                )}
+              >
+                <div className="flex items-center gap-2.5">
+                  {folder.icon}
+                  <span>{folder.label}</span>
+                </div>
+                {folder.badge && folder.badge > 0 ? (
+                  <span className={cn(
+                    "px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold leading-none",
+                    folder.id === 'drafts' ? "bg-white/10 text-white/70" : "bg-blue-500 text-white"
+                  )}>
+                    {folder.badge}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+
+          <div className="mt-auto p-3.5 rounded-2xl bg-amber-500/5 border border-amber-500/10 flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5 text-[9px] font-bold text-amber-500/80 uppercase tracking-widest">
+              <Shield size={10} />
+              SYSTEM SHIELD
+            </div>
+            <p className="text-[9px] text-white/40 leading-relaxed italic">
+              All messages dual-saved to local database &amp; encrypted GlassMail directory.
             </p>
           </div>
         </div>
@@ -3449,42 +3889,303 @@ function GlassMail(props: any) {
         {/* Content */}
         <div className="flex-1 flex flex-col min-w-0">
           {view === 'inbox' ? (
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              {collections.emails.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center opacity-20">
-                  <Mail size={64} className="mb-4" />
-                  <p className="text-sm font-mono uppercase tracking-widest">Inbox Empty</p>
-                </div>
-              ) : (
-                collections.emails.map((mail: Email) => (
-                  <div 
-                    key={mail.id} 
-                    onClick={() => setSelectedMail(mail)}
-                    className={cn(
-                      "group p-4 rounded-2xl border transition-all cursor-pointer flex items-center gap-4",
-                      selectedMail?.id === mail.id ? "bg-white/10 border-blue-500/30" : "bg-white/5 border-white/5 hover:border-white/10"
+            <div className="flex-1 flex overflow-hidden">
+              {/* Mail list column */}
+              <div className="w-80 border-r border-white/5 flex flex-col bg-[#0a0a0a]">
+                <div className="p-3 border-b border-white/5 flex flex-col gap-2">
+                  <div className="relative">
+                    <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                    <input
+                      type="text"
+                      placeholder="Search secure mail..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full h-8 pl-8 pr-3 rounded-xl bg-white/5 border border-white/5 text-[11px] text-white placeholder-white/20 focus:outline-none focus:border-blue-500/30 transition-colors"
+                    />
+                    {searchQuery && (
+                      <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/30 hover:text-white text-[10px]">
+                        ×
+                      </button>
                     )}
-                  >
-                    <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/40 text-xs font-bold">
-                      {mail.from[0].toUpperCase()}
+                  </div>
+                  {/* Filter Chips */}
+                  <div className="flex items-center gap-1.5 mt-1 select-none">
+                    {[
+                      { id: 'all', label: 'All' },
+                      { id: 'unread', label: 'Unread' },
+                      { id: 'flagged', label: 'Starred' }
+                    ].map((chip) => {
+                      const isChipActive = filterType === chip.id;
+                      return (
+                        <button
+                          key={chip.id}
+                          onClick={() => setFilterType(chip.id as any)}
+                          className={cn(
+                            "px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all",
+                            isChipActive
+                              ? "bg-white/10 text-white border border-white/10"
+                              : "text-white/40 hover:text-white/60 border border-transparent"
+                          )}
+                        >
+                          {chip.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-2 space-y-1.5 scrollbar-hide">
+                  {filteredMails.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center opacity-25 p-4 text-center">
+                      <Mail size={32} className="mb-2 text-white/40" />
+                      <p className="text-[10px] font-mono uppercase tracking-widest">No messages found</p>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-0.5">
-                        <h4 className="text-sm font-bold truncate">{mail.from}</h4>
-                        <span className="text-[10px] text-white/30 font-mono">{mail.date}</span>
+                  ) : (
+                    filteredMails.map((mail: Email) => {
+                      const isSelected = selectedMail?.id === mail.id;
+                      return (
+                        <div
+                          key={mail.id}
+                          onClick={() => {
+                            if (activeFolder === 'drafts') {
+                              handleDraftClick(mail);
+                            } else {
+                              handleSelectMail(mail);
+                            }
+                          }}
+                          className={cn(
+                            "group p-3 rounded-xl border transition-all cursor-pointer flex flex-col gap-1 text-left relative",
+                            isSelected
+                              ? "bg-blue-600/10 border-blue-500/30 shadow-md shadow-blue-900/5"
+                              : "bg-white/[0.02] border-white/5 hover:bg-white/[0.05] hover:border-white/10"
+                          )}
+                        >
+                          {!mail.read && (
+                            <div className="absolute top-3.5 right-3 w-1.5 h-1.5 rounded-full bg-blue-500" />
+                          )}
+
+                          <div className="flex items-center justify-between pr-4">
+                            <span className="text-[11px] font-bold text-white/80 truncate max-w-[150px]">
+                              {activeFolder === 'sent' ? `To: ${mail.to}` : mail.from}
+                            </span>
+                            <span className="text-[9px] text-white/30 font-mono flex-shrink-0">
+                              {mail.date?.split(' ')[1] || mail.date}
+                            </span>
+                          </div>
+
+                          <div className="text-[11px] text-blue-400 font-medium truncate pr-4">
+                            {mail.subject}
+                          </div>
+
+                          <p className="text-[10px] text-white/40 line-clamp-1 leading-normal">
+                            {mail.message || mail.body}
+                          </p>
+
+                          <div className="flex items-center justify-between mt-1 text-[9px] text-white/30">
+                            <div className="flex items-center gap-1">
+                              {mail.attachments && mail.attachments.length > 0 && (
+                                <span className="flex items-center gap-0.5 text-blue-400 font-mono text-[9px] bg-blue-500/10 px-1 py-0.5 rounded">
+                                  <Paperclip size={8} />
+                                  {mail.attachments.length}
+                                </span>
+                              )}
+                            </div>
+                            
+                            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1.5 transition-opacity duration-150 bg-inherit pl-2">
+                              <button
+                                onClick={(e) => toggleFlaggedStatus(mail.id, e)}
+                                className={cn("p-1 rounded hover:bg-white/10 transition-colors", mail.isFlagged ? "text-amber-400" : "text-white/30 hover:text-white")}
+                                title={mail.isFlagged ? "Unstar" : "Star"}
+                              >
+                                <Star size={10} fill={mail.isFlagged ? "currentColor" : "none"} />
+                              </button>
+                              <button
+                                onClick={(e) => toggleReadStatus(mail.id, e)}
+                                className="p-1 rounded hover:bg-white/10 text-white/30 hover:text-white transition-colors"
+                                title={mail.read ? "Mark Unread" : "Mark Read"}
+                              >
+                                <Circle size={10} fill={mail.read ? "none" : "currentColor"} className="text-blue-500" />
+                              </button>
+                              {activeFolder === 'trash' ? (
+                                <>
+                                  <button
+                                    onClick={(e) => handleRestoreFromTrash(mail.id, e)}
+                                    className="p-1 rounded hover:bg-white/10 text-emerald-400 hover:text-emerald-300 transition-colors"
+                                    title="Restore"
+                                  >
+                                    <Check size={10} />
+                                  </button>
+                                  <button
+                                    onClick={(e) => handleMailDeleteOrTrash(mail.id, e)}
+                                    className="p-1 rounded hover:bg-white/10 text-red-400 hover:text-red-300 transition-colors"
+                                    title="Delete Permanently"
+                                  >
+                                    <Trash size={10} />
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={(e) => handleMailDeleteOrTrash(mail.id, e)}
+                                  className="p-1 rounded hover:bg-white/10 text-white/30 hover:text-red-400 transition-colors"
+                                  title="Trash"
+                                >
+                                  <Trash size={10} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Detailed view column */}
+              <div className="flex-1 bg-[#060606] flex flex-col overflow-hidden">
+                {!selectedMail ? (
+                  <div className="flex-1 flex flex-col items-center justify-center opacity-25 p-8 select-none">
+                    <div className="w-16 h-16 rounded-3xl bg-white/5 flex items-center justify-center mb-4 border border-white/5">
+                      <Mail size={28} className="text-white/40" />
+                    </div>
+                    <p className="text-xs font-mono uppercase tracking-widest text-white/60">No Message Selected</p>
+                    <p className="text-[10px] text-white/40 mt-1">Select an email from the list to view its contents.</p>
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    {/* Detailed View Action Bar */}
+                    <div className="h-10 border-b border-white/5 px-4 flex items-center justify-between bg-white/[0.01]">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleReply(selectedMail)}
+                          className="h-7 px-3 rounded-lg hover:bg-white/5 text-[10px] font-bold text-blue-400 flex items-center gap-1 transition-colors"
+                        >
+                          <Send size={10} className="rotate-45" />
+                          Reply
+                        </button>
+                        <button
+                          onClick={() => toggleFlaggedStatus(selectedMail.id)}
+                          className={cn(
+                            "h-7 px-2 rounded-lg hover:bg-white/5 text-[10px] flex items-center gap-1 transition-colors",
+                            selectedMail.isFlagged ? "text-amber-400 font-bold" : "text-white/50"
+                          )}
+                        >
+                          <Star size={10} fill={selectedMail.isFlagged ? "currentColor" : "none"} />
+                          {selectedMail.isFlagged ? 'Starred' : 'Star'}
+                        </button>
+                        <button
+                          onClick={() => toggleReadStatus(selectedMail.id)}
+                          className="h-7 px-2 rounded-lg hover:bg-white/5 text-[10px] text-white/50 flex items-center gap-1 transition-colors"
+                        >
+                          <Circle size={8} fill={selectedMail.read ? "none" : "currentColor"} className="text-blue-500" />
+                          {selectedMail.read ? 'Mark Unread' : 'Mark Read'}
+                        </button>
                       </div>
-                      <h5 className="text-xs text-blue-400/80 mb-1">{mail.subject}</h5>
-                      <p className="text-[11px] text-white/40 truncate">{mail.message}</p>
+
+                      <div className="flex items-center gap-1.5">
+                        {selectedMail.folder === 'trash' ? (
+                          <>
+                            <button
+                              onClick={() => handleRestoreFromTrash(selectedMail.id)}
+                              className="h-7 px-3 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-bold transition-colors"
+                            >
+                              Restore to Inbox
+                            </button>
+                            <button
+                              onClick={() => handleMailDeleteOrTrash(selectedMail.id)}
+                              className="h-7 px-3 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] font-bold transition-colors"
+                            >
+                              Delete Permanently
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => handleMailDeleteOrTrash(selectedMail.id)}
+                            className="h-7 px-3 rounded-lg bg-white/5 hover:bg-red-500/10 text-white/70 hover:text-red-400 text-[10px] transition-colors"
+                          >
+                            Move to Trash
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Detailed View Body */}
+                    <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hide">
+                      <div>
+                        <h3 className="text-base font-extrabold tracking-tight text-white leading-snug">
+                          {selectedMail.subject}
+                        </h3>
+                      </div>
+
+                      <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 text-xs font-black">
+                            {(selectedMail.from || 'S')[0].toUpperCase()}
+                          </div>
+                          <div className="text-left">
+                            <div className="text-xs font-bold text-white/90">{selectedMail.from}</div>
+                            <div className="text-[10px] text-white/40">To: {selectedMail.to || 'Administrator'}</div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] text-white/30 font-mono">{selectedMail.date}</span>
+                        </div>
+                      </div>
+
+                      <div className="text-xs text-white/80 leading-relaxed text-left whitespace-pre-wrap font-sans">
+                        {selectedMail.message || selectedMail.body}
+                      </div>
+
+                      {selectedMail.attachments && selectedMail.attachments.length > 0 && (
+                        <div className="pt-6 border-t border-white/5">
+                          <h4 className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-2.5 flex items-center gap-1.5">
+                            <Paperclip size={10} />
+                            Secure Attachments ({selectedMail.attachments.length})
+                          </h4>
+                          <div className="grid grid-cols-2 gap-2">
+                            {selectedMail.attachments.map((att: any, i: number) => {
+                              const ext = att.name.split('.').pop()?.toLowerCase();
+                              return (
+                                <div
+                                  key={i}
+                                  onClick={() => openAttachment(att)}
+                                  className="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 hover:bg-white/5 hover:border-white/10 transition-all cursor-pointer flex items-center justify-between group"
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <div className="w-7 h-7 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400 flex-shrink-0">
+                                      <FileText size={12} />
+                                    </div>
+                                    <div className="text-left min-w-0">
+                                      <div className="text-[10px] font-bold text-white/80 truncate group-hover:text-blue-400 transition-colors">
+                                        {att.name}
+                                      </div>
+                                      <div className="text-[8px] text-white/30 uppercase tracking-wider font-mono">
+                                        .{ext} File
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="text-[9px] text-blue-400/80 group-hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity font-mono font-bold uppercase">
+                                    Open
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
-                ))
-              )}
+                )}
+              </div>
             </div>
           ) : (
-            <div className="flex-1 p-8 overflow-y-auto scrollbar-hide">
+            <div className="flex-1 p-8 overflow-y-auto scrollbar-hide bg-[#050505]">
               <div className="max-w-2xl mx-auto space-y-6">
                 <div>
-                  <label className="text-[10px] text-white/30 uppercase font-bold mb-2 block tracking-widest">Recipient</label>
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="text-[10px] text-white/30 uppercase font-bold tracking-widest block">Recipient</label>
+                    {editingDraftId && <span className="text-[9px] text-amber-500 font-mono uppercase bg-amber-500/15 px-2 py-0.5 rounded">Editing Draft</span>}
+                  </div>
                   <input 
                     type="text" 
                     placeholder="example@glass.os"
@@ -3513,35 +4214,87 @@ function GlassMail(props: any) {
                     className="w-full glass-input p-4 text-sm resize-none"
                   />
                 </div>
-                <div className="p-6 rounded-3xl border border-white/10 bg-white/5 border-dashed">
-                  <div className="flex items-center justify-between mb-4">
-                    <h4 className="text-[10px] font-bold uppercase tracking-widest">Local Mirroring</h4>
-                    <span className="text-[10px] text-blue-400">Protected Directory Link</span>
+
+                {composeData.attachments.length > 0 && (
+                  <div className="space-y-1.5 text-left">
+                    <label className="text-[10px] text-white/30 uppercase font-bold tracking-widest block">
+                      Attached ({composeData.attachments.length})
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {composeData.attachments.map((att) => {
+                        const ext = att.name.split('.').pop()?.toLowerCase();
+                        return (
+                          <div key={att.name} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-600/10 border border-blue-500/20 text-[10px] text-blue-400 font-mono">
+                            <Paperclip size={10} />
+                            <span className="truncate max-w-[120px]">{att.name}</span>
+                            <button
+                              onClick={(e) => handleRemoveAttachment(att.name, e)}
+                              className="text-white/40 hover:text-white ml-1 font-bold text-xs"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <button className="flex-1 glass-button h-10 flex items-center justify-center gap-2 text-xs">
-                      <Upload size={14} />
-                      Attach Cloud File
-                    </button>
-                    <button className="flex-1 glass-button h-10 flex items-center justify-center gap-2 text-xs border-dashed opacity-50">
-                      <Box size={14} />
-                      Linked Attachments
+                )}
+
+                <div className="p-4 rounded-2xl border border-white/5 bg-white/[0.01] flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[10px] font-bold uppercase tracking-widest text-white/40">Secure Attachment Bridge</h4>
+                    <span className="text-[9px] text-emerald-400 flex items-center gap-1">
+                      <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
+                      GlassFS Sandbox Active
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowAttachmentPicker(true)}
+                      className="flex-1 glass-button h-9 flex items-center justify-center gap-2 text-[10px] font-bold"
+                    >
+                      <Paperclip size={12} className="text-blue-400" />
+                      Attach File via Paperclip...
                     </button>
                   </div>
                 </div>
-                <button 
-                  onClick={sendMail}
-                  className="w-full h-14 rounded-2xl bg-blue-600 hover:bg-blue-500 transition-colors font-bold flex items-center justify-center gap-3 text-sm shadow-xl shadow-blue-900/20 disabled:opacity-50"
-                  disabled={isGrpcSyncing}
-                >
-                  <Send size={18} className={isGrpcSyncing ? "animate-spin" : ""} />
-                  {isGrpcSyncing ? 'gRPC Handshake...' : 'Dispatch Secure Mail'}
-                </button>
+
+                <div className="flex gap-3">
+                  <button 
+                    onClick={saveDraft}
+                    className="flex-1 h-12 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 transition-colors font-bold flex items-center justify-center gap-2 text-xs border border-white/10"
+                    disabled={isGrpcSyncing}
+                  >
+                    <Save size={14} />
+                    Save as Draft
+                  </button>
+                  <button 
+                    onClick={sendMail}
+                    className="flex-1 h-12 rounded-xl bg-blue-600 hover:bg-blue-500 transition-colors font-bold flex items-center justify-center gap-2 text-xs shadow-lg shadow-blue-900/20"
+                    disabled={isGrpcSyncing}
+                  >
+                    <Send size={14} className={isGrpcSyncing ? "animate-spin" : ""} />
+                    {isGrpcSyncing ? 'gRPC Syncing...' : 'Dispatch Secure Mail'}
+                  </button>
+                </div>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {showAttachmentPicker && (
+        <FilePicker 
+          title="Attach File to GlassMail"
+          fs={fs}
+          fsLib={fsLib}
+          mode="open"
+          allowedExtensions={['txt', 'gpaint', 'gdraw', 'gsheet', 'gdoc', 'b', 'scr', 'json', 'jpg', 'jpeg', 'png', 'gif']}
+          accentColor="#3b82f6"
+          onCancel={() => setShowAttachmentPicker(false)}
+          onSelect={handleAddAttachment}
+        />
+      )}
     </div>
   );
 }
@@ -3889,7 +4642,7 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
   );
 }
 
-function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow, fs }: any) {
+function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow, fs, closeWindow }: any) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [brushColor, setBrushColor] = useState('#3b82f6');
@@ -3899,7 +4652,24 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
   const [showOpenDialog, setShowOpenDialog] = useState(false);
   const [remoteFiles, setRemoteFiles] = useState<FileSystemItem[]>([]);
   const [saveName, setSaveName] = useState('sketch.gpaint');
+  
+  // Dropdown states
+  const [activeMenu, setActiveMenu] = useState<'file' | 'edit' | 'tools' | null>(null);
 
+  // Undo & Redo state engine
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+
+  // Synchronize history variables with references to safely bypass stale closures in listeners
+  const historyRef = useRef<string[]>([]);
+  const historyIndexRef = useRef<number>(-1);
+
+  useEffect(() => {
+    historyRef.current = history;
+    historyIndexRef.current = historyIndex;
+  }, [history, historyIndex]);
+
+  // Fetch files from local virtual FS
   useEffect(() => {
     const fetchFiles = () => {
       const drawings = fsLib.list('Documents/Drawings') || [];
@@ -3908,6 +4678,125 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
     };
     fetchFiles();
   }, [fs]);
+
+  // Clear Canvas to solid white
+  const clearCanvasSilent = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  };
+
+  const clearCanvas = () => {
+    clearCanvasSilent();
+    saveHistory();
+    addNotification('GlassPaint', 'Canvas cleared', 'info');
+  };
+
+  // Setup initial white canvas background & linecap configs on mount
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    clearCanvasSilent();
+    
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    
+    // Save initial history frame
+    const initialFrame = canvas.toDataURL();
+    setHistory([initialFrame]);
+    setHistoryIndex(0);
+  }, []);
+
+  // Save current canvas frame to history stack
+  const saveHistory = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dataUrl = canvas.toDataURL();
+    
+    // Slice off any redo history
+    const sliced = historyRef.current.slice(0, historyIndexRef.current + 1);
+    const updated = [...sliced, dataUrl];
+    
+    setHistory(updated);
+    setHistoryIndex(updated.length - 1);
+  };
+
+  // Restore state helper
+  const restoreState = (dataUrl: string) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const img = new Image();
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+    };
+    img.src = dataUrl;
+  };
+
+  const handleUndo = () => {
+    const idx = historyIndexRef.current;
+    if (idx > 0) {
+      const prevIdx = idx - 1;
+      setHistoryIndex(prevIdx);
+      restoreState(historyRef.current[prevIdx]);
+      addNotification('GlassPaint', 'Undo applied', 'info');
+    } else {
+      addNotification('GlassPaint', 'Nothing to undo', 'warning');
+    }
+  };
+
+  const handleRedo = () => {
+    const idx = historyIndexRef.current;
+    const stack = historyRef.current;
+    if (idx < stack.length - 1) {
+      const nextIdx = idx + 1;
+      setHistoryIndex(nextIdx);
+      restoreState(stack[nextIdx]);
+      addNotification('GlassPaint', 'Redo applied', 'info');
+    } else {
+      addNotification('GlassPaint', 'Nothing to redo', 'warning');
+    }
+  };
+
+  // Keyboard shortcut listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+      
+      if (e.ctrlKey && e.key === 'z') {
+        e.preventDefault();
+        handleUndo();
+      } else if (e.ctrlKey && e.key === 'y') {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Global window mouse listener to close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setActiveMenu(null);
+    };
+    window.addEventListener('click', handleClickOutside);
+    return () => window.removeEventListener('click', handleClickOutside);
+  }, []);
+
+  const toggleMenu = (e: React.MouseEvent, menu: 'file' | 'edit' | 'tools') => {
+    e.stopPropagation();
+    setActiveMenu(prev => prev === menu ? null : menu);
+  };
 
   const handleOpenFile = (file: FileSystemItem) => {
     const canvas = canvasRef.current;
@@ -3920,14 +4809,18 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
       img.onload = () => {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0);
+        saveHistory();
       };
       img.src = file.content || '';
+      setSaveName(file.name);
       addNotification('GlassPaint', `Opened ${file.name}`, 'info');
     } else if (file.name.endsWith('.gdraw')) {
-      // Render vector elements to canvas
       try {
         const elements = JSON.parse(file.content || '[]');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
         elements.forEach((el: any) => {
           ctx.strokeStyle = el.stroke || '#000000';
           ctx.fillStyle = el.fill || 'transparent';
@@ -3948,6 +4841,8 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
             ctx.stroke();
           }
         });
+        saveHistory();
+        setSaveName(file.name.replace('.gdraw', '.gpaint'));
         addNotification('GlassPaint', `Imported vector ${file.name}`, 'info');
       } catch (e) {
         addNotification('GlassPaint', 'Failed to import vector mapping', 'error');
@@ -3965,15 +4860,6 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
     openWindow('glassword', 'GlassWord Professional');
   };
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-  }, []);
-
   const startDrawing = (e: React.MouseEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -3985,6 +4871,19 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
     const scaleY = canvas.height / rect.height;
     const x = (e.clientX - rect.left) * scaleX;
     const y = (e.clientY - rect.top) * scaleY;
+    
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    
+    // Draw a single dot directly on mouse down in case of simple clicks
+    ctx.strokeStyle = tool === 'eraser' ? '#ffffff' : brushColor;
+    ctx.fillStyle = tool === 'eraser' ? '#ffffff' : brushColor;
+    ctx.lineWidth = brushSize;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
+    ctx.fill();
     
     ctx.beginPath();
     ctx.moveTo(x, y);
@@ -4005,17 +4904,18 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
     const y = (e.clientY - rect.top) * scaleY;
     
     ctx.strokeStyle = tool === 'eraser' ? '#ffffff' : brushColor;
-    if (tool === 'eraser') {
-      const parentBg = '#ffffff'; // Fallback white
-      ctx.strokeStyle = parentBg;
-    }
     ctx.lineWidth = brushSize;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     ctx.lineTo(x, y);
     ctx.stroke();
   };
 
   const stopDrawing = () => {
-    setIsDrawing(false);
+    if (isDrawing) {
+      setIsDrawing(false);
+      saveHistory();
+    }
   };
 
   const handleSave = async () => {
@@ -4031,34 +4931,456 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
     }
   };
 
-  const clearCanvas = () => {
+  // Fill Canvas with color
+  const fillCanvas = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = brushColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    saveHistory();
+    addNotification('GlassPaint', `Filled canvas with ${brushColor}`, 'success');
+  };
+
+  // Pixel-level Filters
+  const invertColors = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    try {
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imgData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        data[i] = 255 - data[i];       // R
+        data[i+1] = 255 - data[i+1];   // G
+        data[i+2] = 255 - data[i+2];   // B
+      }
+      ctx.putImageData(imgData, 0, 0);
+      saveHistory();
+      addNotification('GlassPaint', 'Inverted canvas colors', 'info');
+    } catch (e) {
+      addNotification('GlassPaint', 'Filter failed due to cross-origin image data constraints', 'error');
+    }
+  };
+
+  const applyGrayscale = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    try {
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imgData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const avg = 0.3 * data[i] + 0.59 * data[i+1] + 0.11 * data[i+2];
+        data[i] = avg;
+        data[i+1] = avg;
+        data[i+2] = avg;
+      }
+      ctx.putImageData(imgData, 0, 0);
+      saveHistory();
+      addNotification('GlassPaint', 'Applied Slate Grayscale filter', 'info');
+    } catch (e) {
+      addNotification('GlassPaint', 'Filter failed due to cross-origin image data constraints', 'error');
+    }
+  };
+
+  const applySepia = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    try {
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imgData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i+1], b = data[i+2];
+        data[i] = Math.min(255, (r * 0.393) + (g * 0.769) + (b * 0.189));
+        data[i+1] = Math.min(255, (r * 0.349) + (g * 0.686) + (b * 0.168));
+        data[i+2] = Math.min(255, (r * 0.272) + (g * 0.534) + (b * 0.131));
+      }
+      ctx.putImageData(imgData, 0, 0);
+      saveHistory();
+      addNotification('GlassPaint', 'Applied Sepia filter', 'info');
+    } catch (e) {
+      addNotification('GlassPaint', 'Filter failed due to cross-origin image data constraints', 'error');
+    }
+  };
+
+  const mirrorCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    try {
+      const temp = document.createElement('canvas');
+      temp.width = canvas.width;
+      temp.height = canvas.height;
+      const tCtx = temp.getContext('2d');
+      if (!tCtx) return;
+      tCtx.drawImage(canvas, 0, 0);
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(temp, 0, 0);
+      ctx.restore();
+
+      saveHistory();
+      addNotification('GlassPaint', 'Mirrored canvas horizontally', 'info');
+    } catch (e) {
+      addNotification('GlassPaint', 'Failed to mirror canvas', 'error');
+    }
+  };
+
+  const copyToClipboard = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    try {
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        try {
+          await navigator.clipboard.write([
+            new ClipboardItem({
+              'image/png': blob
+            })
+          ]);
+          addNotification('GlassPaint', 'Copied canvas to clipboard as image', 'success');
+        } catch (err) {
+          const dataUrl = canvas.toDataURL();
+          await navigator.clipboard.writeText(dataUrl);
+          addNotification('GlassPaint', 'Copied canvas as base64 URL', 'success');
+        }
+      });
+    } catch (e) {
+      addNotification('GlassPaint', 'Could not access clipboard buffer', 'error');
+    }
   };
 
   return (
-    <div className="h-full flex flex-col bg-[#1a1a1a] text-white overflow-hidden">
-      <div className="h-10 border-b border-white/10 flex items-center px-4 justify-between bg-slate-900/80">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1 bg-white/5 p-1 rounded-lg">
-            <button onClick={() => setTool('brush')} className={cn("p-1.5 rounded", tool === 'brush' ? "bg-blue-500" : "hover:bg-white/10")} title="Brush"><PaintBucket size={14} /></button>
-            <button onClick={() => setTool('eraser')} className={cn("p-1.5 rounded", tool === 'eraser' ? "bg-blue-500" : "hover:bg-white/10")} title="Eraser"><Eraser size={14} /></button>
-          </div>
-          <input type="color" value={brushColor} onChange={e => setBrushColor(e.target.value)} className="w-6 h-6 rounded cursor-pointer" />
-          <input type="range" min="1" max="50" value={brushSize} onChange={e => setBrushSize(parseInt(e.target.value))} className="w-24 accent-blue-500" />
-          <div className="flex gap-1 bg-white/5 p-1 rounded-lg ml-2">
-            <button onClick={() => setShowOpenDialog(true)} className="p-1.5 hover:bg-white/10 rounded" title="Open Paint or Drawing"><FolderOpen size={14} /></button>
-            <button onClick={handleImportToWord} className="p-1.5 hover:bg-white/10 rounded text-amber-400 font-bold text-[10px]" title="Export to Word">WORD</button>
-          </div>
+    <div className="h-full flex flex-col bg-[#121214] text-white overflow-hidden select-none">
+      
+      {/* 1. Classic Desktop-Style Dropdown Menu Bar */}
+      <div className="h-8 bg-slate-950/90 border-b border-white/10 flex items-center px-4 gap-2 text-xs font-medium text-slate-300 relative z-30">
+        
+        {/* Transparent global backdrop click blocker to close active menus */}
+        {activeMenu && (
+          <div className="fixed inset-0 z-40" onClick={() => setActiveMenu(null)} />
+        )}
+
+        {/* File Menu Dropdown */}
+        <div className="relative z-50">
+          <button 
+            onClick={(e) => toggleMenu(e, 'file')}
+            className={cn(
+              "px-3 py-1 rounded transition-colors cursor-pointer", 
+              activeMenu === 'file' ? "bg-white/15 text-white font-semibold" : "hover:bg-white/5 text-slate-300"
+            )}
+          >
+            File
+          </button>
+          
+          <AnimatePresence>
+            {activeMenu === 'file' && (
+              <motion.div 
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 4 }}
+                transition={{ duration: 0.1 }}
+                className="absolute left-0 mt-1 w-52 bg-[#1a1a1e] border border-white/10 rounded-xl shadow-2xl p-1 flex flex-col gap-0.5"
+              >
+                <button 
+                  onClick={() => { clearCanvas(); setActiveMenu(null); }}
+                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
+                >
+                  <FilePlus size={13} className="text-emerald-400" />
+                  <span className="flex-1">New Canvas</span>
+                </button>
+                
+                <button 
+                  onClick={() => { setShowOpenDialog(true); setActiveMenu(null); }}
+                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
+                >
+                  <FolderOpen size={13} className="text-blue-400" />
+                  <span className="flex-1">Open File...</span>
+                </button>
+
+                <button 
+                  onClick={() => { setShowSaveDialog(true); setActiveMenu(null); }}
+                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
+                >
+                  <Save size={13} className="text-cyan-400" />
+                  <span className="flex-1">Save Sketch As...</span>
+                </button>
+
+                <div className="h-px bg-white/5 my-1" />
+
+                <button 
+                  onClick={() => { handleImportToWord(); setActiveMenu(null); }}
+                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs text-amber-300 hover:text-amber-200 transition-colors cursor-pointer"
+                >
+                  <FileText size={13} className="text-amber-400" />
+                  <span className="flex-1">Export to GlassWord</span>
+                </button>
+
+                {closeWindow && (
+                  <>
+                    <div className="h-px bg-white/5 my-1" />
+                    <button 
+                      onClick={() => { closeWindow('glasspaint'); setActiveMenu(null); }}
+                      className="w-full px-2.5 py-1.5 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
+                    >
+                      <X size={13} className="text-red-400" />
+                      <span className="flex-1">Close Paint App</span>
+                    </button>
+                  </>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={clearCanvas} className="p-1.5 hover:bg-white/10 rounded text-white/40" title="Clear"><RefreshCw size={14} /></button>
-          <button onClick={() => setShowSaveDialog(true)} className="flex items-center gap-2 px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-[10px] font-bold uppercase tracking-wider"><Save size={14} /> Save</button>
+
+        {/* Edit Menu Dropdown */}
+        <div className="relative z-50">
+          <button 
+            onClick={(e) => toggleMenu(e, 'edit')}
+            className={cn(
+              "px-3 py-1 rounded transition-colors cursor-pointer", 
+              activeMenu === 'edit' ? "bg-white/15 text-white font-semibold" : "hover:bg-white/5 text-slate-300"
+            )}
+          >
+            Edit
+          </button>
+          
+          <AnimatePresence>
+            {activeMenu === 'edit' && (
+              <motion.div 
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 4 }}
+                transition={{ duration: 0.1 }}
+                className="absolute left-0 mt-1 w-56 bg-[#1a1a1e] border border-white/10 rounded-xl shadow-2xl p-1 flex flex-col gap-0.5"
+              >
+                <button 
+                  disabled={historyIndex <= 0}
+                  onClick={() => { handleUndo(); setActiveMenu(null); }}
+                  className="w-full px-2.5 py-1.5 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-transparent rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
+                >
+                  <Undo size={13} className="text-purple-400" />
+                  <span className="flex-1">Undo</span>
+                  <span className="text-[10px] text-slate-500 font-mono">Ctrl+Z</span>
+                </button>
+
+                <button 
+                  disabled={historyIndex >= history.length - 1}
+                  onClick={() => { handleRedo(); setActiveMenu(null); }}
+                  className="w-full px-2.5 py-1.5 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-transparent rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
+                >
+                  <Redo size={13} className="text-indigo-400" />
+                  <span className="flex-1">Redo</span>
+                  <span className="text-[10px] text-slate-500 font-mono">Ctrl+Y</span>
+                </button>
+
+                <div className="h-px bg-white/5 my-1" />
+
+                <button 
+                  onClick={() => { copyToClipboard(); setActiveMenu(null); }}
+                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
+                >
+                  <Copy size={13} className="text-slate-400" />
+                  <span className="flex-1">Copy to Clipboard</span>
+                </button>
+
+                <button 
+                  onClick={() => { clearCanvas(); setActiveMenu(null); }}
+                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs text-red-400 hover:text-red-300 transition-colors cursor-pointer"
+                >
+                  <Trash size={13} className="text-red-400" />
+                  <span className="flex-1">Clear Canvas</span>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Tools Menu Dropdown */}
+        <div className="relative z-50">
+          <button 
+            onClick={(e) => toggleMenu(e, 'tools')}
+            className={cn(
+              "px-3 py-1 rounded transition-colors cursor-pointer", 
+              activeMenu === 'tools' ? "bg-white/15 text-white font-semibold" : "hover:bg-white/5 text-slate-300"
+            )}
+          >
+            Tools
+          </button>
+          
+          <AnimatePresence>
+            {activeMenu === 'tools' && (
+              <motion.div 
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 4 }}
+                transition={{ duration: 0.1 }}
+                className="absolute left-0 mt-1 w-56 bg-[#1a1a1e] border border-white/10 rounded-xl shadow-2xl p-1 flex flex-col gap-0.5"
+              >
+                <button 
+                  onClick={() => { setTool('brush'); setActiveMenu(null); }}
+                  className={cn(
+                    "w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer",
+                    tool === 'brush' ? "bg-blue-600/20 text-blue-300" : "hover:bg-white/10 text-slate-300"
+                  )}
+                >
+                  <Paintbrush size={13} className="text-blue-400" />
+                  <span className="flex-1">Brush Tool</span>
+                </button>
+
+                <button 
+                  onClick={() => { setTool('eraser'); setActiveMenu(null); }}
+                  className={cn(
+                    "w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer",
+                    tool === 'eraser' ? "bg-blue-600/20 text-blue-300" : "hover:bg-white/10 text-slate-300"
+                  )}
+                >
+                  <Eraser size={13} className="text-pink-400" />
+                  <span className="flex-1">Eraser Tool</span>
+                </button>
+
+                <button 
+                  onClick={() => { fillCanvas(); setActiveMenu(null); }}
+                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
+                >
+                  <PaintBucket size={13} className="text-amber-400" />
+                  <span className="flex-1">Fill Canvas Background</span>
+                </button>
+
+                <div className="h-px bg-white/5 my-1" />
+                <div className="px-2.5 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono">Image Filters</div>
+
+                <button 
+                  onClick={() => { invertColors(); setActiveMenu(null); }}
+                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
+                >
+                  <Sparkles size={13} className="text-pink-400" />
+                  <span className="flex-1">Invert Colors</span>
+                </button>
+
+                <button 
+                  onClick={() => { applyGrayscale(); setActiveMenu(null); }}
+                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
+                >
+                  <Contrast size={13} className="text-slate-400" />
+                  <span className="flex-1">Slate Grayscale</span>
+                </button>
+
+                <button 
+                  onClick={() => { applySepia(); setActiveMenu(null); }}
+                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
+                >
+                  <Sparkles size={13} className="text-yellow-600" />
+                  <span className="flex-1">Warm Sepia</span>
+                </button>
+
+                <button 
+                  onClick={() => { mirrorCanvas(); setActiveMenu(null); }}
+                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
+                >
+                  <RefreshCw size={13} className="text-cyan-400" />
+                  <span className="flex-1">Flip Horizontal</span>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* History micro-metrics for elite OS feel */}
+        <div className="ml-auto text-[10px] font-mono text-slate-500 flex items-center gap-2.5">
+          <span>History: {historyIndex + 1}/{history.length} frames</span>
+          <div className="flex gap-1">
+            <button 
+              disabled={historyIndex <= 0} 
+              onClick={handleUndo} 
+              className="p-1 rounded hover:bg-white/10 disabled:opacity-30 cursor-pointer text-slate-400 hover:text-white"
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo size={11} />
+            </button>
+            <button 
+              disabled={historyIndex >= history.length - 1} 
+              onClick={handleRedo} 
+              className="p-1 rounded hover:bg-white/10 disabled:opacity-30 cursor-pointer text-slate-400 hover:text-white"
+              title="Redo (Ctrl+Y)"
+            >
+              <Redo size={11} />
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* 2. Interactive Tool Settings Panel */}
+      <div className="h-12 border-b border-white/10 flex items-center px-4 justify-between bg-slate-900/80">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
+            <button 
+              onClick={() => { setTool('brush'); addNotification('GlassPaint', 'Switched to Brush', 'info'); }} 
+              className={cn("p-1.5 rounded-lg cursor-pointer transition-all", tool === 'brush' ? "bg-blue-600 text-white shadow-md" : "hover:bg-white/10 text-slate-400 hover:text-slate-200")} 
+              title="Brush Tool"
+            >
+              <Paintbrush size={14} />
+            </button>
+            <button 
+              onClick={() => { setTool('eraser'); addNotification('GlassPaint', 'Switched to Eraser', 'info'); }} 
+              className={cn("p-1.5 rounded-lg cursor-pointer transition-all", tool === 'eraser' ? "bg-blue-600 text-white shadow-md" : "hover:bg-white/10 text-slate-400 hover:text-slate-200")} 
+              title="Eraser Tool"
+            >
+              <Eraser size={14} />
+            </button>
+          </div>
+          
+          <div className="flex items-center gap-2 bg-white/5 px-2.5 py-1 rounded-xl border border-white/5">
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Color:</span>
+            <input 
+              type="color" 
+              value={brushColor} 
+              onChange={e => setBrushColor(e.target.value)} 
+              className="w-5 h-5 rounded cursor-pointer border border-white/10 bg-transparent" 
+            />
+          </div>
+
+          <div className="flex items-center gap-2 bg-white/5 px-3 py-1 rounded-xl border border-white/5">
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold min-w-[50px]">Size: {brushSize}px</span>
+            <input 
+              type="range" 
+              min="1" 
+              max="50" 
+              value={brushSize} 
+              onChange={e => setBrushSize(parseInt(e.target.value))} 
+              className="w-24 accent-blue-500 cursor-ew-resize h-1 bg-white/10 rounded-lg appearance-none" 
+            />
+          </div>
+
+          <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/5 ml-1">
+            <button onClick={() => setShowOpenDialog(true)} className="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer" title="Open Paint File..."><FolderOpen size={14} /></button>
+            <button onClick={handleImportToWord} className="p-1.5 hover:bg-white/10 rounded-lg text-amber-400 hover:text-amber-300 font-bold text-[10px] tracking-wide transition-colors cursor-pointer" title="Export to GlassWord">WORD</button>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <button onClick={clearCanvas} className="p-2 hover:bg-red-500/15 text-slate-400 hover:text-red-300 rounded-xl transition-colors cursor-pointer" title="Clear Canvas"><RefreshCw size={14} /></button>
+          <button 
+            onClick={() => setShowSaveDialog(true)} 
+            className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-lg shadow-blue-600/10 active:scale-95"
+          >
+            <Save size={13} /> 
+            <span>Save Sketch</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 3. Drawing Canvas Board */}
       <div className="flex-1 bg-white relative">
         <canvas 
           ref={canvasRef}
@@ -4068,14 +5390,15 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
           onMouseDown={startDrawing}
           onMouseMove={draw}
           onMouseUp={stopDrawing}
-          onMouseOut={stopDrawing}
+          onMouseLeave={stopDrawing}
         />
       </div>
 
+      {/* Dialog Modals */}
       <AnimatePresence>
         {showSaveDialog && (
           <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-dark p-6 rounded-2xl w-full max-w-xs border border-white/10 shadow-2xl">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="glass-dark p-6 rounded-2xl w-full max-w-xs border border-white/10 shadow-2xl">
               <h3 className="text-sm font-bold mb-4 text-white">Save Sketch</h3>
               <input 
                 type="text" 
@@ -4084,26 +5407,27 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
                 className="w-full glass-input mb-4 text-xs" 
               />
               <div className="flex gap-2">
-                <button onClick={() => setShowSaveDialog(false)} className="flex-1 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs">Cancel</button>
-                <button onClick={handleSave} className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white">Save</button>
+                <button onClick={() => setShowSaveDialog(false)} className="flex-1 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs text-white transition-colors cursor-pointer">Cancel</button>
+                <button onClick={handleSave} className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition-colors cursor-pointer shadow-lg shadow-blue-600/25">Save</button>
               </div>
             </motion.div>
           </div>
         )}
+
         {showOpenDialog && (
           <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-dark p-4 rounded-2xl w-full max-w-md border border-white/10 shadow-2xl flex flex-col h-[60%]">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="glass-dark p-4 rounded-2xl w-full max-w-md border border-white/10 shadow-2xl flex flex-col h-[60%]">
               <div className="flex justify-between items-center mb-4 text-white">
                  <h3 className="text-sm font-bold">Open Canvas</h3>
-                 <button onClick={() => setShowOpenDialog(false)}><X size={16} /></button>
+                 <button onClick={() => setShowOpenDialog(false)} className="p-1 hover:bg-white/10 rounded-lg cursor-pointer"><X size={16} /></button>
               </div>
-              <div className="flex-1 overflow-y-auto space-y-2 translate-z-0">
+              <div className="flex-1 overflow-y-auto space-y-2 translate-z-0 pr-1 scrollbar-thin">
                 {remoteFiles.length === 0 && <div className="text-center text-white/20 text-xs p-8 italic">No paintings or drawings found</div>}
                 {remoteFiles.map(file => (
                   <button 
                     key={file.name} 
                     onClick={() => handleOpenFile(file)}
-                    className="w-full p-3 bg-white/5 hover:bg-white/10 rounded-lg flex items-center gap-3 text-left group"
+                    className="w-full p-3 bg-white/5 hover:bg-white/10 rounded-xl flex items-center gap-3 text-left group transition-all border border-white/5"
                   >
                     {file.name.endsWith('.gpaint') ? <Palette size={16} className="text-pink-400" /> : <BoxIcon size={16} className="text-blue-400" />}
                     <div className="flex-1 overflow-hidden">
