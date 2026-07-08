@@ -48,6 +48,7 @@ import {
   FileCode,
   Box,
   Save,
+  Undo,
   Send,
   Upload,
   Download,
@@ -150,6 +151,12 @@ import {
   Contrast,
   RotateCw,
   FlipHorizontal,
+  Pin,
+  PinOff,
+  FolderPlus,
+  Tag,
+  FolderMinus,
+  EyeOff,
 } from 'lucide-react';
 import { motion, AnimatePresence, useDragControls } from 'motion/react';
 import { 
@@ -10238,6 +10245,13 @@ function NotepadApp({
   const [tempCustomBg, setTempCustomBg] = useState(notepadStyle?.customBg || '#1e1e2e');
   const [tempCustomText, setTempCustomText] = useState(notepadStyle?.customText || '#ffffff');
 
+  // HTML5 and JS ES2025 States
+  const [showJsConsole, setShowJsConsole] = useState(false);
+  const [jsConsoleLogs, setJsConsoleLogs] = useState<{ type: string; text: string; timestamp: string }[]>([]);
+  const [htmlErrors, setHtmlErrors] = useState<{ line: number; type: string; message: string }[]>([]);
+  const [jsSyntaxErrors, setJsSyntaxErrors] = useState<{ line: number; message: string }[]>([]);
+  const [showHtmlValidation, setShowHtmlValidation] = useState(false);
+
   const NOTEPAD_THEMES = [
     { id: 'classic-dark', name: 'Classic Dark', bg: 'bg-transparent', text: 'text-white', selection: 'selection:bg-blue-500/30', gutter: 'text-white/30 border-white/5 bg-white/[0.01]', previewBg: '#111827', desc: 'Elegant dark with transparent background' },
     { id: 'classic-light', name: 'Classic Light', bg: 'bg-white', text: 'text-slate-900', selection: 'selection:bg-blue-200', gutter: 'text-slate-400 border-slate-200 bg-slate-50', previewBg: '#ffffff', desc: 'Clean bright light theme' },
@@ -10388,6 +10402,456 @@ function NotepadApp({
       addNotification('Notepad', 'Selected all text', 'info');
     }
     setActiveMenu(null);
+  };
+
+  const jumpToLine = (lineNum: number) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.focus();
+    
+    const lines = notepadContent.split('\n');
+    let charIndex = 0;
+    for (let i = 0; i < Math.min(lineNum - 1, lines.length); i++) {
+      charIndex += lines[i].length + 1; // +1 for newline character
+    }
+    
+    textarea.setSelectionRange(charIndex, charIndex + (lines[lineNum - 1]?.length || 0));
+    addNotification('Notepad', `Selected Line ${lineNum}`, 'info');
+  };
+
+  const runJavaScriptCode = () => {
+    setJsConsoleLogs([]);
+    setShowJsConsole(true);
+    
+    const logs: { type: string; text: string; timestamp: string }[] = [];
+    const addLog = (type: string, ...args: any[]) => {
+      const text = args.map(arg => {
+        if (typeof arg === 'object' && arg !== null) {
+          try {
+            return JSON.stringify(arg, null, 2);
+          } catch (e) {
+            return String(arg);
+          }
+        }
+        return String(arg);
+      }).join(' ');
+      
+      logs.push({
+        type,
+        text,
+        timestamp: new Date().toLocaleTimeString()
+      });
+    };
+
+    const customConsole = {
+      log: (...args: any[]) => addLog('log', ...args),
+      error: (...args: any[]) => addLog('error', ...args),
+      warn: (...args: any[]) => addLog('warn', ...args),
+      info: (...args: any[]) => addLog('info', ...args),
+    };
+
+    const promiseTryPolyfill = function(fn: Function, ...args: any[]) {
+      return new Promise((resolve, reject) => {
+        try {
+          resolve(fn(...args));
+        } catch (err) {
+          reject(err);
+        }
+      });
+    };
+
+    const arrayGroupByPolyfill = function(items: any[], callbackfn: Function) {
+      const obj = Object.create(null);
+      let i = 0;
+      for (const item of items) {
+        const key = callbackfn(item, i++);
+        if (obj[key] === undefined) {
+          obj[key] = [item];
+        } else {
+          obj[key].push(item);
+        }
+      }
+      return obj;
+    };
+
+    const setIntersectionPolyfill = function(this: Set<any>, other: Set<any>) {
+      const result = new Set();
+      for (const item of this) {
+        if (other.has(item)) result.add(item);
+      }
+      return result;
+    };
+    const setUnionPolyfill = function(this: Set<any>, other: Set<any>) {
+      const result = new Set(this);
+      for (const item of other) result.add(item);
+      return result;
+    };
+    const setDifferencePolyfill = function(this: Set<any>, other: Set<any>) {
+      const result = new Set();
+      for (const item of this) {
+        if (!other.has(item)) result.add(item);
+      }
+      return result;
+    };
+    const setSymmetricDifferencePolyfill = function(this: Set<any>, other: Set<any>) {
+      const result = new Set();
+      for (const item of this) {
+        if (!other.has(item)) result.add(item);
+      }
+      for (const item of other) {
+        if (!this.has(item)) result.add(item);
+      }
+      return result;
+    };
+
+    addLog('info', 'Initializing JavaScript (ES2025 Engine)...');
+
+    try {
+      const runContext = {
+        console: customConsole,
+        Promise: {
+          ...Promise,
+          try: (Promise as any).try || promiseTryPolyfill
+        },
+        Object: {
+          ...Object,
+          groupBy: (Object as any).groupBy || arrayGroupByPolyfill
+        }
+      };
+
+      const oldIntersection = (Set.prototype as any).intersection;
+      const oldUnion = (Set.prototype as any).union;
+      const oldDifference = (Set.prototype as any).difference;
+      const oldSymmetricDifference = (Set.prototype as any).symmetricDifference;
+
+      if (!(Set.prototype as any).intersection) (Set.prototype as any).intersection = setIntersectionPolyfill;
+      if (!(Set.prototype as any).union) (Set.prototype as any).union = setUnionPolyfill;
+      if (!(Set.prototype as any).difference) (Set.prototype as any).difference = setDifferencePolyfill;
+      if (!(Set.prototype as any).symmetricDifference) (Set.prototype as any).symmetricDifference = setSymmetricDifferencePolyfill;
+
+      const wrappedCode = `
+        with (sandbox) {
+          ${notepadContent}
+        }
+      `;
+      
+      const fn = new Function('sandbox', wrappedCode);
+      const result = fn(runContext);
+
+      if (result !== undefined) {
+        addLog('return', `Execution returned: ${typeof result === 'object' ? JSON.stringify(result) : result}`);
+      }
+
+      if (!oldIntersection) delete (Set.prototype as any).intersection;
+      if (!oldUnion) delete (Set.prototype as any).union;
+      if (!oldDifference) delete (Set.prototype as any).difference;
+      if (!oldSymmetricDifference) delete (Set.prototype as any).symmetricDifference;
+
+      addLog('info', 'Execution finished successfully.');
+      setJsSyntaxErrors([]);
+      addNotification('Notepad', 'JavaScript execution completed successfully', 'success');
+    } catch (err: any) {
+      addLog('error', err.stack || err.message || String(err));
+      
+      let lineNum = 1;
+      const match = err.stack?.match(/<anonymous>:(\d+):(\d+)/) || err.message.match(/line\s+(\d+)/i) || err.stack?.match(/at\s+eval\s+.*:(\d+):(\d+)/);
+      if (match) {
+        lineNum = parseInt(match[1]);
+      }
+      setJsSyntaxErrors([{ line: lineNum, message: err.message }]);
+      addNotification('Notepad', `Execution Error: ${err.message}`, 'error');
+    }
+
+    setJsConsoleLogs(logs);
+  };
+
+  const validateHtml = (code: string) => {
+    const errors: any[] = [];
+    if (!code.trim().startsWith('<!DOCTYPE html>') && !code.trim().startsWith('<!doctype html>')) {
+      errors.push({ line: 1, type: 'warning', message: 'Missing HTML5 doctype. Start document with <!DOCTYPE html>.' });
+    }
+    
+    const lines = code.split('\n');
+    const stack: { tag: string, line: number }[] = [];
+    const selfClosingTags = ['img', 'br', 'hr', 'meta', 'link', 'input', 'source', 'embed', 'col', 'area', 'param', 'wbr', '!doctype'];
+    
+    lines.forEach((lineText, index) => {
+      const lineNum = index + 1;
+      const tagRegex = /<\/?([a-zA-Z0-9:-]+)(?:\s+[^>]*)*>/g;
+      let match;
+      while ((match = tagRegex.exec(lineText)) !== null) {
+        const fullTag = match[0];
+        const tagName = match[1].toLowerCase();
+        
+        if (fullTag.startsWith('</')) {
+          if (stack.length === 0) {
+            errors.push({ line: lineNum, type: 'error', message: `Unexpected closing tag </${tagName}> with no opening tag.` });
+          } else {
+            const last = stack.pop();
+            if (last && last.tag !== tagName) {
+              errors.push({ line: lineNum, type: 'error', message: `Mismatched closing tag </${tagName}>. Expected </${last.tag}> (opened on Line ${last.line}).` });
+            }
+          }
+        } else if (!fullTag.endsWith('/>')) {
+          if (!selfClosingTags.includes(tagName)) {
+            stack.push({ tag: tagName, line: lineNum });
+          }
+        }
+      }
+    });
+    
+    while (stack.length > 0) {
+      const remaining = stack.pop();
+      if (remaining) {
+        errors.push({ line: remaining.line, type: 'error', message: `Unclosed HTML tag <${remaining.tag}>.` });
+      }
+    }
+    
+    return errors;
+  };
+
+  const validateHtmlSyntax = () => {
+    const errors = validateHtml(notepadContent);
+    setHtmlErrors(errors);
+    setShowHtmlValidation(true);
+    if (errors.length === 0) {
+      addNotification('Notepad', 'HTML5 Validation: Clean! All tags balanced and Doctype present.', 'success');
+    } else {
+      const errorCount = errors.filter(e => e.type === 'error').length;
+      const warningCount = errors.filter(e => e.type === 'warning').length;
+      addNotification('Notepad', `HTML5 Validation: Found ${errorCount} errors and ${warningCount} warnings.`, 'warning');
+    }
+  };
+
+  const validateJsSyntax = () => {
+    const errors: any[] = [];
+    try {
+      new Function(notepadContent);
+      addNotification('Notepad', 'JavaScript (ES2025): Syntax is valid!', 'success');
+      setJsSyntaxErrors([]);
+    } catch (err: any) {
+      let lineNum = 1;
+      const match = err.stack?.match(/<anonymous>:(\d+):(\d+)/) || err.message.match(/line\s+(\d+)/i) || err.stack?.match(/at\s+eval\s+.*:(\d+):(\d+)/);
+      if (match) {
+        lineNum = parseInt(match[1]);
+      }
+      errors.push({ line: lineNum, message: err.message });
+      setJsSyntaxErrors(errors);
+      addNotification('Notepad', `JavaScript Syntax Error: ${err.message} (Line ${lineNum})`, 'error');
+    }
+  };
+
+  const formatHtmlDocument = () => {
+    let formatted = '';
+    let indent = 0;
+    const lines = notepadContent
+      .replace(/>\s*</g, '>\n<')
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+      
+    const selfClosingTags = ['img', 'br', 'hr', 'meta', 'link', 'input', 'source', 'embed', 'col', 'area', 'param', 'wbr', '!doctype'];
+
+    lines.forEach(line => {
+      if (line.startsWith('</')) {
+        indent = Math.max(0, indent - 1);
+      }
+      
+      formatted += '  '.repeat(indent) + line + '\n';
+      
+      if (line.startsWith('<') && !line.startsWith('</') && !line.endsWith('/>')) {
+        const tagName = line.match(/^<([a-zA-Z0-9:-]+)/)?.[1]?.toLowerCase();
+        if (tagName && !selfClosingTags.includes(tagName)) {
+          indent += 1;
+        }
+      }
+    });
+    
+    setNotepadContent(formatted.trim());
+    addNotification('Notepad', 'HTML5 Document formatted cleanly!', 'success');
+  };
+
+  const openInBrowserApp = () => {
+    if (!activeFileInNotepad) {
+      addNotification('Notepad', 'Please save your HTML file first to open it in Browser.', 'info');
+      setShowSaveDialog(true);
+      return;
+    }
+    
+    if (!activeFileInNotepad.name.endsWith('.html')) {
+      addNotification('Notepad', 'Active file must be an .html file to run in browser.', 'warning');
+      return;
+    }
+
+    try {
+      const webpagePath = `/GlassDrive/webpages/${activeFileInNotepad.name}`;
+      fsLib.write(webpagePath, notepadContent);
+      BridgeLib.setAppData('browser', `local://${activeFileInNotepad.name}`);
+      openWindow('browser', 'Browser');
+      addNotification('Notepad', `Running ${activeFileInNotepad.name} in simulated Browser!`, 'success');
+    } catch (e) {
+      addNotification('Notepad', 'Failed to bridge with BrowserApp', 'error');
+    }
+  };
+
+  const insertHtmlBoilerplate = () => {
+    const template = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTML5 ES2025 Demo</title>
+  <style>
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: #0f172a;
+      color: #f1f5f9;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 24px;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 10px 25px -5px rgba(0,0,0,0.3);
+      text-align: center;
+    }
+    h1 {
+      color: #38bdf8;
+      font-size: 24px;
+      margin-top: 0;
+      font-weight: 700;
+    }
+    p {
+      color: #94a3b8;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .btn {
+      background: #38bdf8;
+      color: #0f172a;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(56,189,248,0.3);
+    }
+    .output-box {
+      margin-top: 20px;
+      padding: 12px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      font-family: monospace;
+      color: #38bdf8;
+      font-size: 11px;
+      text-align: left;
+      white-space: pre-wrap;
+      min-height: 50px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>HTML5 & JS ES2025 Standard</h1>
+    <p>This is a modern HTML5 document built on semantic elements. Press the button below to execute standard ES2025 JavaScript features (Promise.try and Set intersection)!</p>
+    <button class="btn" id="run-btn">Execute ES2025 Demo</button>
+    <div id="output" class="output-box">Output logs will appear here...</div>
+  </div>
+
+  <script>
+    document.getElementById('run-btn').addEventListener('click', async () => {
+      const output = document.getElementById('output');
+      output.innerText = "Initializing execution...\\n";
+      
+      try {
+        // 1. ES2025 Promise.try demo
+        output.innerText += "1. Executing Promise.try...\\n";
+        const val = await Promise.try(() => {
+          return "ES2025 is fully active!";
+        });
+        output.innerText += "Result: " + val + "\\n\\n";
+        
+        // 2. ES2025 Set intersection demo
+        output.innerText += "2. Computing Set intersection...\\n";
+        const setA = new Set(["HTML5", "CSS3", "ES2025", "Vite"]);
+        const setB = new Set(["React", "ES2025", "Tailwind", "HTML5"]);
+        
+        const intersection = typeof Set.prototype.intersection === 'function' 
+          ? setA.intersection(setB) 
+          : new Set([...setA].filter(x => setB.has(x)));
+          
+        output.innerText += "Set A: " + JSON.stringify(Array.from(setA)) + "\\n";
+        output.innerText += "Set B: " + JSON.stringify(Array.from(setB)) + "\\n";
+        output.innerText += "Common Tech (Intersection): " + JSON.stringify(Array.from(intersection)) + "\\n";
+      } catch (err) {
+        output.innerText += "Error: " + err.message;
+      }
+    });
+  </script>
+</body>
+</html>`;
+    setNotepadContent(template);
+    addNotification('Notepad', 'Inserted HTML5 boilerplate template!', 'success');
+  };
+
+  const insertJsSnippet = () => {
+    const template = `// JavaScript ES2025 Feature Demonstration
+console.log("=== JS ES2025 ENGINE ACTIVE ===");
+
+// 1. Promise.try (Execute code blocks inside safe Promise contexts)
+console.log("\\n1. Executing Promise.try()...");
+Promise.try(() => {
+  console.log("Synchronous/Asynchronous block executed cleanly!");
+  return "ES2025 Promise.try works perfectly!";
+}).then(val => {
+  console.log("Resolved Promise.try value:", val);
+}).catch(err => {
+  console.error("Promise.try caught error:", err);
+});
+
+// 2. Set prototype methods (intersection, union, difference)
+console.log("\\n2. Checking Set helper methods...");
+const teamFrontend = new Set(["Alice", "Bob", "Charlie"]);
+const teamMobile = new Set(["Bob", "David", "Charlie", "Emma"]);
+
+// Set.prototype.intersection()
+const fullstack = teamFrontend.intersection(teamMobile);
+console.log("Fullstack Devs (Intersection):", Array.from(fullstack));
+
+// Set.prototype.union()
+const allStaff = teamFrontend.union(teamMobile);
+console.log("All Staff (Union):", Array.from(allStaff));
+
+// Set.prototype.difference()
+const exclusiveFrontend = teamFrontend.difference(teamMobile);
+console.log("Frontend-Only (Difference):", Array.from(exclusiveFrontend));
+
+// 3. Object.groupBy
+console.log("\\n3. Testing Object.groupBy...");
+const animals = [
+  { name: "Dog", class: "Mammal" },
+  { name: "Eagle", class: "Bird" },
+  { name: "Cat", class: "Mammal" },
+  { name: "Hawk", class: "Bird" }
+];
+const grouped = Object.groupBy(animals, animal => animal.class);
+console.log("Grouped Animals:", grouped);`;
+    setNotepadContent(template);
+    addNotification('Notepad', 'Inserted JavaScript ES2025 demo template!', 'success');
   };
 
   const handleTransformCase = (type: 'upper' | 'lower' | 'title') => {
@@ -11267,6 +11731,67 @@ function NotepadApp({
                   icon={<Info size={14} />} 
                   label="Document Stats" 
                   onClick={() => { setShowStats(true); setActiveMenu(null); }} 
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* JS/HTML5 Dev Menu */}
+        <div className="relative">
+          <button 
+            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'dev' ? null : 'dev'); }}
+            className={cn("px-3 py-1 rounded hover:bg-white/10 transition-colors", activeMenu === 'dev' && "bg-white/10")}
+          >
+            JS/HTML5
+          </button>
+          <AnimatePresence>
+            {activeMenu === 'dev' && (
+              <motion.div 
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 5 }}
+                className="absolute top-full left-0 w-56 glass-dark border border-white/20 rounded-xl shadow-2xl z-50 py-2 mt-1"
+              >
+                <div className="px-4 py-1 text-[9px] font-bold text-white/20 uppercase tracking-widest border-b border-white/10 mb-1">JavaScript (ES2025)</div>
+                <MenuButton 
+                  icon={<Play size={14} className="text-green-400" />} 
+                  label="Run JavaScript" 
+                  onClick={() => { runJavaScriptCode(); setActiveMenu(null); }} 
+                />
+                <MenuButton 
+                  icon={<CheckCircle2 size={14} className="text-blue-400" />} 
+                  label="Validate JS Syntax" 
+                  onClick={() => { validateJsSyntax(); setActiveMenu(null); }} 
+                />
+                <MenuButton 
+                  icon={<FileCode size={14} className="text-yellow-400" />} 
+                  label="Insert JS ES2025 Demo" 
+                  onClick={() => { insertJsSnippet(); setActiveMenu(null); }} 
+                />
+                
+                <div className="h-px bg-white/10 my-1.5 mx-2" />
+                
+                <div className="px-4 py-1 text-[9px] font-bold text-white/20 uppercase tracking-widest border-b border-white/10 mb-1">HTML5 Standard</div>
+                <MenuButton 
+                  icon={<Eye size={14} className="text-orange-400" />} 
+                  label="Open HTML in Browser" 
+                  onClick={() => { openInBrowserApp(); setActiveMenu(null); }} 
+                />
+                <MenuButton 
+                  icon={<Code2 size={14} className="text-pink-400" />} 
+                  label="Format HTML Code" 
+                  onClick={() => { formatHtmlDocument(); setActiveMenu(null); }} 
+                />
+                <MenuButton 
+                  icon={<AlertCircle size={14} className="text-red-400" />} 
+                  label="Validate HTML Tags" 
+                  onClick={() => { validateHtmlSyntax(); setActiveMenu(null); }} 
+                />
+                <MenuButton 
+                  icon={<FileCode size={14} className="text-orange-500" />} 
+                  label="Insert HTML5 Boilerplate" 
+                  onClick={() => { insertHtmlBoilerplate(); setActiveMenu(null); }} 
                 />
               </motion.div>
             )}
@@ -12432,7 +12957,7 @@ function NotepadApp({
             fsLib={fsLib}
             mode="save"
             initialFileName={saveFileName || 'untitled'}
-            allowedExtensions={['txt', 'html', 'scr', 'b']}
+            allowedExtensions={['txt', 'html', 'js', 'scr', 'b']}
             accentColor={accentColor}
             onCancel={() => setShowSaveDialog(false)}
             onSelect={(path) => {
@@ -12448,6 +12973,203 @@ function NotepadApp({
               }
             }}
           />
+        )}
+      </AnimatePresence>
+
+      {/* JavaScript Sandbox Console Output Drawer */}
+      <AnimatePresence>
+        {showJsConsole && (
+          <motion.div
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="absolute bottom-0 left-0 right-0 h-[300px] bg-[#0c0c0e]/95 border-t border-white/10 z-[50] flex flex-col shadow-2xl backdrop-blur-md"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-2 border-b border-white/10 bg-black/40">
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-[11px] font-bold uppercase tracking-wider text-green-400 font-mono">JS ES2025 CONSOLE LOGS</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setJsConsoleLogs([])}
+                  className="px-2.5 py-1 text-[10px] font-mono text-white/50 hover:text-white hover:bg-white/5 rounded transition-all border border-white/5 cursor-pointer"
+                >
+                  CLEAR
+                </button>
+                <button
+                  onClick={runJavaScriptCode}
+                  className="px-2.5 py-1 text-[10px] font-mono text-green-400 hover:text-green-300 hover:bg-green-500/10 rounded transition-all border border-green-500/20 cursor-pointer"
+                >
+                  RE-RUN
+                </button>
+                <button
+                  onClick={() => setShowJsConsole(false)}
+                  className="p-1 text-white/40 hover:text-white hover:bg-white/5 rounded transition-all cursor-pointer"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+
+            {/* Log Display */}
+            <div className="flex-1 overflow-y-auto p-4 font-mono text-xs space-y-2 selection:bg-green-500/20">
+              {jsConsoleLogs.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-white/30 gap-2">
+                  <Play size={20} className="stroke-[1.5]" />
+                  <span className="text-[10px] uppercase tracking-widest font-bold">Console is empty. Run JS code to inspect outputs.</span>
+                </div>
+              ) : (
+                jsConsoleLogs.map((log, idx) => {
+                  let colorClass = 'text-white/80';
+                  let prefix = '› ';
+                  if (log.type === 'error') {
+                    colorClass = 'text-red-400 bg-red-950/20 border-l-2 border-red-500 pl-2';
+                    prefix = '✗ ';
+                  } else if (log.type === 'warn') {
+                    colorClass = 'text-yellow-400 bg-yellow-950/15 border-l-2 border-yellow-500 pl-2';
+                    prefix = '⚠ ';
+                  } else if (log.type === 'info') {
+                    colorClass = 'text-cyan-400 font-semibold';
+                    prefix = 'i ';
+                  } else if (log.type === 'return') {
+                    colorClass = 'text-green-400 font-semibold border-l-2 border-green-500 pl-2';
+                    prefix = '⬎ ';
+                  }
+
+                  return (
+                    <div key={idx} className={`py-0.5 leading-relaxed break-words whitespace-pre-wrap flex items-start gap-1 ${colorClass}`}>
+                      <span className="text-white/20 select-none">{prefix}</span>
+                      <span className="flex-1">{log.text}</span>
+                      <span className="text-[9px] text-white/10 select-none">{log.timestamp}</span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* HTML5 and JS Developer Validation Drawer */}
+      <AnimatePresence>
+        {showHtmlValidation && (
+          <motion.div
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="absolute top-0 right-0 bottom-0 w-[320px] bg-[#0c0c0e]/95 border-l border-white/10 z-[50] flex flex-col shadow-2xl backdrop-blur-md"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-black/40">
+              <div className="flex items-center gap-2">
+                <Code2 size={15} className="text-blue-400" />
+                <span className="text-[11px] font-bold uppercase tracking-wider text-white">Code Diagnostics</span>
+              </div>
+              <button
+                onClick={() => setShowHtmlValidation(false)}
+                className="p-1 text-white/40 hover:text-white hover:bg-white/5 rounded transition-all cursor-pointer"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            {/* Diagnostic Lists */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+              {/* HTML Diagnostics */}
+              <div>
+                <div className="text-[10px] font-bold text-white/30 uppercase tracking-wider mb-2 flex items-center justify-between">
+                  <span>HTML5 Validation</span>
+                  <button 
+                    onClick={validateHtmlSyntax}
+                    className="text-[9px] text-blue-400 hover:underline cursor-pointer"
+                  >
+                    Refresh
+                  </button>
+                </div>
+                {htmlErrors.length === 0 ? (
+                  <div className="p-3 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-xs">
+                    No HTML syntax issues found. All tags closed perfectly!
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {htmlErrors.map((err, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => jumpToLine(err.line)}
+                        className={`w-full p-2.5 rounded-xl text-left border text-xs transition-all flex flex-col gap-1 cursor-pointer group ${
+                          err.type === 'error' 
+                            ? 'bg-red-500/10 border-red-500/20 hover:bg-red-500/15' 
+                            : 'bg-yellow-500/10 border-yellow-500/20 hover:bg-yellow-500/15'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className={`font-semibold uppercase text-[9px] ${err.type === 'error' ? 'text-red-400' : 'text-yellow-400'}`}>
+                            {err.type}
+                          </span>
+                          <span className="text-[9px] text-white/30 font-mono group-hover:text-white/60">
+                            Line {err.line}
+                          </span>
+                        </div>
+                        <div className="text-white/80 group-hover:text-white text-[11px] leading-snug">
+                          {err.message}
+                        </div>
+                        <div className="text-[9px] text-white/30 mt-0.5 italic group-hover:text-blue-400">
+                          Click to select and view line
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* JS Syntax Diagnostics */}
+              <div>
+                <div className="text-[10px] font-bold text-white/30 uppercase tracking-wider mb-2 flex items-center justify-between">
+                  <span>JavaScript Diagnostics</span>
+                  <button 
+                    onClick={validateJsSyntax}
+                    className="text-[9px] text-blue-400 hover:underline cursor-pointer"
+                  >
+                    Verify
+                  </button>
+                </div>
+                {jsSyntaxErrors.length === 0 ? (
+                  <div className="p-3 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-xs">
+                    JavaScript syntax is valid.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {jsSyntaxErrors.map((err, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => jumpToLine(err.line)}
+                        className="w-full p-2.5 rounded-xl text-left border border-red-500/20 bg-red-500/10 hover:bg-red-500/15 text-xs transition-all flex flex-col gap-1 cursor-pointer group"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold uppercase text-[9px] text-red-400">
+                            Syntax Error
+                          </span>
+                          <span className="text-[9px] text-white/30 font-mono group-hover:text-white/60">
+                            Line {err.line}
+                          </span>
+                        </div>
+                        <div className="text-white/80 group-hover:text-white text-[11px] leading-snug">
+                          {err.message}
+                        </div>
+                        <div className="text-[9px] text-white/30 mt-0.5 italic group-hover:text-blue-400">
+                          Click to select and view line
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
@@ -12470,31 +13192,167 @@ function MenuButton({ icon, label, onClick, variant = 'default', style }: { icon
   );
 }
 
-function BrowserApp({ fs, fsLib, addNotification }: any) {
+function BrowserApp({ fs, fsLib, addNotification, closeWindow, setPrintQueue, userName, clipboardHistory, setClipboardHistory }: any) {
   interface BrowserTab {
     id: string;
     url: string;
+    title?: string;
     localContent?: string;
+    pinned?: boolean;
+    groupId?: string;
+    isMuted?: boolean;
   }
 
   const [tabs, setTabs] = useState<BrowserTab[]>([
     { id: '1', url: 'local://home.html' }
   ]);
+
+  interface TabGroup {
+    id: string;
+    name: string;
+    color: string;
+  }
+
+  const [tabGroups, setTabGroups] = useState<TabGroup[]>(() => {
+    try {
+      const saved = localStorage.getItem('glassos_browser_tab_groups_v1');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [
+      { id: 'work', name: 'Work', color: 'blue' },
+      { id: 'social', name: 'Social', color: 'pink' },
+      { id: 'general', name: 'General', color: 'green' }
+    ];
+  });
+
+  const [recentlyClosed, setRecentlyClosed] = useState<{ url: string; title?: string; localContent?: string }[]>(() => {
+    try {
+      const saved = localStorage.getItem('glassos_browser_recently_closed_v1');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [];
+  });
+
+  const [tabMenuAnchor, setTabMenuAnchor] = useState<{ x: number; y: number; tabId: string } | null>(null);
+  const [editingTabTitleId, setEditingTabTitleId] = useState<string | null>(null);
+  const [editingTabTitleVal, setEditingTabTitleVal] = useState('');
+  
+  const [showTabSwitcher, setShowTabSwitcher] = useState(false);
+  const [tabSwitcherSearch, setTabSwitcherSearch] = useState('');
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupColor, setNewGroupColor] = useState('blue');
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('glassos_browser_tab_groups_v1', JSON.stringify(tabGroups));
+    } catch (e) {}
+  }, [tabGroups]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('glassos_browser_recently_closed_v1', JSON.stringify(recentlyClosed));
+    } catch (e) {}
+  }, [recentlyClosed]);
   const [activeTabId, setActiveTabId] = useState('1');
   const [urlInput, setUrlInput] = useState('local://home.html');
   const [history, setHistory] = useState<string[]>(['local://home.html']);
+  interface Bookmark {
+    id: string;
+    title: string;
+    url: string;
+  }
+
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => {
+    try {
+      const saved = localStorage.getItem('glassos_browser_bookmarks_v1');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [
+      { id: '1', title: 'Google', url: 'https://www.google.com' },
+      { id: '2', title: 'GitHub', url: 'https://www.github.com' },
+      { id: '3', title: 'Home', url: 'local://home.html' }
+    ];
+  });
+
   const [favorites, setFavorites] = useState<string[]>(['https://www.google.com', 'https://www.github.com', 'local://home.html']);
   const [showHistory, setShowHistory] = useState(false);
+  
+  // Bookmarks state
+  const [showBookmarksManager, setShowBookmarksManager] = useState(false);
+  const [showBookmarkPopup, setShowBookmarkPopup] = useState(false);
+  const [editingBookmarkId, setEditingBookmarkId] = useState<string | null>(null);
+  const [editingBookmarkName, setEditingBookmarkName] = useState('');
+  const [editingBookmarkUrl, setEditingBookmarkUrl] = useState('');
+  const [bookmarksSearchQuery, setBookmarksSearchQuery] = useState('');
+
   const [isSecureMode, setIsSecureMode] = useState(true);
 
   const [view, setView] = useState<'browser' | 'composer'>('browser');
   const [composerContent, setComposerContent] = useState('<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: sans-serif; color: #333; padding: 2rem; }\n    h1 { color: #2563eb; }\n  </style>\n</head>\n<body>\n  <h1>My Custom Page</h1>\n  <p>Built with GlassOS HTML Composer.</p>\n</body>\n</html>');
   const [composerFileName, setComposerFileName] = useState('new_page.html');
 
+  // Menu, Theme, and Modals state
+  const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const [showOpenFile, setShowOpenFile] = useState(false);
+  const [showPreferences, setShowPreferences] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+  const [browserTheme, setBrowserTheme] = useState<'light' | 'dark' | 'sepia' | 'cyber' | 'mint'>('light');
+  const [defaultSearchEngine, setDefaultSearchEngine] = useState<'google' | 'bing' | 'duckduckgo'>('google');
+  const [defaultHomePage, setDefaultHomePage] = useState<string>('local://home.html');
+
+  // Scripting Console state
+  const [showScriptConsole, setShowScriptConsole] = useState(false);
+  const [scriptConsoleLogs, setScriptConsoleLogs] = useState<{ type: string; text: string; timestamp: string }[]>([]);
+  const [scriptInputCode, setScriptInputCode] = useState('// Enter custom JavaScript to run against active tab\nconsole.log("Hello from Browser Console!");\nconsole.log("Current Tab URL:", url);\nconsole.log("Number of page links:", linksCount);\n');
+
   const activeTab = useMemo(() => 
     tabs.find(t => t.id === activeTabId) || tabs[0],
     [tabs, activeTabId]
   );
+
+  const sortedTabs = useMemo(() => {
+    const pinned = tabs.filter(t => t.pinned);
+    const unpinned = tabs.filter(t => !t.pinned);
+    return [...pinned, ...unpinned];
+  }, [tabs]);
+
+  const isBookmarked = useMemo(() => {
+    return bookmarks.some(b => b.url === activeTab.url);
+  }, [bookmarks, activeTab.url]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('glassos_browser_bookmarks_v1', JSON.stringify(bookmarks));
+    } catch (e) {}
+    setFavorites(bookmarks.map(b => b.url));
+  }, [bookmarks]);
+
+  const handleStarClick = () => {
+    const existing = bookmarks.find(b => b.url === activeTab.url);
+    if (existing) {
+      setEditingBookmarkId(existing.id);
+      setEditingBookmarkName(existing.title);
+      setEditingBookmarkUrl(existing.url);
+      setShowBookmarkPopup(true);
+    } else {
+      const defaultTitle = activeTab.url.startsWith('local://') 
+        ? activeTab.url.replace('local://', '') 
+        : activeTab.url.replace('https://', '').replace('http://', '').split('/')[0] || 'Webpage';
+      
+      const newB = {
+        id: Math.random().toString(36).substr(2, 9),
+        title: defaultTitle,
+        url: activeTab.url
+      };
+      setBookmarks(prev => [...prev, newB]);
+      setEditingBookmarkId(newB.id);
+      setEditingBookmarkName(newB.title);
+      setEditingBookmarkUrl(newB.url);
+      setShowBookmarkPopup(true);
+      addNotification('Browser', `Bookmarked: ${defaultTitle}`, 'success');
+    }
+  };
 
   const getLocalPageContent = useCallback((url: string) => {
     if (!url.startsWith('local://')) return undefined;
@@ -12516,6 +13374,238 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
     }));
   }, [getLocalPageContent]);
 
+  // Register with BridgeLib for cross-app OLE communication
+  useEffect(() => {
+    BridgeLib.registerApp('browser', {
+      getData: () => tabs,
+      setData: (data: any) => {
+        if (typeof data === 'string') {
+          const url = data.startsWith('local://') || data.startsWith('http') ? data : `local://${data}`;
+          setTabs(prev => {
+            const exists = prev.find(t => t.url === url);
+            if (exists) {
+              setActiveTabId(exists.id);
+              return prev.map(t => t.id === exists.id ? { ...t, localContent: getLocalPageContent(url) } : t);
+            }
+            const newId = Math.random().toString(36).substr(2, 9);
+            const newTab = { id: newId, url, localContent: getLocalPageContent(url) };
+            setActiveTabId(newId);
+            return [...prev, newTab];
+          });
+        }
+      }
+    });
+    return () => BridgeLib.unregisterApp('browser');
+  }, [tabs, getLocalPageContent]);
+
+  // Global keyboard shortcuts hook for power users
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isInputFocused = activeEl && (
+        activeEl.tagName === 'INPUT' || 
+        activeEl.tagName === 'TEXTAREA' || 
+        activeEl.tagName === 'SELECT' || 
+        (activeEl as HTMLElement).isContentEditable
+      );
+
+      const isModifier = e.ctrlKey || e.metaKey;
+
+      // If user is actively typing in a form or input, don't trigger non-modifier single key shortcuts
+      if (!isModifier && isInputFocused) {
+        // Esc and F5 should still work even if input is focused
+        if (e.key === 'Escape') {
+          if (showTabSwitcher) { e.preventDefault(); setShowTabSwitcher(false); }
+          else if (showBookmarksManager) { e.preventDefault(); setShowBookmarksManager(false); }
+          else if (showBookmarkPopup) { e.preventDefault(); setShowBookmarkPopup(false); }
+          else if (showAbout) { e.preventDefault(); setShowAbout(false); }
+          else if (showShortcutsHelp) { e.preventDefault(); setShowShortcutsHelp(false); }
+          else if (showPreferences) { e.preventDefault(); setShowPreferences(false); }
+          else if (activeMenu) { e.preventDefault(); setActiveMenu(null); }
+        } else if (e.key === 'F5') {
+          e.preventDefault();
+          handleGo();
+          addNotification('Browser', 'Page Reloaded', 'info');
+        }
+        return;
+      }
+
+      if (isModifier) {
+        // Ctrl + T: New Tab
+        if (e.key.toLowerCase() === 't' && !e.shiftKey) {
+          e.preventDefault();
+          addTab();
+          addNotification('Browser', 'Shortcut: New Tab Opened (Ctrl+T)', 'success');
+        }
+        
+        // Ctrl + W: Close Tab
+        else if (e.key.toLowerCase() === 'w') {
+          e.preventDefault();
+          if (tabs.length > 1) {
+            closeTab(null, activeTabId);
+            addNotification('Browser', 'Shortcut: Tab Closed (Ctrl+W)', 'info');
+          } else {
+            addNotification('Browser', 'Cannot close the only open tab!', 'warning');
+          }
+        }
+
+        // Ctrl + Shift + T: Reopen last closed tab
+        else if (e.key.toLowerCase() === 't' && e.shiftKey) {
+          e.preventDefault();
+          if (recentlyClosed.length > 0) {
+            const last = recentlyClosed[0];
+            setTabs(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), url: last.url, title: last.title, localContent: last.localContent }]);
+            setRecentlyClosed(prev => prev.slice(1));
+            addNotification('Browser', `Shortcut: Reopened Tab "${last.title || last.url}" (Ctrl+Shift+T)`, 'success');
+          } else {
+            addNotification('Browser', 'No recently closed tabs to reopen', 'warning');
+          }
+        }
+
+        // Ctrl + Tab: Next Tab
+        else if (e.key === 'Tab' && !e.shiftKey) {
+          e.preventDefault();
+          const currentIndex = sortedTabs.findIndex(t => t.id === activeTabId);
+          if (currentIndex !== -1 && sortedTabs.length > 0) {
+            const nextIndex = (currentIndex + 1) % sortedTabs.length;
+            setActiveTabId(sortedTabs[nextIndex].id);
+          }
+        }
+
+        // Ctrl + Shift + Tab: Previous Tab
+        else if (e.key === 'Tab' && e.shiftKey) {
+          e.preventDefault();
+          const currentIndex = sortedTabs.findIndex(t => t.id === activeTabId);
+          if (currentIndex !== -1 && sortedTabs.length > 0) {
+            const prevIndex = (currentIndex - 1 + sortedTabs.length) % sortedTabs.length;
+            setActiveTabId(sortedTabs[prevIndex].id);
+          }
+        }
+
+        // Ctrl + L or Ctrl + K: Focus URL Bar
+        else if (e.key.toLowerCase() === 'l' || e.key.toLowerCase() === 'k') {
+          e.preventDefault();
+          const urlBar = document.getElementById('browser-url-input');
+          if (urlBar) {
+            (urlBar as HTMLInputElement).focus();
+            (urlBar as HTMLInputElement).select();
+            addNotification('Browser', 'Shortcut: URL Bar Focused (Ctrl+L)', 'info');
+          }
+        }
+
+        // Ctrl + B: Toggle Bookmarks Manager
+        else if (e.key.toLowerCase() === 'b' && !e.shiftKey) {
+          e.preventDefault();
+          setShowBookmarksManager(prev => !prev);
+          addNotification('Browser', 'Shortcut: Bookmarks Manager toggled (Ctrl+B)', 'info');
+        }
+
+        // Ctrl + D: Add Bookmark
+        else if (e.key.toLowerCase() === 'd') {
+          e.preventDefault();
+          handleStarClick();
+        }
+
+        // Ctrl + F: Toggle Tab Switcher
+        else if (e.key.toLowerCase() === 'f' && !e.shiftKey) {
+          e.preventDefault();
+          setShowTabSwitcher(prev => !prev);
+        }
+
+        // Ctrl + H: Toggle History
+        else if (e.key.toLowerCase() === 'h') {
+          e.preventDefault();
+          setShowHistory(prev => !prev);
+          addNotification('Browser', 'Shortcut: History Toggled (Ctrl+H)', 'info');
+        }
+
+        // Ctrl + Shift + S: Toggle HTTPS secure mode
+        else if (e.key.toLowerCase() === 's' && e.shiftKey) {
+          e.preventDefault();
+          setIsSecureMode(prev => {
+            const next = !prev;
+            addNotification('Browser', `Shortcut: Secure HTTPS Force Mode: ${next ? 'ON' : 'OFF'} (Ctrl+Shift+S)`, next ? 'success' : 'warning');
+            return next;
+          });
+        }
+
+        // Ctrl + P: Print page
+        else if (e.key.toLowerCase() === 'p') {
+          e.preventDefault();
+          handlePrint();
+        }
+
+        // Ctrl + , : Preferences
+        else if (e.key === ',') {
+          e.preventDefault();
+          setShowPreferences(prev => !prev);
+        }
+
+        // Ctrl + / : Toggle Keyboard Shortcuts Help
+        else if (e.key === '/') {
+          e.preventDefault();
+          setShowShortcutsHelp(prev => !prev);
+          addNotification('Browser', 'Shortcut: Keyboard Shortcuts toggled (Ctrl+/)', 'info');
+        }
+
+        // Ctrl + 1 to 8: Direct tab switching
+        else if (e.key >= '1' && e.key <= '8') {
+          const tabIndex = parseInt(e.key) - 1;
+          if (tabIndex < sortedTabs.length) {
+            e.preventDefault();
+            setActiveTabId(sortedTabs[tabIndex].id);
+          }
+        }
+
+        // Ctrl + 9: Switch to last tab
+        else if (e.key === '9') {
+          e.preventDefault();
+          if (sortedTabs.length > 0) {
+            setActiveTabId(sortedTabs[sortedTabs.length - 1].id);
+          }
+        }
+      } else {
+        // Esc: Close active modals or menus
+        if (e.key === 'Escape') {
+          if (showTabSwitcher) { e.preventDefault(); setShowTabSwitcher(false); }
+          else if (showBookmarksManager) { e.preventDefault(); setShowBookmarksManager(false); }
+          else if (showBookmarkPopup) { e.preventDefault(); setShowBookmarkPopup(false); }
+          else if (showAbout) { e.preventDefault(); setShowAbout(false); }
+          else if (showShortcutsHelp) { e.preventDefault(); setShowShortcutsHelp(false); }
+          else if (showPreferences) { e.preventDefault(); setShowPreferences(false); }
+          else if (activeMenu) { e.preventDefault(); setActiveMenu(null); }
+        }
+        
+        // F5: Reload active tab
+        else if (e.key === 'F5') {
+          e.preventDefault();
+          handleGo();
+          addNotification('Browser', 'Page Reloaded', 'info');
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [
+    tabs, 
+    activeTabId, 
+    sortedTabs, 
+    recentlyClosed, 
+    showTabSwitcher, 
+    showBookmarksManager, 
+    showBookmarkPopup, 
+    showAbout, 
+    showShortcutsHelp,
+    showPreferences, 
+    activeMenu, 
+    isSecureMode,
+    urlInput,
+    defaultSearchEngine
+  ]);
+
   const handleGo = (e?: React.FormEvent) => {
     e?.preventDefault();
     let target = urlInput;
@@ -12531,7 +13621,14 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
       addNotification('Browser', `Local page ${target} not found in GlassDrive/webpages`, 'error');
       return;
     } else if (!target.includes('.') && !target.startsWith('http')) {
-      target = `https://www.google.com/search?q=${encodeURIComponent(target)}&igu=1`;
+      const query = encodeURIComponent(target);
+      if (defaultSearchEngine === 'bing') {
+        target = `https://www.bing.com/search?q=${query}`;
+      } else if (defaultSearchEngine === 'duckduckgo') {
+        target = `https://duckduckgo.com/?q=${query}`;
+      } else {
+        target = `https://www.google.com/search?q=${query}&igu=1`;
+      }
     } else if (!target.startsWith('http')) {
       target = 'https://' + target;
     }
@@ -12541,71 +13638,854 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
     addNotification('Browser', `Navigating to ${target}`, 'info');
   };
 
+  const getTabDisplayTitle = useCallback((tab: BrowserTab) => {
+    if (tab.title) return tab.title;
+    if (tab.url.startsWith('local://')) {
+      return tab.url.replace('local://', '');
+    }
+    return tab.url.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0] || 'New Tab';
+  }, []);
+
+  const saveTabTitle = (id: string) => {
+    const trimmed = editingTabTitleVal.trim();
+    setTabs(prev => prev.map(t => t.id === id ? { ...t, title: trimmed || undefined } : t));
+    setEditingTabTitleId(null);
+    if (trimmed) {
+      addNotification('Browser', `Tab renamed to "${trimmed}"`, 'success');
+    }
+  };
+
+  const getGroupColorHex = (colorName: string) => {
+    switch (colorName) {
+      case 'blue': return '#3b82f6';
+      case 'pink': return '#ec4899';
+      case 'green': return '#10b981';
+      case 'purple': return '#a855f7';
+      case 'amber': return '#f59e0b';
+      case 'red': return '#ef4444';
+      case 'teal': return '#14b8a6';
+      default: return '#64748b';
+    }
+  };
+
   const addTab = () => {
     const newId = Math.random().toString(36).substr(2, 9);
-    const newTab = { id: newId, url: 'local://home.html', localContent: getLocalPageContent('local://home.html') };
+    const newTab = { id: newId, url: defaultHomePage, localContent: getLocalPageContent(defaultHomePage) };
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(newId);
     addNotification('Browser', 'New tab opened', 'info');
   };
 
-  const closeTab = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
+  const closeTab = (e: React.MouseEvent | null, id: string) => {
+    if (e) e.stopPropagation();
     if (tabs.length === 1) return;
+    
+    const tabToClose = tabs.find(t => t.id === id);
+    if (tabToClose) {
+      setRecentlyClosed(prev => [
+        { url: tabToClose.url, title: tabToClose.title || getTabDisplayTitle(tabToClose), localContent: tabToClose.localContent },
+        ...prev
+      ].slice(0, 15));
+    }
+    
     const remaining = tabs.filter(t => t.id !== id);
     setTabs(remaining);
     if (activeTabId === id) {
-      setActiveTabId(remaining[remaining.length - 1].id);
+      const index = tabs.findIndex(t => t.id === id);
+      const nextActive = remaining[Math.min(index, remaining.length - 1)];
+      setActiveTabId(nextActive.id);
     }
     addNotification('Browser', 'Tab closed', 'info');
   };
 
+  const closeOtherTabs = (id: string) => {
+    const target = tabs.find(t => t.id === id);
+    if (!target) return;
+    
+    const toClose = tabs.filter(t => t.id !== id);
+    toClose.forEach(t => {
+      setRecentlyClosed(prev => [
+        { url: t.url, title: t.title || getTabDisplayTitle(t), localContent: t.localContent },
+        ...prev
+      ].slice(0, 15));
+    });
+    
+    setTabs([target]);
+    setActiveTabId(target.id);
+    addNotification('Browser', 'Closed other tabs', 'info');
+  };
+
+  const closeTabsToRight = (id: string) => {
+    const index = tabs.findIndex(t => t.id === id);
+    if (index === -1) return;
+    
+    const keep = tabs.slice(0, index + 1);
+    const toClose = tabs.slice(index + 1);
+    
+    if (toClose.length === 0) return;
+    
+    toClose.forEach(t => {
+      setRecentlyClosed(prev => [
+        { url: t.url, title: t.title || getTabDisplayTitle(t), localContent: t.localContent },
+        ...prev
+      ].slice(0, 15));
+    });
+    
+    setTabs(keep);
+    const isActiveClosed = toClose.some(t => t.id === activeTabId);
+    if (isActiveClosed) {
+      setActiveTabId(id);
+    }
+    addNotification('Browser', `Closed ${toClose.length} tabs to the right`, 'info');
+  };
+
+  const handlePrint = () => {
+    const filename = activeTab.url.startsWith('local://') 
+      ? activeTab.url.replace('local://', '') 
+      : activeTab.url.replace('https://', '').replace('http://', '').split('/')[0] || 'Webpage';
+    const documentName = `Browser - ${filename}`;
+    const newJob = {
+      id: Math.random().toString(36).substr(2, 9),
+      documentName,
+      filename,
+      status: 'printing',
+      timestamp: new Date().toLocaleTimeString(),
+      owner: userName || 'Administrator'
+    };
+    if (setPrintQueue) {
+      setPrintQueue((prev: any[]) => [...prev, newJob]);
+      addNotification('Print Manager', `Sending "${documentName}" to printer...`, 'info');
+      
+      setTimeout(() => {
+        setPrintQueue((prev: any[]) => 
+          prev.map(job => job.id === newJob.id ? { ...job, status: 'completed' } : job)
+        );
+        addNotification('Print Manager', `Finished printing "${documentName}"`, 'success');
+      }, 5000);
+    } else {
+      addNotification('Browser', 'Printer service is offline.', 'error');
+    }
+  };
+
+  const handleEditCommand = async (command: 'undo' | 'cut' | 'copy' | 'paste') => {
+    const activeEl = document.activeElement as HTMLInputElement | HTMLTextAreaElement;
+    if (!activeEl || (activeEl.tagName !== 'INPUT' && activeEl.tagName !== 'TEXTAREA')) {
+      addNotification('Browser', `Please focus a text field first`, 'info');
+      return;
+    }
+
+    const start = activeEl.selectionStart || 0;
+    const end = activeEl.selectionEnd || 0;
+    const text = activeEl.value;
+
+    if (command === 'copy' || command === 'cut') {
+      const selectedText = text.substring(start, end);
+      if (!selectedText) {
+        addNotification('Browser', 'No text selected to copy/cut', 'warning');
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(selectedText);
+      } catch (e) {
+        // fallback
+      }
+      if (setClipboardHistory) {
+        setClipboardHistory((prev: string[]) => [selectedText, ...prev].slice(0, 50));
+      }
+      addNotification('Browser', `Copied selected text`, 'success');
+
+      if (command === 'cut') {
+        const newValue = text.substring(0, start) + text.substring(end);
+        activeEl.value = newValue;
+        if (activeEl.id === 'composer-textarea' || activeEl.className.includes('composer')) {
+          setComposerContent(newValue);
+        } else {
+          setUrlInput(newValue);
+        }
+      }
+    } else if (command === 'paste') {
+      let pasteText = '';
+      try {
+        pasteText = await navigator.clipboard.readText();
+      } catch (e) {
+        if (clipboardHistory && clipboardHistory.length > 0) {
+          pasteText = clipboardHistory[0];
+        }
+      }
+      if (!pasteText) {
+        addNotification('Browser', 'Clipboard is empty', 'warning');
+        return;
+      }
+      const newValue = text.substring(0, start) + pasteText + text.substring(end);
+      activeEl.value = newValue;
+      if (activeEl.id === 'composer-textarea' || activeEl.className.includes('composer')) {
+        setComposerContent(newValue);
+      } else {
+        setUrlInput(newValue);
+      }
+      addNotification('Browser', 'Pasted text', 'success');
+    } else if (command === 'undo') {
+      activeEl.focus();
+      try {
+        document.execCommand('undo');
+        addNotification('Browser', 'Undo triggered', 'info');
+      } catch (e) {
+        addNotification('Browser', 'Undo is handled by your system standard shortcuts', 'info');
+      }
+    }
+  };
+
+  const runScriptCode = (code: string) => {
+    setScriptConsoleLogs([]);
+    const logs: string[] = [];
+    const customConsole = {
+      log: (...args: any[]) => {
+        const text = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+        logs.push(text);
+      },
+      error: (...args: any[]) => {
+        const text = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+        logs.push('ERROR: ' + text);
+      },
+      warn: (...args: any[]) => {
+        const text = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+        logs.push('WARN: ' + text);
+      }
+    };
+
+    let mockLinks: string[] = [];
+    let mockHeadings: string[] = [];
+    
+    if (activeTab.localContent) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(activeTab.localContent, 'text/html');
+      doc.querySelectorAll('a').forEach(l => {
+        mockLinks.push(`${l.textContent || ''} -> ${l.getAttribute('href') || ''}`);
+      });
+      doc.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(h => {
+        mockHeadings.push(`<${h.tagName.toLowerCase()}> ${h.textContent || ''}`);
+      });
+    }
+
+    try {
+      const sandbox = {
+        console: customConsole,
+        url: activeTab.url,
+        linksCount: mockLinks.length,
+        links: mockLinks,
+        headings: mockHeadings,
+        alert: (msg: string) => customConsole.log(`[ALERT]: ${msg}`),
+        $: (sel: string) => {
+          if (!activeTab.localContent) return null;
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(activeTab.localContent, 'text/html');
+          return doc.querySelector(sel)?.textContent || null;
+        },
+        $$: (sel: string) => {
+          if (!activeTab.localContent) return [];
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(activeTab.localContent, 'text/html');
+          return Array.from(doc.querySelectorAll(sel)).map(e => e.textContent || '');
+        }
+      };
+
+      const runner = new Function('sandbox', `
+        with (sandbox) {
+          ${code}
+        }
+      `);
+      runner(sandbox);
+      
+      const newLogs = logs.map(l => ({
+        type: l.startsWith('ERROR:') ? 'error' : l.startsWith('WARN:') ? 'warn' : 'info',
+        text: l.replace(/^ERROR:\s*/, '').replace(/^WARN:\s*/, ''),
+        timestamp: new Date().toLocaleTimeString()
+      }));
+
+      if (newLogs.length === 0) {
+        newLogs.push({
+          type: 'info',
+          text: 'Script executed successfully with no logs.',
+          timestamp: new Date().toLocaleTimeString()
+        });
+      }
+      setScriptConsoleLogs(newLogs);
+      addNotification('Scripting Tools', 'Script ran successfully', 'success');
+    } catch (err: any) {
+      setScriptConsoleLogs([{
+        type: 'error',
+        text: err?.message || String(err),
+        timestamp: new Date().toLocaleTimeString()
+      }]);
+      addNotification('Scripting Tools', 'Script execution failed', 'error');
+    }
+  };
+
+  const themeStyles = useMemo(() => {
+    switch (browserTheme) {
+      case 'dark':
+        return {
+          menuBar: 'bg-[#181825] border-white/5 text-slate-300',
+          tabBar: 'bg-[#1e1e2e] border-white/5 text-slate-400',
+          activeTab: 'bg-[#11111b] text-slate-100',
+          inactiveTab: 'hover:bg-[#181825]/80 text-slate-400',
+          toolbar: 'bg-[#11111b] text-slate-300 border-white/5',
+          menuBtn: 'hover:bg-white/10 text-slate-200',
+          menuDropdown: 'glass-dark border-white/20 text-white/95',
+          inputBg: 'bg-white/5 text-slate-200 border-white/10 focus:bg-[#181825]',
+          bookmarksBar: 'bg-[#181825]/90 border-b border-white/5 text-slate-300',
+          bookmarksBtn: 'hover:bg-white/5 text-slate-300',
+        };
+      case 'sepia':
+        return {
+          menuBar: 'bg-[#ebdcb9] border-amber-200/80 text-amber-950',
+          tabBar: 'bg-[#e6dfcf] border-amber-200/50 text-amber-900',
+          activeTab: 'bg-[#f4efe2] text-amber-950 shadow-[0_-2px_4px_rgba(0,0,0,0.03)]',
+          inactiveTab: 'hover:bg-[#dfcaa0]/50 text-amber-800',
+          toolbar: 'bg-[#f4efe2] text-amber-900 border-amber-200',
+          menuBtn: 'hover:bg-[#dfcaa0] text-amber-950',
+          menuDropdown: 'bg-[#f4efe2] border-amber-200 text-amber-950',
+          inputBg: 'bg-[#ebdcb9]/40 text-amber-950 border-amber-200 focus:bg-white',
+          bookmarksBar: 'bg-[#e6dfcf] border-b border-amber-200 text-amber-950',
+          bookmarksBtn: 'hover:bg-[#dfcaa0]/30 text-amber-950',
+        };
+      case 'cyber':
+        return {
+          menuBar: 'bg-slate-950 border-purple-500/20 text-purple-400 font-mono',
+          tabBar: 'bg-slate-900 border-purple-500/10 text-purple-400 font-mono',
+          activeTab: 'bg-purple-950/40 text-fuchsia-300 border-t border-x border-purple-500/40',
+          inactiveTab: 'hover:bg-purple-500/10 text-purple-500',
+          toolbar: 'bg-slate-950 text-purple-300 border-purple-500/20 font-mono',
+          menuBtn: 'hover:bg-purple-500/20 text-fuchsia-400',
+          menuDropdown: 'bg-slate-950 border-purple-500/40 text-fuchsia-300',
+          inputBg: 'bg-purple-950/10 text-fuchsia-300 border-purple-500/20 focus:bg-slate-900',
+          bookmarksBar: 'bg-slate-950 border-b border-purple-500/20 text-purple-400 font-mono',
+          bookmarksBtn: 'hover:bg-purple-500/10 text-purple-300',
+        };
+      case 'mint':
+        return {
+          menuBar: 'bg-[#d2e8db] border-teal-100 text-teal-950',
+          tabBar: 'bg-[#e2f1e8] border-teal-100/50 text-teal-900',
+          activeTab: 'bg-white text-teal-900 shadow-[0_-2px_4px_rgba(0,0,0,0.03)]',
+          inactiveTab: 'hover:bg-[#b8dbca]/50 text-teal-800',
+          toolbar: 'bg-white text-teal-800 border-teal-100',
+          menuBtn: 'hover:bg-[#b8dbca] text-teal-900',
+          menuDropdown: 'bg-white border-teal-100 text-teal-900',
+          inputBg: 'bg-[#e2f1e8]/50 text-teal-900 border-teal-100 focus:bg-white',
+          bookmarksBar: 'bg-[#e2f1e8] border-b border-teal-100 text-teal-950',
+          bookmarksBtn: 'hover:bg-[#b8dbca]/30 text-teal-900',
+        };
+      case 'light':
+      default:
+        return {
+          menuBar: 'bg-slate-100 border-slate-200 text-slate-700',
+          tabBar: 'bg-[#dee1e6] border-slate-200/50 text-slate-600',
+          activeTab: 'bg-white text-slate-800 shadow-[0_-2px_4px_rgba(0,0,0,0.05)]',
+          inactiveTab: 'hover:bg-[#e8eaed] text-slate-600',
+          toolbar: 'bg-white text-slate-700 border-b border-slate-200',
+          menuBtn: 'hover:bg-slate-200 text-slate-800',
+          menuDropdown: 'bg-white border-slate-200 text-slate-800',
+          inputBg: 'bg-[#f1f3f4] text-slate-700 border-transparent focus:bg-white focus:border-slate-200',
+          bookmarksBar: 'bg-slate-50 border-b border-slate-200 text-slate-600',
+          bookmarksBtn: 'hover:bg-slate-200/50 text-slate-700',
+        };
+    }
+  }, [browserTheme]);
+
   return (
-    <div className="h-full flex flex-col bg-[#f0f2f5] select-text">
-      {/* Tab Bar */}
-      <div className="h-10 bg-[#dee1e6] flex items-center px-2 gap-1 overflow-x-auto no-scrollbar pt-2">
-        {tabs.map(tab => (
-          <div
-            key={tab.id}
-            onClick={() => setActiveTabId(tab.id)}
-            className={cn(
-              "h-8 px-4 rounded-t-lg flex items-center gap-2 cursor-pointer transition-all min-w-[140px] max-w-[200px] relative group",
-              activeTabId === tab.id ? "bg-white text-slate-800 shadow-[0_-2px_4px_rgba(0,0,0,0.05)]" : "hover:bg-[#e8eaed] text-slate-600"
-            )}
+    <div 
+      className="h-full flex flex-col bg-[#f0f2f5] select-text relative"
+      onClick={() => setActiveMenu(null)}
+    >
+      {/* Menu Bar */}
+      <div className={cn("h-8 flex items-center px-4 gap-2 text-xs font-medium relative border-b select-none z-40 transition-all", themeStyles.menuBar)}>
+        {/* File Menu */}
+        <div className="relative">
+          <button 
+            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'file' ? null : 'file'); }}
+            className={cn("px-3 py-1 rounded transition-colors cursor-pointer", themeStyles.menuBtn, activeMenu === 'file' && "bg-white/10")}
           >
-            <Globe size={12} className={activeTabId === tab.id ? "text-blue-500" : ""} />
-            <span className="text-[10px] truncate flex-1 font-medium">
-              {tab.url.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0] || 'New Tab'}
-            </span>
-            {tabs.length > 1 && (
+            File
+          </button>
+          {activeMenu === 'file' && (
+            <div className={cn("absolute top-full left-0 w-48 border rounded-xl shadow-2xl py-1 mt-1 z-50 flex flex-col backdrop-blur-md", themeStyles.menuDropdown)}>
               <button 
-                onClick={(e) => closeTab(e, tab.id)}
-                className="p-1 hover:bg-slate-200 rounded-full transition-colors opacity-0 group-hover:opacity-100"
+                onClick={() => { setActiveMenu(null); setShowOpenFile(true); }}
+                className="px-4 py-1.5 flex items-center gap-3 hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left text-xs cursor-pointer"
               >
-                <X size={10} />
+                <FolderOpen size={12} />
+                <span>Open File...</span>
               </button>
-            )}
-            {activeTabId === tab.id && <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-white translate-y-[1px]" />}
-          </div>
-        ))}
+              <button 
+                onClick={() => { setActiveMenu(null); handlePrint(); }}
+                className="px-4 py-1.5 flex items-center gap-3 hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left text-xs cursor-pointer"
+              >
+                <Printer size={12} />
+                <span>Print...</span>
+              </button>
+              <div className="h-[1px] bg-slate-200/20 my-1" />
+              <button 
+                onClick={() => { setActiveMenu(null); setShowPreferences(true); }}
+                className="px-4 py-1.5 flex items-center gap-3 hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left text-xs cursor-pointer"
+              >
+                <SettingsIcon size={12} />
+                <span>Preferences</span>
+              </button>
+              <button 
+                onClick={() => { setActiveMenu(null); setShowAbout(true); }}
+                className="px-4 py-1.5 flex items-center gap-3 hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left text-xs cursor-pointer"
+              >
+                <Info size={12} />
+                <span>About App</span>
+              </button>
+              <div className="h-[1px] bg-slate-200/20 my-1" />
+              <button 
+                onClick={() => { 
+                  setActiveMenu(null); 
+                  if (closeWindow) {
+                    closeWindow('browser');
+                  } else {
+                    addNotification('Browser', 'Closed Glass Browser', 'info');
+                  }
+                }}
+                className="px-4 py-1.5 flex items-center gap-3 hover:bg-red-500/20 text-red-500 hover:text-red-400 transition-all text-left text-xs cursor-pointer"
+              >
+                <LogOut size={12} />
+                <span>Quit</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Edit Menu */}
+        <div className="relative">
+          <button 
+            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'edit' ? null : 'edit'); }}
+            className={cn("px-3 py-1 rounded transition-colors cursor-pointer", themeStyles.menuBtn, activeMenu === 'edit' && "bg-white/10")}
+          >
+            Edit
+          </button>
+          {activeMenu === 'edit' && (
+            <div className={cn("absolute top-full left-0 w-48 border rounded-xl shadow-2xl py-1 mt-1 z-50 flex flex-col backdrop-blur-md", themeStyles.menuDropdown)}>
+              <button 
+                onClick={() => { setActiveMenu(null); handleEditCommand('undo'); }}
+                className="px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left text-xs cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <Undo size={12} />
+                  <span>Undo</span>
+                </div>
+                <span className="opacity-40 font-mono text-[9px]">Ctrl+Z</span>
+              </button>
+              <div className="h-[1px] bg-slate-200/20 my-1" />
+              <button 
+                onClick={() => { setActiveMenu(null); handleEditCommand('cut'); }}
+                className="px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left text-xs cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <Scissors size={12} />
+                  <span>Cut</span>
+                </div>
+                <span className="opacity-40 font-mono text-[9px]">Ctrl+X</span>
+              </button>
+              <button 
+                onClick={() => { setActiveMenu(null); handleEditCommand('copy'); }}
+                className="px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left text-xs cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <Copy size={12} />
+                  <span>Copy</span>
+                </div>
+                <span className="opacity-40 font-mono text-[9px]">Ctrl+C</span>
+              </button>
+              <button 
+                onClick={() => { setActiveMenu(null); handleEditCommand('paste'); }}
+                className="px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left text-xs cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <Clipboard size={12} />
+                  <span>Paste</span>
+                </div>
+                <span className="opacity-40 font-mono text-[9px]">Ctrl+V</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Tools Menu */}
+        <div className="relative">
+          <button 
+            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'tools' ? null : 'tools'); }}
+            className={cn("px-3 py-1 rounded transition-colors cursor-pointer", themeStyles.menuBtn, activeMenu === 'tools' && "bg-white/10")}
+          >
+            Tools
+          </button>
+          {activeMenu === 'tools' && (
+            <div className={cn("absolute top-full left-0 w-56 border rounded-xl shadow-2xl py-1 mt-1 z-50 flex flex-col backdrop-blur-md", themeStyles.menuDropdown)}>
+              <span className="px-4 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest">Browser Themes</span>
+              <button 
+                onClick={() => { setActiveMenu(null); setBrowserTheme('light'); addNotification('Browser', 'Set theme: Chrome Light', 'info'); }}
+                className={cn("px-4 py-1.5 flex items-center justify-between transition-all text-left text-xs cursor-pointer", browserTheme === 'light' ? "bg-blue-500/10 text-blue-400 font-bold" : "hover:bg-blue-500/10 hover:text-blue-400")}
+              >
+                <div className="flex items-center gap-3">
+                  <Palette size={12} className="text-sky-500" />
+                  <span>Chrome Light</span>
+                </div>
+                {browserTheme === 'light' && <Check size={12} />}
+              </button>
+              <button 
+                onClick={() => { setActiveMenu(null); setBrowserTheme('dark'); addNotification('Browser', 'Set theme: Cosmic Dark', 'info'); }}
+                className={cn("px-4 py-1.5 flex items-center justify-between transition-all text-left text-xs cursor-pointer", browserTheme === 'dark' ? "bg-blue-500/10 text-blue-400 font-bold" : "hover:bg-blue-500/10 hover:text-blue-400")}
+              >
+                <div className="flex items-center gap-3">
+                  <Palette size={12} className="text-slate-500" />
+                  <span>Cosmic Dark</span>
+                </div>
+                {browserTheme === 'dark' && <Check size={12} />}
+              </button>
+              <button 
+                onClick={() => { setActiveMenu(null); setBrowserTheme('sepia'); addNotification('Browser', 'Set theme: Vintage Sepia', 'info'); }}
+                className={cn("px-4 py-1.5 flex items-center justify-between transition-all text-left text-xs cursor-pointer", browserTheme === 'sepia' ? "bg-blue-500/10 text-blue-400 font-bold" : "hover:bg-blue-500/10 hover:text-blue-400")}
+              >
+                <div className="flex items-center gap-3">
+                  <Palette size={12} className="text-amber-600" />
+                  <span>Vintage Sepia</span>
+                </div>
+                {browserTheme === 'sepia' && <Check size={12} />}
+              </button>
+              <button 
+                onClick={() => { setActiveMenu(null); setBrowserTheme('cyber'); addNotification('Browser', 'Set theme: Cyber Neon', 'info'); }}
+                className={cn("px-4 py-1.5 flex items-center justify-between transition-all text-left text-xs cursor-pointer", browserTheme === 'cyber' ? "bg-blue-500/10 text-blue-400 font-bold" : "hover:bg-blue-500/10 hover:text-blue-400")}
+              >
+                <div className="flex items-center gap-3">
+                  <Palette size={12} className="text-purple-500" />
+                  <span>Cyber Neon</span>
+                </div>
+                {browserTheme === 'cyber' && <Check size={12} />}
+              </button>
+              <button 
+                onClick={() => { setActiveMenu(null); setBrowserTheme('mint'); addNotification('Browser', 'Set theme: Mint Breeze', 'info'); }}
+                className={cn("px-4 py-1.5 flex items-center justify-between transition-all text-left text-xs cursor-pointer", browserTheme === 'mint' ? "bg-blue-500/10 text-blue-400 font-bold" : "hover:bg-blue-500/10 hover:text-blue-400")}
+              >
+                <div className="flex items-center gap-3">
+                  <Palette size={12} className="text-teal-500" />
+                  <span>Mint Breeze</span>
+                </div>
+                {browserTheme === 'mint' && <Check size={12} />}
+              </button>
+              
+              <div className="h-[1px] bg-slate-200/20 my-1" />
+              <span className="px-4 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest">Scripting Tools</span>
+              <button 
+                onClick={() => { setActiveMenu(null); setShowScriptConsole(!showScriptConsole); }}
+                className={cn("px-4 py-1.5 flex items-center gap-3 transition-all text-left text-xs cursor-pointer", showScriptConsole ? "bg-blue-500/10 text-blue-400 font-bold" : "hover:bg-blue-500/10 hover:text-blue-400")}
+              >
+                <TerminalIcon size={12} />
+                <span>JavaScript Console</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Tabs Menu */}
+        <div className="relative">
+          <button 
+            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'tabs' ? null : 'tabs'); }}
+            className={cn("px-3 py-1 rounded transition-colors cursor-pointer", themeStyles.menuBtn, activeMenu === 'tabs' && "bg-white/10")}
+          >
+            Tabs
+          </button>
+          {activeMenu === 'tabs' && (
+            <div className={cn("absolute top-full left-0 w-56 border rounded-xl shadow-2xl py-1 mt-1 z-50 flex flex-col backdrop-blur-md", themeStyles.menuDropdown)}>
+              <span className="px-4 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest">Tab Navigation</span>
+              <button 
+                onClick={() => { setActiveMenu(null); setShowTabSwitcher(true); }}
+                className="px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left text-xs cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <Search size={12} />
+                  <span>Search Open Tabs...</span>
+                </div>
+                <span className="opacity-40 font-mono text-[9px]">({tabs.length})</span>
+              </button>
+              <button 
+                onClick={() => { setActiveMenu(null); addTab(); }}
+                className="px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left text-xs cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <Plus size={12} />
+                  <span>New Tab</span>
+                </div>
+                <span className="opacity-40 font-mono text-[9px]">Ctrl+T</span>
+              </button>
+              <button 
+                disabled={recentlyClosed.length === 0}
+                onClick={() => { 
+                  setActiveMenu(null); 
+                  if (recentlyClosed.length > 0) {
+                    const last = recentlyClosed[0];
+                    setTabs(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), url: last.url, title: last.title, localContent: last.localContent }]);
+                    setRecentlyClosed(prev => prev.slice(1));
+                    addNotification('Browser', `Reopened tab: ${last.title || last.url}`, 'success');
+                  }
+                }}
+                className="px-4 py-1.5 flex items-center gap-3 hover:bg-blue-500/10 hover:text-blue-400 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-current transition-all text-left text-xs cursor-pointer"
+              >
+                <Undo size={12} />
+                <span>Reopen Closed Tab</span>
+              </button>
+
+              <div className="h-[1px] bg-slate-200/20 my-1" />
+              <span className="px-4 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest">Active Tab Actions</span>
+              <button 
+                onClick={() => { 
+                  setActiveMenu(null);
+                  setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, pinned: !t.pinned } : t));
+                  const isPinnedNow = !activeTab.pinned;
+                  addNotification('Browser', isPinnedNow ? 'Tab pinned to front' : 'Tab unpinned', 'info');
+                }}
+                className="px-4 py-1.5 flex items-center gap-3 hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left text-xs cursor-pointer"
+              >
+                {activeTab.pinned ? <PinOff size={12} /> : <Pin size={12} />}
+                <span>{activeTab.pinned ? 'Unpin Active Tab' : 'Pin Active Tab'}</span>
+              </button>
+              <button 
+                onClick={() => { 
+                  setActiveMenu(null);
+                  const dup = {
+                    id: Math.random().toString(36).substr(2, 9),
+                    url: activeTab.url,
+                    title: activeTab.title ? `${activeTab.title} (Copy)` : undefined,
+                    localContent: activeTab.localContent,
+                    groupId: activeTab.groupId
+                  };
+                  setTabs(prev => [...prev, dup]);
+                  setActiveTabId(dup.id);
+                  addNotification('Browser', 'Tab duplicated', 'success');
+                }}
+                className="px-4 py-1.5 flex items-center gap-3 hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left text-xs cursor-pointer"
+              >
+                <Copy size={12} />
+                <span>Duplicate Active Tab</span>
+              </button>
+              <button 
+                onClick={() => { 
+                  setActiveMenu(null);
+                  setEditingTabTitleId(activeTabId);
+                  setEditingTabTitleVal(activeTab.title || getTabDisplayTitle(activeTab));
+                }}
+                className="px-4 py-1.5 flex items-center gap-3 hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left text-xs cursor-pointer"
+              >
+                <Edit2 size={12} />
+                <span>Rename Active Tab...</span>
+              </button>
+              <button 
+                onClick={() => { 
+                  setActiveMenu(null);
+                  setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, isMuted: !t.isMuted } : t));
+                }}
+                className="px-4 py-1.5 flex items-center gap-3 hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left text-xs cursor-pointer"
+              >
+                {activeTab.isMuted ? <Volume2 size={12} /> : <EyeOff size={12} />}
+                <span>{activeTab.isMuted ? 'Unmute Active Tab' : 'Mute Active Tab'}</span>
+              </button>
+
+              <div className="h-[1px] bg-slate-200/20 my-1" />
+              <button 
+                disabled={tabs.length === 1}
+                onClick={() => { 
+                  setActiveMenu(null);
+                  closeOtherTabs(activeTabId);
+                }}
+                className="px-4 py-1.5 flex items-center gap-3 hover:bg-blue-500/10 hover:text-blue-400 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-current transition-all text-left text-xs cursor-pointer"
+              >
+                <Trash size={12} />
+                <span>Close Other Tabs</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Help Menu */}
+        <div className="relative">
+          <button 
+            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'help' ? null : 'help'); }}
+            className={cn("px-3 py-1 rounded transition-colors cursor-pointer", themeStyles.menuBtn, activeMenu === 'help' && "bg-white/10")}
+          >
+            Help
+          </button>
+          {activeMenu === 'help' && (
+            <div className={cn("absolute top-full left-0 w-48 border rounded-xl shadow-2xl py-1 mt-1 z-50 flex flex-col backdrop-blur-md", themeStyles.menuDropdown)}>
+              <button 
+                onClick={() => { setActiveMenu(null); setShowShortcutsHelp(true); }}
+                className="px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left text-xs cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <Keyboard size={12} />
+                  <span>Keyboard Shortcuts</span>
+                </div>
+                <span className="opacity-40 font-mono text-[9px]">Ctrl+/</span>
+              </button>
+              <button 
+                onClick={() => { setActiveMenu(null); setShowAbout(true); }}
+                className="px-4 py-1.5 flex items-center gap-3 hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left text-xs cursor-pointer"
+              >
+                <Info size={12} />
+                <span>About Browser</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="ml-auto text-[9px] opacity-30 font-mono flex items-center gap-1.5 select-none">
+          <Palette size={10} />
+          <span>THEME: {browserTheme.toUpperCase()}</span>
+        </div>
+      </div>
+
+      {/* Tab Bar */}
+      <div className={cn("h-10 flex items-center px-2 gap-1 overflow-x-auto no-scrollbar pt-2 transition-all relative z-30", themeStyles.tabBar)}>
+        {/* Search switcher quick button */}
+        <button 
+          onClick={() => setShowTabSwitcher(true)}
+          className="p-1.5 hover:bg-black/5 rounded-lg transition-colors text-slate-500 mr-1 cursor-pointer shrink-0"
+          title="Search open tabs / Switcher"
+        >
+          <Layers size={13} />
+        </button>
+
+        {sortedTabs.map(tab => {
+          const group = tabGroups.find(g => g.id === tab.groupId);
+          const isPinned = tab.pinned;
+          const isActive = activeTabId === tab.id;
+          const isMuted = tab.isMuted;
+          const tabTitle = getTabDisplayTitle(tab);
+
+          return (
+            <div
+              key={tab.id}
+              onClick={() => setActiveTabId(tab.id)}
+              className={cn(
+                "h-8 rounded-t-lg flex items-center gap-1.5 cursor-pointer transition-all relative group select-none overflow-hidden border-b-0 shrink-0",
+                isPinned ? "px-2.5 w-10 justify-center" : "px-3.5 min-w-[130px] max-w-[190px] flex-1",
+                isActive ? themeStyles.activeTab : themeStyles.inactiveTab
+              )}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const rect = e.currentTarget.getBoundingClientRect();
+                setTabMenuAnchor({ x: rect.left, y: rect.bottom, tabId: tab.id });
+              }}
+              title={isPinned ? `${tabTitle} (Pinned)` : tabTitle}
+            >
+              {/* Group color line on top */}
+              {group && (
+                <div 
+                  className="absolute top-0 left-0 right-0 h-[2.5px] transition-all" 
+                  style={{ backgroundColor: getGroupColorHex(group.color) }}
+                />
+              )}
+
+              {/* Favicon or Pin icon */}
+              {isPinned ? (
+                <Pin 
+                  size={12} 
+                  className={cn(
+                    "transition-transform", 
+                    isActive ? "text-amber-500 fill-amber-500 rotate-45" : "text-slate-400"
+                  )} 
+                />
+              ) : tab.url.startsWith('local://') ? (
+                <Monitor size={12} className={cn(isActive ? "text-teal-500" : "text-slate-400")} />
+              ) : (
+                <Globe size={12} className={cn(isActive ? "text-blue-500" : "text-slate-400")} />
+              )}
+
+              {/* Title / Inline Rename Input */}
+              {!isPinned && (
+                <>
+                  {editingTabTitleId === tab.id ? (
+                    <input
+                      type="text"
+                      value={editingTabTitleVal}
+                      onChange={(e) => setEditingTabTitleVal(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          saveTabTitle(tab.id);
+                        } else if (e.key === 'Escape') {
+                          setEditingTabTitleId(null);
+                        }
+                      }}
+                      onBlur={() => saveTabTitle(tab.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="bg-black/10 text-[10px] text-current rounded px-1 py-0.5 outline-none font-medium flex-1 w-full animate-pulse"
+                      autoFocus
+                    />
+                  ) : (
+                    <span className="text-[10px] truncate flex-1 font-semibold">
+                      {tabTitle}
+                    </span>
+                  )}
+                </>
+              )}
+
+              {/* Mute indicator */}
+              {!isPinned && isMuted && (
+                <span className="text-[8px] bg-red-500/10 text-red-500 font-mono scale-90 px-0.5 rounded shrink-0" title="Muted">MUTED</span>
+              )}
+
+              {/* Tab menu trigger (Three dots) */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setTabMenuAnchor({ x: rect.left, y: rect.bottom, tabId: tab.id });
+                }}
+                className="p-0.5 hover:bg-black/10 rounded transition-colors opacity-0 group-hover:opacity-100 shrink-0 cursor-pointer hidden sm:block"
+                title="Tab Actions"
+              >
+                <MoreVertical size={11} />
+              </button>
+
+              {/* Close tab button */}
+              {!isPinned && tabs.length > 1 && (
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeTab(null, tab.id);
+                  }}
+                  className="p-0.5 hover:bg-slate-200/40 rounded-full transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                >
+                  <X size={10} />
+                </button>
+              )}
+
+              {/* Active Tab bottom highlight indicator */}
+              {isActive && <div className="absolute bottom-0 left-0 right-0 h-[1.5px] bg-blue-500 translate-y-[1px]" />}
+            </div>
+          );
+        })}
+
+        {/* Add Tab Button */}
         <button 
           onClick={addTab}
-          className="p-1.5 hover:bg-black/5 rounded-full transition-colors text-slate-600 ml-1"
+          className="p-1.5 hover:bg-black/5 rounded-full transition-colors text-slate-600 ml-1 cursor-pointer shrink-0"
+          title="Open a new tab"
         >
           <Plus size={14} />
         </button>
       </div>
 
       {/* Toolbar */}
-      <div className="h-12 bg-white flex items-center px-4 gap-4 border-b border-slate-200">
+      <div className={cn("h-12 flex items-center px-4 gap-4 border-b transition-all", themeStyles.toolbar)}>
         <div className="flex gap-1">
-          <button className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400">
+          <button className="p-2 hover:bg-black/5 rounded-full transition-colors text-slate-400">
             <ChevronLeft size={16} />
           </button>
-          <button className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400">
+          <button className="p-2 hover:bg-black/5 rounded-full transition-colors text-slate-400">
             <ChevronRight size={16} />
           </button>
-          <button onClick={() => handleGo()} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-600">
+          <button onClick={() => handleGo()} className="p-2 hover:bg-black/5 rounded-full transition-colors text-slate-600">
             <RefreshCw size={16} />
           </button>
         </div>
@@ -12616,16 +14496,22 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
               <Lock size={12} className={cn(isSecureMode ? "text-green-500" : "text-slate-300")} />
             </div>
             <input 
-              className="w-full bg-[#f1f3f4] border border-transparent rounded-full pl-8 pr-10 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:bg-white focus:border-transparent transition-all"
+              id="browser-url-input"
+              className={cn("w-full border border-transparent rounded-full pl-8 pr-10 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 focus:bg-white focus:border-transparent transition-all", themeStyles.inputBg)}
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               placeholder="Search or enter URL"
             />
             <button 
               type="button"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-amber-400 transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleStarClick();
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-amber-400 transition-colors cursor-pointer"
+              title="Bookmark this page"
             >
-              <Star size={14} fill={favorites.includes(activeTab.url) ? "currentColor" : "none"} />
+              <Star size={14} className={isBookmarked ? "text-amber-400 fill-amber-400" : "text-slate-400"} />
             </button>
           </form>
         </div>
@@ -12634,7 +14520,7 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
           <button 
             onClick={() => setIsSecureMode(!isSecureMode)}
             className={cn(
-              "p-2 rounded-full transition-all",
+              "p-2 rounded-full transition-all cursor-pointer",
               isSecureMode ? "bg-green-500/10 text-green-600" : "text-slate-400 hover:bg-slate-100"
             )}
             title="Secure Mode"
@@ -12656,7 +14542,7 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
               }
             }}
             className={cn(
-              "p-2 rounded-full transition-all",
+              "p-2 rounded-full transition-all cursor-pointer",
               view === 'composer' ? "bg-blue-500/10 text-blue-600" : "text-slate-400 hover:bg-slate-100"
             )}
             title="HTML Composer"
@@ -12666,7 +14552,7 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
           <button 
             onClick={() => setShowHistory(!showHistory)}
             className={cn(
-              "p-2 rounded-full transition-all",
+              "p-2 rounded-full transition-all cursor-pointer",
               showHistory ? "bg-blue-500/10 text-blue-600" : "text-slate-400 hover:bg-slate-100"
             )}
             title="History"
@@ -12675,6 +14561,136 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
           </button>
         </div>
       </div>
+
+      {/* Bookmarks Bar */}
+      <div className={cn("h-9 flex items-center px-4 gap-2 border-b select-none transition-all text-xs z-20 shrink-0", themeStyles.bookmarksBar)}>
+        {/* Star Icon for list / Bookmarks text */}
+        <div className="flex items-center gap-1.5 opacity-60 mr-2 border-r pr-3 border-current/10 shrink-0 font-medium">
+          <Star size={12} className="text-amber-500 fill-amber-500" />
+          <span className="uppercase text-[9px] tracking-wider font-semibold">Bookmarks</span>
+        </div>
+
+        {/* Scrollable Bookmarks List */}
+        <div className="flex-1 flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
+          {bookmarks.length === 0 ? (
+            <span className="text-[10px] opacity-40 italic">No bookmarks yet. Click the star in the address bar to add some!</span>
+          ) : (
+            bookmarks.map(b => {
+              // Custom icon depending on URL
+              let bIcon = <Globe size={11} className="text-blue-500 shrink-0" />;
+              if (b.url.startsWith('local://')) {
+                bIcon = <Monitor size={11} className="text-teal-500 shrink-0" />;
+              } else if (b.url.includes('github.com')) {
+                bIcon = <Code2 size={11} className="text-purple-500 shrink-0" />;
+              }
+
+              return (
+                <button
+                  key={b.id}
+                  onClick={() => {
+                    const localContent = getLocalPageContent(b.url);
+                    setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, url: b.url, localContent } : t));
+                    setUrlInput(b.url);
+                    addNotification('Browser', `Opening bookmark: ${b.title}`, 'info');
+                  }}
+                  className={cn("px-2 py-1 rounded-lg flex items-center gap-1.5 transition-all text-left max-w-[140px] truncate cursor-pointer shrink-0", themeStyles.bookmarksBtn)}
+                  title={`${b.title} (${b.url})`}
+                >
+                  {bIcon}
+                  <span className="truncate font-medium text-[11px]">{b.title}</span>
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        {/* Manage Bookmarks Button */}
+        <button
+          onClick={() => setShowBookmarksManager(true)}
+          className={cn("px-2 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-all border border-current/10 shrink-0 text-[10px] font-semibold uppercase tracking-wider", themeStyles.bookmarksBtn)}
+        >
+          <SettingsIcon size={10} />
+          <span>Manage</span>
+        </button>
+      </div>
+
+      {/* Quick Bookmark Added Popover */}
+      <AnimatePresence>
+        {showBookmarkPopup && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="absolute right-4 top-24 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 z-50 text-slate-800 flex flex-col gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+              <h4 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <Star size={12} className="text-amber-500 fill-amber-500 animate-pulse" />
+                <span>Bookmark Details</span>
+              </h4>
+              <button 
+                onClick={() => setShowBookmarkPopup(false)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer p-0.5 hover:bg-slate-100 rounded"
+              >
+                <X size={12} />
+              </button>
+            </div>
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1">
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Name</label>
+                <input 
+                  type="text" 
+                  value={editingBookmarkName}
+                  onChange={(e) => setEditingBookmarkName(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 focus:bg-white transition-all"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">URL</label>
+                <input 
+                  type="text" 
+                  value={editingBookmarkUrl}
+                  onChange={(e) => setEditingBookmarkUrl(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 focus:bg-white transition-all font-mono"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between pt-2 border-t border-slate-100 gap-2">
+              <button 
+                onClick={() => {
+                  if (editingBookmarkId) {
+                    setBookmarks(prev => prev.filter(b => b.id !== editingBookmarkId));
+                    addNotification('Browser', 'Bookmark removed', 'info');
+                  }
+                  setShowBookmarkPopup(false);
+                }}
+                className="px-3 py-1.5 bg-red-50 hover:bg-red-100 border border-red-100 text-red-600 rounded-lg text-[10px] font-bold transition-all cursor-pointer"
+              >
+                Remove
+              </button>
+              <div className="flex gap-1.5">
+                <button 
+                  onClick={() => setShowBookmarkPopup(false)}
+                  className="px-3 py-1.5 hover:bg-slate-100 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-bold transition-all cursor-pointer"
+                >
+                  Done
+                </button>
+                <button 
+                  onClick={() => {
+                    setBookmarks(prev => prev.map(b => b.id === editingBookmarkId ? { ...b, title: editingBookmarkName, url: editingBookmarkUrl } : b));
+                    addNotification('Browser', 'Bookmark details updated', 'success');
+                    setShowBookmarkPopup(false);
+                  }}
+                  className="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-[10px] font-bold transition-all cursor-pointer shadow-md shadow-blue-500/10"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden bg-white">
@@ -12748,14 +14764,14 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
                       setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, localContent: composerContent } : t));
                     }
                   }}
-                  className="px-3 py-1 bg-blue-500 hover:bg-blue-600 rounded text-[10px] font-bold text-white transition-all flex items-center gap-2"
+                  className="px-3 py-1 bg-blue-500 hover:bg-blue-600 rounded text-[10px] font-bold text-white transition-all flex items-center gap-2 cursor-pointer"
                 >
                   <Save size={12} />
                   Save Changes
                 </button>
                 <button 
                   onClick={() => setView('browser')}
-                  className="p-1 hover:bg-white/10 rounded-lg text-white/40 hover:text-white"
+                  className="p-1 hover:bg-white/10 rounded-lg text-white/40 hover:text-white cursor-pointer"
                 >
                   <X size={14} />
                 </button>
@@ -12775,7 +14791,7 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
                  <button 
                   key={tool.label}
                   onClick={() => setComposerContent(prev => prev + tool.snippet)}
-                  className="px-2 py-0.5 rounded hover:bg-white/10 text-[9px] text-white/40 hover:text-white transition-all font-mono"
+                  className="px-2 py-0.5 rounded hover:bg-white/10 text-[9px] text-white/40 hover:text-white transition-all font-mono cursor-pointer"
                  >
                    {tool.label}
                  </button>
@@ -12787,9 +14803,10 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
                      <span className="text-[9px] text-white/30 uppercase font-bold tracking-tighter">Markdown / HTML Editor</span>
                   </div>
                   <textarea 
+                    id="composer-textarea"
                     value={composerContent}
                     onChange={(e) => setComposerContent(e.target.value)}
-                    className="flex-1 w-full bg-slate-900 text-slate-300 p-4 font-mono text-xs focus:outline-none border-none resize-none no-scrollbar"
+                    className="flex-1 w-full bg-slate-900 text-slate-300 p-4 font-mono text-xs focus:outline-none border-none resize-none no-scrollbar composer"
                     spellCheck={false}
                   />
                </div>
@@ -12821,7 +14838,7 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
                   <Clock size={14} />
                   History
                 </h3>
-                <button onClick={() => setShowHistory(false)} className="text-slate-400 hover:text-slate-600">
+                <button onClick={() => setShowHistory(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
                   <X size={14} />
                 </button>
               </div>
@@ -12830,7 +14847,7 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
                   <button 
                     key={i}
                     onClick={() => setUrlInput(h)}
-                    className="w-full text-left p-2 rounded hover:bg-slate-100 transition-all group"
+                    className="w-full text-left p-2 rounded hover:bg-slate-100 transition-all group cursor-pointer"
                   >
                     <div className="text-[10px] text-slate-800 truncate font-medium">{h}</div>
                   </button>
@@ -12840,6 +14857,1281 @@ function BrowserApp({ fs, fsLib, addNotification }: any) {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Open File Dialog */}
+      <AnimatePresence>
+        {showOpenFile && (
+          <FilePicker 
+            title="Open Web File"
+            fs={fs}
+            fsLib={fsLib}
+            mode="open"
+            allowedExtensions={['html', 'htm', 'txt']}
+            onCancel={() => setShowOpenFile(false)}
+            onSelect={(path, item) => {
+              try {
+                const content = fsLib.read(path);
+                if (content) {
+                  const fileName = path.split('/').pop() || '';
+                  if (path.startsWith('GlassDrive/webpages/') || path.startsWith('/GlassDrive/webpages/')) {
+                    const cleanName = path.replace(/^\/?GlassDrive\/webpages\//, '');
+                    setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, url: `local://${cleanName}`, localContent: content } : t));
+                    setUrlInput(`local://${cleanName}`);
+                  } else {
+                    setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, url: path, localContent: content } : t));
+                    setUrlInput(path);
+                  }
+                  addNotification('Browser', `Opened ${fileName} successfully`, 'success');
+                } else {
+                  addNotification('Browser', `File ${path} is empty or could not be read`, 'warning');
+                }
+              } catch (err) {
+                addNotification('Browser', 'Error reading file', 'error');
+              }
+              setShowOpenFile(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Preferences Modal */}
+      <AnimatePresence>
+        {showPreferences && (
+          <div className="absolute inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowPreferences(false)} 
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm" 
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }} 
+              animate={{ opacity: 1, scale: 1 }} 
+              exit={{ opacity: 0, scale: 0.95 }} 
+              className="relative w-full max-w-md bg-white border border-slate-200 shadow-2xl rounded-3xl overflow-hidden flex flex-col text-slate-800"
+            >
+              {/* Header */}
+              <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                <h3 className="text-xs font-bold uppercase tracking-wider flex items-center gap-2 text-slate-700">
+                  <SettingsIcon size={14} className="text-blue-500" />
+                  <span>Browser Preferences</span>
+                </h3>
+                <button 
+                  onClick={() => setShowPreferences(false)} 
+                  className="text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="p-6 flex flex-col gap-4 text-xs">
+                {/* Search Engine */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-bold text-slate-500 uppercase text-[9px] tracking-wider">Default Search Engine</label>
+                  <select 
+                    value={defaultSearchEngine} 
+                    onChange={(e) => setDefaultSearchEngine(e.target.value as any)}
+                    className="bg-slate-50 border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-blue-400 focus:bg-white transition-all text-xs"
+                  >
+                    <option value="google">Google Search (with iframe isolation override)</option>
+                    <option value="bing">Microsoft Bing</option>
+                    <option value="duckduckgo">DuckDuckGo (Privacy Focused)</option>
+                  </select>
+                </div>
+
+                {/* Homepage */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-bold text-slate-500 uppercase text-[9px] tracking-wider">Default Home Page</label>
+                  <input 
+                    type="text" 
+                    value={defaultHomePage}
+                    onChange={(e) => setDefaultHomePage(e.target.value)}
+                    className="bg-slate-50 border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-blue-400 focus:bg-white transition-all text-xs font-mono"
+                    placeholder="local://home.html"
+                  />
+                </div>
+
+                {/* Security settings */}
+                <div className="flex flex-col gap-2.5 mt-2">
+                  <label className="font-bold text-slate-500 uppercase text-[9px] tracking-wider border-b border-slate-100 pb-1">Security & Content</label>
+                  <label className="flex items-center justify-between cursor-pointer py-0.5">
+                    <span className="text-slate-600">Force HTTPS Secure Mode</span>
+                    <input 
+                      type="checkbox" 
+                      checked={isSecureMode}
+                      onChange={(e) => setIsSecureMode(e.target.checked)}
+                      className="rounded border-slate-300 text-blue-500 focus:ring-blue-400 w-4 h-4 cursor-pointer"
+                    />
+                  </label>
+                  <label className="flex items-center justify-between cursor-pointer py-0.5">
+                    <span className="text-slate-600">Enable Sandbox Block Popups</span>
+                    <input 
+                      type="checkbox" 
+                      defaultChecked={true}
+                      className="rounded border-slate-300 text-blue-500 focus:ring-blue-400 w-4 h-4 cursor-pointer"
+                      disabled
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+                <button 
+                  onClick={() => setShowPreferences(false)} 
+                  className="px-4 py-1.5 hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 transition-all cursor-pointer"
+                >
+                  Close
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowPreferences(false);
+                    addNotification('Browser', 'Preferences saved successfully', 'success');
+                  }} 
+                  className="px-5 py-1.5 bg-blue-500 hover:bg-blue-600 rounded-xl text-xs font-semibold text-white transition-all shadow-lg shadow-blue-500/20 cursor-pointer"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Bookmarks Manager Modal */}
+      <AnimatePresence>
+        {showBookmarksManager && (
+          <div className="absolute inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowBookmarksManager(false)} 
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm" 
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 15 }} 
+              animate={{ opacity: 1, scale: 1, y: 0 }} 
+              exit={{ opacity: 0, scale: 0.95, y: 15 }} 
+              className="relative w-full max-w-2xl h-[480px] bg-slate-900 border border-white/10 shadow-2xl rounded-3xl overflow-hidden flex flex-col text-slate-100 z-[61]"
+            >
+              {/* Header */}
+              <div className="p-4 bg-slate-950/80 border-b border-white/5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Star size={16} className="text-amber-400 fill-amber-400" />
+                  <span className="text-xs font-bold uppercase tracking-wider font-mono text-slate-300">Bookmarks Manager</span>
+                </div>
+                <button 
+                  onClick={() => setShowBookmarksManager(false)} 
+                  className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5 cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Main Content Split Area */}
+              <div className="flex-1 flex overflow-hidden">
+                {/* Left Panel: Form & Actions */}
+                <div className="w-1/3 border-r border-white/5 p-4 flex flex-col gap-4 bg-slate-950/30">
+                  <div className="flex flex-col gap-1">
+                    <h4 className="text-xs font-bold text-slate-300 font-mono">Add Bookmark</h4>
+                    <p className="text-[10px] text-slate-500">Add a custom shortcut manually.</p>
+                  </div>
+
+                  <form 
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const form = e.currentTarget;
+                      const title = (form.elements.namedItem('bTitle') as HTMLInputElement).value.trim();
+                      const url = (form.elements.namedItem('bUrl') as HTMLInputElement).value.trim();
+                      if (!title || !url) {
+                        addNotification('Bookmarks', 'Title and URL are required', 'error');
+                        return;
+                      }
+                      
+                      const newB = {
+                        id: Math.random().toString(36).substr(2, 9),
+                        title,
+                        url: url.startsWith('http') || url.startsWith('local://') ? url : 'https://' + url
+                      };
+                      setBookmarks(prev => [newB, ...prev]);
+                      form.reset();
+                      addNotification('Bookmarks', `Added "${title}"`, 'success');
+                    }}
+                    className="flex flex-col gap-3"
+                  >
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Title</label>
+                      <input 
+                        name="bTitle"
+                        type="text" 
+                        placeholder="e.g. Google"
+                        required
+                        className="bg-slate-900 border border-white/10 rounded-lg p-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-200"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">URL</label>
+                      <input 
+                        name="bUrl"
+                        type="text" 
+                        placeholder="e.g. google.com"
+                        required
+                        className="bg-slate-900 border border-white/10 rounded-lg p-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-200 font-mono"
+                      />
+                    </div>
+                    <button 
+                      type="submit"
+                      className="mt-1 w-full bg-blue-500 hover:bg-blue-600 text-white rounded-lg py-2 text-xs font-bold transition-all cursor-pointer shadow-md shadow-blue-500/10 flex items-center justify-center gap-1"
+                    >
+                      <Plus size={12} />
+                      <span>Create Bookmark</span>
+                    </button>
+                  </form>
+
+                  <div className="mt-auto pt-4 border-t border-white/5 flex flex-col gap-2">
+                    <button 
+                      onClick={() => {
+                        try {
+                          const content = JSON.stringify(bookmarks, null, 2);
+                          fsLib.write('/GlassDrive/bookmarks_export.json', content);
+                          
+                          // Also prompt native file download in browser
+                          const blob = new Blob([content], { type: 'application/json' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = 'bookmarks.json';
+                          a.click();
+                          URL.revokeObjectURL(url);
+
+                          addNotification('Bookmarks', 'Exported bookmarks to GlassDrive/bookmarks_export.json and downloaded successfully', 'success');
+                        } catch (err) {
+                          addNotification('Bookmarks', 'Export failed', 'error');
+                        }
+                      }}
+                      className="w-full py-1.5 hover:bg-white/5 border border-white/10 rounded-lg text-slate-300 hover:text-white text-[10px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Download size={11} />
+                      <span>Export (JSON)</span>
+                    </button>
+                    
+                    <button 
+                      onClick={() => {
+                        if (confirm("Are you sure you want to clear all bookmarks? This cannot be undone.")) {
+                          setBookmarks([]);
+                          addNotification('Bookmarks', 'Cleared all bookmarks', 'info');
+                        }
+                      }}
+                      className="w-full py-1.5 hover:bg-red-950/20 hover:text-red-400 border border-red-500/10 rounded-lg text-slate-400 text-[10px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Trash2 size={11} />
+                      <span>Clear All</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Right Panel: Scrollable Bookmark List & Search */}
+                <div className="flex-1 flex flex-col p-4 gap-3">
+                  {/* Search Bar */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={13} />
+                    <input 
+                      type="text" 
+                      placeholder="Search bookmarks by title or URL..." 
+                      value={bookmarksSearchQuery}
+                      onChange={(e) => setBookmarksSearchQuery(e.target.value)}
+                      className="w-full bg-slate-950 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all font-mono"
+                    />
+                    {bookmarksSearchQuery && (
+                      <button 
+                        onClick={() => setBookmarksSearchQuery('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Bookmark Grid / List */}
+                  <div className="flex-1 overflow-y-auto pr-1 space-y-2 no-scrollbar">
+                    {(() => {
+                      const filtered = bookmarks.filter(b => 
+                        b.title.toLowerCase().includes(bookmarksSearchQuery.toLowerCase()) ||
+                        b.url.toLowerCase().includes(bookmarksSearchQuery.toLowerCase())
+                      );
+
+                      if (filtered.length === 0) {
+                        return (
+                          <div className="h-full flex flex-col items-center justify-center text-center p-8 border border-dashed border-white/5 rounded-2xl bg-slate-950/10">
+                            <Star size={24} className="text-slate-600 mb-2" />
+                            <p className="text-xs font-semibold text-slate-400">No bookmarks found</p>
+                            <p className="text-[10px] text-slate-600 mt-1">Try another search or add a bookmark manually.</p>
+                          </div>
+                        );
+                      }
+
+                      return filtered.map(b => (
+                        <div 
+                          key={b.id} 
+                          className="flex items-center justify-between p-3 rounded-xl border border-white/5 bg-slate-950/20 hover:bg-slate-950/50 hover:border-white/10 transition-all gap-4 group"
+                        >
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className="p-2 rounded-lg bg-slate-900 border border-white/5 shrink-0">
+                              {b.url.startsWith('local://') ? (
+                                <Monitor size={14} className="text-teal-400" />
+                              ) : b.url.includes('github.com') ? (
+                                <Code2 size={14} className="text-purple-400" />
+                              ) : (
+                                <Globe size={14} className="text-blue-400" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1 flex flex-col">
+                              <input 
+                                type="text"
+                                value={b.title}
+                                onChange={(e) => {
+                                  const newTitle = e.target.value;
+                                  setBookmarks(prev => prev.map(item => item.id === b.id ? { ...item, title: newTitle } : item));
+                                }}
+                                className="bg-transparent border-none text-xs font-bold text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500/50 rounded px-1 -ml-1 w-full"
+                              />
+                              <input 
+                                type="text"
+                                value={b.url}
+                                onChange={(e) => {
+                                  const newUrl = e.target.value;
+                                  setBookmarks(prev => prev.map(item => item.id === b.id ? { ...item, url: newUrl } : item));
+                                }}
+                                className="bg-transparent border-none text-[10px] font-mono text-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50 rounded px-1 -ml-1 w-full truncate mt-0.5"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button 
+                              onClick={() => {
+                                const localContent = getLocalPageContent(b.url);
+                                setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, url: b.url, localContent } : t));
+                                setUrlInput(b.url);
+                                setShowBookmarksManager(false);
+                                addNotification('Browser', `Navigated to ${b.title}`, 'info');
+                              }}
+                              className="p-1.5 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 rounded-lg transition-all cursor-pointer"
+                              title="Go to Bookmarked URL"
+                            >
+                              <ArrowUpRight size={14} />
+                            </button>
+                            <button 
+                              onClick={() => {
+                                setBookmarks(prev => prev.filter(item => item.id !== b.id));
+                                addNotification('Bookmarks', `Removed "${b.title}"`, 'info');
+                              }}
+                              className="p-1.5 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-lg transition-all cursor-pointer"
+                              title="Delete Bookmark"
+                            >
+                              <Trash size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Tab Switcher / Advanced Tab Manager Modal */}
+      <AnimatePresence>
+        {showTabSwitcher && (
+          <div className="absolute inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowTabSwitcher(false)} 
+              className="absolute inset-0 bg-black/70 backdrop-blur-sm" 
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 15 }} 
+              animate={{ opacity: 1, scale: 1, y: 0 }} 
+              exit={{ opacity: 0, scale: 0.95, y: 15 }} 
+              className="relative w-full max-w-3xl h-[520px] bg-slate-900 border border-white/10 shadow-2xl rounded-3xl overflow-hidden flex flex-col text-slate-100 z-[61]"
+            >
+              {/* Header */}
+              <div className="p-4 bg-slate-950/80 border-b border-white/5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Layers size={16} className="text-blue-400" />
+                  <span className="text-xs font-bold uppercase tracking-wider font-mono text-slate-300">Tab Switcher & Manager</span>
+                </div>
+                <button 
+                  onClick={() => setShowTabSwitcher(false)} 
+                  className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5 cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Search Bar */}
+              <div className="p-4 bg-slate-950/30 border-b border-white/5">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+                  <input 
+                    type="text" 
+                    placeholder="Search active tabs by name, URL, or group..." 
+                    value={tabSwitcherSearch}
+                    onChange={(e) => setTabSwitcherSearch(e.target.value)}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl pl-9 pr-10 py-2.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all font-mono"
+                  />
+                  {tabSwitcherSearch && (
+                    <button 
+                      onClick={() => setTabSwitcherSearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Main Area Split */}
+              <div className="flex-1 flex overflow-hidden">
+                {/* Left Panel: Active Tabs List */}
+                <div className="w-3/5 border-r border-white/5 flex flex-col">
+                  <div className="px-4 py-2 bg-slate-950/45 border-b border-white/5 flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active Tabs ({tabs.length})</span>
+                    <button 
+                      onClick={() => {
+                        addTab();
+                        setShowTabSwitcher(false);
+                      }}
+                      className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center gap-1 font-bold cursor-pointer"
+                    >
+                      <Plus size={10} />
+                      <span>New Tab</span>
+                    </button>
+                  </div>
+                  
+                  <div className="flex-1 overflow-y-auto p-4 space-y-2 no-scrollbar">
+                    {(() => {
+                      const filtered = tabs.filter(t => {
+                        const title = getTabDisplayTitle(t).toLowerCase();
+                        const url = t.url.toLowerCase();
+                        const group = tabGroups.find(g => g.id === t.groupId)?.name.toLowerCase() || '';
+                        const query = tabSwitcherSearch.toLowerCase();
+                        return title.includes(query) || url.includes(query) || group.includes(query);
+                      });
+
+                      if (filtered.length === 0) {
+                        return (
+                          <div className="h-full flex flex-col items-center justify-center text-center p-8">
+                            <Layers size={24} className="text-slate-600 mb-2" />
+                            <p className="text-xs font-semibold text-slate-400">No active tabs match search</p>
+                          </div>
+                        );
+                      }
+
+                      return filtered.map(t => {
+                        const g = tabGroups.find(group => group.id === t.groupId);
+                        return (
+                          <div 
+                            key={t.id}
+                            className={cn(
+                              "flex items-center justify-between p-2.5 rounded-xl border transition-all gap-4 group cursor-pointer",
+                              activeTabId === t.id 
+                                ? "bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/15" 
+                                : "bg-slate-950/20 border-white/5 hover:bg-slate-950/40 hover:border-white/10"
+                            )}
+                            onClick={() => {
+                              setActiveTabId(t.id);
+                              setShowTabSwitcher(false);
+                            }}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div className="p-2 rounded-lg bg-slate-900 border border-white/5 shrink-0 relative">
+                                {t.pinned ? (
+                                  <Pin size={13} className="text-amber-400 fill-amber-400" />
+                                ) : t.url.startsWith('local://') ? (
+                                  <Monitor size={13} className="text-teal-400" />
+                                ) : (
+                                  <Globe size={13} className="text-blue-400" />
+                                )}
+                              </div>
+                              
+                              <div className="min-w-0 flex-1 flex flex-col">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-bold text-slate-200 truncate">{getTabDisplayTitle(t)}</span>
+                                  {g && (
+                                    <span 
+                                      className="px-1 py-0.2 rounded text-[8px] font-extrabold uppercase tracking-wider shrink-0"
+                                      style={{ backgroundColor: `${getGroupColorHex(g.color)}15`, color: getGroupColorHex(g.color), border: `1px solid ${getGroupColorHex(g.color)}25` }}
+                                    >
+                                      {g.name}
+                                    </span>
+                                  )}
+                                  {t.isMuted && (
+                                    <span className="text-red-400 text-[8px] border border-red-500/20 px-1 py-0.2 rounded font-mono uppercase tracking-wider shrink-0">MUTED</span>
+                                  )}
+                                </div>
+                                <span className="text-[10px] font-mono text-slate-500 truncate mt-0.5">{t.url}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setTabs(prev => prev.map(tab => tab.id === t.id ? { ...tab, pinned: !tab.pinned } : tab));
+                                }}
+                                className="p-1 hover:bg-white/5 rounded-lg text-slate-400 hover:text-amber-400 transition-colors cursor-pointer"
+                                title={t.pinned ? "Unpin Tab" : "Pin Tab"}
+                              >
+                                {t.pinned ? <PinOff size={12} /> : <Pin size={12} />}
+                              </button>
+                              {tabs.length > 1 && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    closeTab(null, t.id);
+                                  }}
+                                  className="p-1 hover:bg-red-500/20 rounded-lg text-slate-400 hover:text-red-400 transition-colors cursor-pointer"
+                                  title="Close Tab"
+                                >
+                                  <X size={12} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+
+                {/* Right Panel: Tab Groups & Recently Closed */}
+                <div className="w-2/5 flex flex-col bg-slate-950/20">
+                  {/* Section 1: Recently Closed */}
+                  <div className="flex-1 flex flex-col border-b border-white/5">
+                    <div className="px-4 py-2 bg-slate-950/45 border-b border-white/5 flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Recently Closed</span>
+                      {recentlyClosed.length > 0 && (
+                        <button 
+                          onClick={() => {
+                            setRecentlyClosed([]);
+                            addNotification('Browser', 'Cleared recently closed history', 'info');
+                          }}
+                          className="text-[9px] text-slate-500 hover:text-red-400 font-bold uppercase tracking-wider cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-4 space-y-1.5 no-scrollbar">
+                      {recentlyClosed.length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-center p-4">
+                          <Undo size={16} className="text-slate-700 mb-1" />
+                          <p className="text-[10px] text-slate-500 italic">No recently closed tabs.</p>
+                        </div>
+                      ) : (
+                        recentlyClosed.map((rc, idx) => (
+                          <div 
+                            key={idx}
+                            onClick={() => {
+                              setTabs(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), url: rc.url, title: rc.title, localContent: rc.localContent }]);
+                              setRecentlyClosed(prev => prev.filter((_, i) => i !== idx));
+                              addNotification('Browser', `Restored tab: ${rc.title || rc.url}`, 'success');
+                            }}
+                            className="flex items-center justify-between p-2 rounded-lg bg-slate-950/30 border border-white/5 hover:bg-slate-950/50 hover:border-white/10 cursor-pointer transition-all gap-3 group text-left"
+                            title="Click to Restore Tab"
+                          >
+                            <div className="min-w-0 flex-1 flex flex-col">
+                              <span className="text-xs font-semibold text-slate-300 truncate">{rc.title || rc.url}</span>
+                              <span className="text-[9px] font-mono text-slate-600 truncate mt-0.5">{rc.url}</span>
+                            </div>
+                            <button className="p-1 rounded bg-white/5 text-slate-400 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-all shrink-0">
+                              <RefreshCw size={10} />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Section 2: Tab Groups Manager */}
+                  <div className="flex-1 flex flex-col">
+                    <div className="px-4 py-2 bg-slate-950/45 border-b border-white/5 flex flex-col gap-1">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tab Groups Manager</span>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-4 space-y-2 no-scrollbar">
+                      <form 
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!newGroupName.trim()) return;
+                          const colors = ['blue', 'pink', 'green', 'purple', 'amber', 'red', 'teal'];
+                          const randomColor = colors[Math.floor(Math.random() * colors.length)];
+                          const newG = {
+                            id: Math.random().toString(36).substr(2, 9),
+                            name: newGroupName.trim(),
+                            color: newGroupColor || randomColor
+                          };
+                          setTabGroups(prev => [...prev, newG]);
+                          setNewGroupName('');
+                          addNotification('Browser', `Created tab group "${newG.name}"`, 'success');
+                        }}
+                        className="flex gap-1.5 mb-3"
+                      >
+                        <input 
+                          type="text" 
+                          placeholder="Create group..."
+                          value={newGroupName}
+                          onChange={(e) => setNewGroupName(e.target.value)}
+                          className="flex-1 bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500/50"
+                        />
+                        <select 
+                          value={newGroupColor}
+                          onChange={(e) => setNewGroupColor(e.target.value)}
+                          className="bg-slate-950 border border-white/10 rounded-lg px-1.5 text-xs text-slate-300 focus:outline-none"
+                        >
+                          <option value="blue">Blue</option>
+                          <option value="pink">Pink</option>
+                          <option value="green">Green</option>
+                          <option value="purple">Purple</option>
+                          <option value="amber">Amber</option>
+                          <option value="red">Red</option>
+                          <option value="teal">Teal</option>
+                        </select>
+                        <button 
+                          type="submit"
+                          className="bg-blue-500 hover:bg-blue-600 text-white rounded-lg px-2.5 text-xs font-bold transition-all cursor-pointer flex items-center justify-center"
+                        >
+                          <Plus size={12} />
+                        </button>
+                      </form>
+
+                      <div className="space-y-1.5">
+                        {tabGroups.map(g => {
+                          const tabCount = tabs.filter(t => t.groupId === g.id).length;
+                          return (
+                            <div 
+                              key={g.id}
+                              className="flex items-center justify-between p-2 rounded-lg bg-slate-950/20 border border-white/5 hover:bg-slate-950/35 transition-all gap-3"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: getGroupColorHex(g.color) }} />
+                                <span className="text-xs font-bold text-slate-300 truncate">{g.name}</span>
+                                <span className="text-[9px] font-mono text-slate-500 font-bold bg-white/5 border border-white/5 px-1 py-0.2 rounded-md shrink-0">
+                                  {tabCount} tab{tabCount !== 1 ? 's' : ''}
+                                </span>
+                              </div>
+                              
+                              <button 
+                                onClick={() => {
+                                  setTabGroups(prev => prev.filter(item => item.id !== g.id));
+                                  setTabs(prev => prev.map(t => t.groupId === g.id ? { ...t, groupId: undefined } : t));
+                                  addNotification('Browser', `Deleted tab group "${g.name}"`, 'info');
+                                }}
+                                className="p-1 hover:bg-red-500/20 rounded text-slate-500 hover:text-red-400 transition-colors cursor-pointer"
+                                title="Delete Group"
+                              >
+                                <Trash size={10} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Tab Context Menu */}
+      {tabMenuAnchor && (
+        <>
+          <div 
+            className="absolute inset-0 z-40 cursor-default" 
+            onClick={() => setTabMenuAnchor(null)}
+            onContextMenu={(e) => { e.preventDefault(); setTabMenuAnchor(null); }}
+          />
+          <div 
+            className={cn("absolute z-50 w-52 border rounded-xl shadow-2xl py-1 flex flex-col backdrop-blur-md text-xs", themeStyles.menuDropdown)}
+            style={{ left: `${Math.min(tabMenuAnchor.x, 800 - 220)}px`, top: `40px` }}
+          >
+            {(() => {
+              const tab = tabs.find(t => t.id === tabMenuAnchor.tabId);
+              if (!tab) return null;
+              return (
+                <>
+                  <span className="px-3 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest block font-mono">Tab Actions</span>
+                  <button 
+                    onClick={() => {
+                      setTabs(prev => prev.map(t => t.id === tabMenuAnchor.tabId ? { ...t, pinned: !t.pinned } : t));
+                      setTabMenuAnchor(null);
+                      addNotification('Browser', tab.pinned ? 'Tab unpinned' : 'Tab pinned to front', 'info');
+                    }}
+                    className="px-4 py-1.5 flex items-center gap-2 hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left w-full cursor-pointer"
+                  >
+                    {tab.pinned ? <PinOff size={11} /> : <Pin size={11} />}
+                    <span>{tab.pinned ? 'Unpin Tab' : 'Pin Tab'}</span>
+                  </button>
+                  <button 
+                    onClick={() => {
+                      const dup = {
+                        id: Math.random().toString(36).substr(2, 9),
+                        url: tab.url,
+                        title: tab.title ? `${tab.title} (Copy)` : undefined,
+                        localContent: tab.localContent,
+                        groupId: tab.groupId
+                      };
+                      setTabs(prev => [...prev, dup]);
+                      setActiveTabId(dup.id);
+                      setTabMenuAnchor(null);
+                      addNotification('Browser', 'Tab duplicated', 'success');
+                    }}
+                    className="px-4 py-1.5 flex items-center gap-2 hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left w-full cursor-pointer"
+                  >
+                    <Copy size={11} />
+                    <span>Duplicate Tab</span>
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setEditingTabTitleId(tab.id);
+                      setEditingTabTitleVal(tab.title || getTabDisplayTitle(tab));
+                      setTabMenuAnchor(null);
+                    }}
+                    className="px-4 py-1.5 flex items-center gap-2 hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left w-full cursor-pointer"
+                  >
+                    <Edit2 size={11} />
+                    <span>Rename Tab...</span>
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setTabs(prev => prev.map(t => t.id === tabMenuAnchor.tabId ? { ...t, isMuted: !t.isMuted } : t));
+                      setTabMenuAnchor(null);
+                    }}
+                    className="px-4 py-1.5 flex items-center gap-2 hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left w-full cursor-pointer"
+                  >
+                    {tab.isMuted ? <Volume2 size={11} /> : <EyeOff size={11} />}
+                    <span>{tab.isMuted ? 'Unmute Tab' : 'Mute Tab'}</span>
+                  </button>
+
+                  {/* Grouping section */}
+                  <div className="border-t border-white/5 my-1" />
+                  <span className="px-3 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-widest block font-mono">Tab Groups</span>
+                  {tabGroups.map(g => (
+                    <button
+                      key={g.id}
+                      onClick={() => {
+                        setTabs(prev => prev.map(t => t.id === tabMenuAnchor.tabId ? { ...t, groupId: t.groupId === g.id ? undefined : g.id } : t));
+                        setTabMenuAnchor(null);
+                        addNotification('Browser', tab.groupId === g.id ? `Tab removed from group "${g.name}"` : `Tab added to group "${g.name}"`, 'success');
+                      }}
+                      className="px-4 py-1 flex items-center justify-between hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left w-full cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: getGroupColorHex(g.color) }} />
+                        <span className="truncate max-w-[110px]">{g.name}</span>
+                      </div>
+                      {tab.groupId === g.id && <Check size={10} className="text-blue-400" />}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => {
+                      const gName = prompt("Enter new tab group name:");
+                      if (gName && gName.trim()) {
+                        const colors = ['blue', 'pink', 'green', 'purple', 'amber', 'red', 'teal'];
+                        const randomColor = colors[Math.floor(Math.random() * colors.length)];
+                        const newId = Math.random().toString(36).substr(2, 9);
+                        setTabGroups(prev => [...prev, { id: newId, name: gName.trim(), color: randomColor }]);
+                        setTabs(prev => prev.map(t => t.id === tabMenuAnchor.tabId ? { ...t, groupId: newId } : t));
+                        addNotification('Browser', `Created and assigned to group "${gName}"`, 'success');
+                      }
+                      setTabMenuAnchor(null);
+                    }}
+                    className="px-4 py-1 flex items-center gap-2 hover:bg-blue-500/10 hover:text-blue-400 transition-all text-left w-full cursor-pointer text-slate-400 font-medium"
+                  >
+                    <Plus size={10} />
+                    <span>New Group...</span>
+                  </button>
+
+                  {/* Close Tab Actions */}
+                  <div className="border-t border-white/5 my-1" />
+                  {tabs.length > 1 && (
+                    <button 
+                      onClick={() => {
+                        closeTab(null, tabMenuAnchor.tabId);
+                        setTabMenuAnchor(null);
+                      }}
+                      className="px-4 py-1.5 flex items-center gap-2 hover:bg-red-500/10 text-red-400 transition-all text-left w-full cursor-pointer"
+                    >
+                      <X size={11} />
+                      <span>Close Tab</span>
+                    </button>
+                  )}
+                  <button 
+                    onClick={() => {
+                      closeOtherTabs(tabMenuAnchor.tabId);
+                      setTabMenuAnchor(null);
+                    }}
+                    className="px-4 py-1.5 flex items-center gap-2 hover:bg-red-500/10 text-red-400 transition-all text-left w-full cursor-pointer"
+                  >
+                    <Trash size={11} />
+                    <span>Close Other Tabs</span>
+                  </button>
+                  <button 
+                    onClick={() => {
+                      closeTabsToRight(tabMenuAnchor.tabId);
+                      setTabMenuAnchor(null);
+                    }}
+                    className="px-4 py-1.5 flex items-center gap-2 hover:bg-red-500/10 text-red-400 transition-all text-left w-full cursor-pointer"
+                  >
+                    <ArrowLeftRight size={11} />
+                    <span>Close Tabs to the Right</span>
+                  </button>
+                </>
+              );
+            })()}
+          </div>
+        </>
+      )}
+
+      {/* About App Modal */}
+      <AnimatePresence>
+        {showAbout && (
+          <div className="absolute inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowAbout(false)} 
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm" 
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }} 
+              animate={{ opacity: 1, scale: 1 }} 
+              exit={{ opacity: 0, scale: 0.95 }} 
+              className="relative w-full max-w-sm bg-gradient-to-b from-slate-900 to-slate-950 border border-white/10 shadow-2xl rounded-3xl overflow-hidden flex flex-col text-white"
+            >
+              {/* Header */}
+              <div className="p-4 flex items-center justify-between">
+                <span className="text-[10px] font-mono tracking-widest text-white/30 uppercase">System Application Info</span>
+                <button 
+                  onClick={() => setShowAbout(false)} 
+                  className="text-white/40 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5 cursor-pointer"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="p-6 flex flex-col items-center text-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center shadow-xl shadow-blue-500/20">
+                  <Globe size={28} className="text-white animate-pulse" />
+                </div>
+                
+                <div className="flex flex-col gap-1">
+                  <h3 className="text-base font-bold tracking-tight">GlassOS Browser</h3>
+                  <p className="text-[10px] font-mono text-blue-400">Version 4.0.0 (Build 2026.07)</p>
+                </div>
+
+                <p className="text-xs text-white/60 leading-relaxed max-w-xs">
+                  A modern, secure web browser and developer workshop built exclusively for the GlassOS environment. Features integrated Sandboxed Scripting and HTML Live Composer.
+                </p>
+
+                <div className="w-full h-[1px] bg-white/10 my-1" />
+
+                <div className="w-full text-left bg-black/30 rounded-xl p-3 border border-white/5 font-mono text-[9px] text-white/50 space-y-1">
+                  <div>Engine: WebKit/Chromium Sandbox</div>
+                  <div>Kernel: ESNext Native Virtual Core</div>
+                  <div>Local Drive Hook: /GlassDrive/webpages/</div>
+                </div>
+
+                <p className="text-[9px] text-white/30">© 2026 GlassOS Foundation. All rights reserved.</p>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-black/20 flex justify-center">
+                <button 
+                  onClick={() => setShowAbout(false)} 
+                  className="px-6 py-1.5 bg-white/10 hover:bg-white/15 border border-white/10 rounded-xl text-xs font-semibold text-white transition-all cursor-pointer"
+                >
+                  Acknowledge
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Keyboard Shortcuts Help Modal */}
+      <AnimatePresence>
+        {showShortcutsHelp && (
+          <div className="absolute inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowShortcutsHelp(false)} 
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm" 
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }} 
+              animate={{ opacity: 1, scale: 1 }} 
+              exit={{ opacity: 0, scale: 0.95 }} 
+              className="relative w-full max-w-lg bg-slate-900 border border-slate-700/50 shadow-2xl rounded-3xl overflow-hidden flex flex-col text-slate-100 max-h-[85vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="p-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Keyboard size={16} className="text-blue-400" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                    GlassOS Keyboard Shortcuts
+                  </h3>
+                </div>
+                <button 
+                  onClick={() => setShowShortcutsHelp(false)} 
+                  className="text-slate-400 hover:text-slate-200 transition-colors p-1 rounded-lg hover:bg-slate-800 cursor-pointer"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              {/* Search Bar */}
+              <div className="p-3 bg-slate-900/50 border-b border-slate-800/60">
+                <div className="relative">
+                  <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search shortcuts (e.g., 'tab', 'bookmark', 'ctrl+w')..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-4 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500/50 text-slate-200 placeholder-slate-500 transition-all"
+                    id="shortcut-search"
+                    onChange={(e) => {
+                      const q = e.target.value.toLowerCase();
+                      const items = document.querySelectorAll('.shortcut-item');
+                      const sections = document.querySelectorAll('.shortcut-section');
+                      
+                      sections.forEach((section: any) => {
+                        let sectionHasVisible = false;
+                        const sectionItems = section.querySelectorAll('.shortcut-item');
+                        sectionItems.forEach((item: any) => {
+                          const text = item.innerText.toLowerCase();
+                          if (text.includes(q)) {
+                            item.style.display = 'flex';
+                            sectionHasVisible = true;
+                          } else {
+                            item.style.display = 'none';
+                          }
+                        });
+                        section.style.display = sectionHasVisible ? 'block' : 'none';
+                      });
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Scrollable Content */}
+              <div className="p-4 overflow-y-auto space-y-5 scrollbar-thin scrollbar-thumb-slate-800 text-xs">
+                {/* Tab Management Section */}
+                <div className="shortcut-section space-y-2">
+                  <h4 className="text-[10px] font-bold text-blue-400 uppercase tracking-widest border-b border-slate-800/60 pb-1">Tab Management</h4>
+                  <div className="space-y-1">
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Open a new tab</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Ctrl</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">T</kbd>
+                        <button onClick={() => { addTab(); addNotification('Browser', 'Opened new tab via Shortcuts helper', 'success'); }} className="ml-2 px-2 py-0.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] rounded-lg border border-blue-500/20 transition-all cursor-pointer">Try</button>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Close active tab</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Ctrl</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">W</kbd>
+                        <button onClick={() => { if (tabs.length > 1) { closeTab(null, activeTabId); } else { addNotification('Browser', 'Cannot close only tab', 'warning'); } }} className="ml-2 px-2 py-0.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] rounded-lg border border-blue-500/20 transition-all cursor-pointer">Try</button>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Reopen last closed tab</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Ctrl</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Shift</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">T</kbd>
+                        <button disabled={recentlyClosed.length === 0} onClick={() => { if (recentlyClosed.length > 0) { const last = recentlyClosed[0]; setTabs(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), url: last.url, title: last.title, localContent: last.localContent }]); setRecentlyClosed(prev => prev.slice(1)); addNotification('Browser', `Reopened tab: ${last.title || last.url}`, 'success'); } }} className="ml-2 px-2 py-0.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] rounded-lg border border-blue-500/20 transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed">Try</button>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Cycle to next tab</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Ctrl</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Tab</kbd>
+                        <button onClick={() => { const currentIndex = sortedTabs.findIndex(t => t.id === activeTabId); if (currentIndex !== -1 && sortedTabs.length > 0) { const nextIndex = (currentIndex + 1) % sortedTabs.length; setActiveTabId(sortedTabs[nextIndex].id); } }} className="ml-2 px-2 py-0.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] rounded-lg border border-blue-500/20 transition-all cursor-pointer">Try</button>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Cycle to previous tab</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Ctrl</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Shift</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Tab</kbd>
+                        <button onClick={() => { const currentIndex = sortedTabs.findIndex(t => t.id === activeTabId); if (currentIndex !== -1 && sortedTabs.length > 0) { const prevIndex = (currentIndex - 1 + sortedTabs.length) % sortedTabs.length; setActiveTabId(sortedTabs[prevIndex].id); } }} className="ml-2 px-2 py-0.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] rounded-lg border border-blue-500/20 transition-all cursor-pointer">Try</button>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Jump directly to tab 1-8</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Ctrl</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">1-8</kbd>
+                        <span className="text-[10px] font-mono text-slate-500 ml-2">Quick Switch</span>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Jump to last tab</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Ctrl</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">9</kbd>
+                        <button onClick={() => { if (sortedTabs.length > 0) { setActiveTabId(sortedTabs[sortedTabs.length - 1].id); } }} className="ml-2 px-2 py-0.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] rounded-lg border border-blue-500/20 transition-all cursor-pointer">Try</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Navigation & Search Section */}
+                <div className="shortcut-section space-y-2">
+                  <h4 className="text-[10px] font-bold text-amber-400 uppercase tracking-widest border-b border-slate-800/60 pb-1">Navigation & Search</h4>
+                  <div className="space-y-1">
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Focus URL address bar</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Ctrl</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">L</kbd>
+                        <span className="text-slate-500 text-[10px]">or</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">K</kbd>
+                        <button onClick={() => { const bar = document.getElementById('browser-url-input'); bar?.focus(); (bar as any)?.select(); }} className="ml-2 px-2 py-0.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] rounded-lg border border-blue-500/20 transition-all cursor-pointer">Try</button>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Open Search Tab Switcher</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Ctrl</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">F</kbd>
+                        <button onClick={() => { setShowTabSwitcher(true); }} className="ml-2 px-2 py-0.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] rounded-lg border border-blue-500/20 transition-all cursor-pointer">Try</button>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Toggle History panel</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Ctrl</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">H</kbd>
+                        <button onClick={() => { setShowHistory(prev => !prev); }} className="ml-2 px-2 py-0.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] rounded-lg border border-blue-500/20 transition-all cursor-pointer">Try</button>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Reload current page</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">F5</kbd>
+                        <button onClick={() => { handleGo(); }} className="ml-2 px-2 py-0.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] rounded-lg border border-blue-500/20 transition-all cursor-pointer">Try</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bookmarks & Settings Section */}
+                <div className="shortcut-section space-y-2">
+                  <h4 className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest border-b border-slate-800/60 pb-1">Bookmarks & Settings</h4>
+                  <div className="space-y-1">
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Bookmark current tab</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Ctrl</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">D</kbd>
+                        <button onClick={() => { handleStarClick(); }} className="ml-2 px-2 py-0.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] rounded-lg border border-blue-500/20 transition-all cursor-pointer">Try</button>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Toggle Bookmarks Manager</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Ctrl</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">B</kbd>
+                        <button onClick={() => { setShowBookmarksManager(prev => !prev); }} className="ml-2 px-2 py-0.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] rounded-lg border border-blue-500/20 transition-all cursor-pointer">Try</button>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Open Preferences dialog</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Ctrl</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">,</kbd>
+                        <button onClick={() => { setShowPreferences(true); }} className="ml-2 px-2 py-0.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] rounded-lg border border-blue-500/20 transition-all cursor-pointer">Try</button>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Print page / Save as PDF</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Ctrl</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">P</kbd>
+                        <button onClick={() => { handlePrint(); }} className="ml-2 px-2 py-0.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] rounded-lg border border-blue-500/20 transition-all cursor-pointer">Try</button>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Toggle HTTPS Secure Mode</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Ctrl</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Shift</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">S</kbd>
+                        <button onClick={() => { setIsSecureMode(!isSecureMode); }} className="ml-2 px-2 py-0.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] rounded-lg border border-blue-500/20 transition-all cursor-pointer">Try</button>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Close open panels & dialogs</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Escape</kbd>
+                        <span className="text-[10px] font-mono text-slate-500 ml-2">Quick Exit</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+                <span>Press <span className="font-bold text-white font-mono bg-slate-800 px-1 rounded">Esc</span> at any time to close dialogs</span>
+                <button 
+                  onClick={() => setShowShortcutsHelp(false)} 
+                  className="px-5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white border border-blue-500/30 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-lg shadow-blue-600/20"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Scripting Developer Console Drawer */}
+      <AnimatePresence>
+        {showScriptConsole && (
+          <motion.div 
+            initial={{ y: 300 }}
+            animate={{ y: 0 }}
+            exit={{ y: 300 }}
+            className="h-72 bg-slate-950 border-t border-purple-500/20 shadow-2xl z-30 flex flex-col font-mono"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="h-9 bg-slate-900 border-b border-purple-500/10 flex items-center justify-between px-4 text-xs text-purple-300">
+              <div className="flex items-center gap-2">
+                <TerminalIcon size={12} className="text-purple-400" />
+                <span className="font-bold uppercase tracking-wider text-[10px]">JavaScript Developer Console</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {/* Preset Script Selection */}
+                <select 
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === 'count-links') {
+                      setScriptInputCode(`// Count links in current local page\nconsole.log("Analyzing links...");\nconsole.log(\`Total pages links count: \${linksCount}\`);\nlinks.forEach((l, idx) => {\n  console.log(\`  [\${idx + 1}] \${l}\`);\n});`);
+                    } else if (val === 'list-headings') {
+                      setScriptInputCode(`// List all headings found in document\nconsole.log("Searching headings...");\nheadings.forEach((h) => {\n  console.log(\`  Found heading: \${h}\`);\n});`);
+                    } else if (val === 'dom-query') {
+                      setScriptInputCode(`// Query individual DOM elements using helper\nconsole.log("Querying title...");\nconst titleText = $("h1");\nconsole.log("Heading h1 text:", titleText);\n\nconsole.log("Querying paragraphs...");\nconst paraTexts = $$("p");\nparaTexts.forEach((p, i) => {\n  console.log(\`  Paragraph \${i+1}: \${p}\`);\n});`);
+                    }
+                  }}
+                  className="bg-slate-800 border border-purple-500/20 text-purple-300 rounded text-[10px] p-0.5 px-1.5 focus:outline-none cursor-pointer"
+                >
+                  <option value="">-- Load Sample Script --</option>
+                  <option value="count-links">Count Page Links</option>
+                  <option value="list-headings">List All Headings</option>
+                  <option value="dom-query">Query DOM Elements</option>
+                </select>
+                <button 
+                  onClick={() => setScriptConsoleLogs([])}
+                  className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-[9px] rounded text-purple-300 transition-all border border-purple-500/10 cursor-pointer"
+                >
+                  Clear Console
+                </button>
+                <button 
+                  onClick={() => runScriptCode(scriptInputCode)}
+                  className="px-3 py-0.5 bg-purple-600 hover:bg-purple-500 text-white font-bold text-[9px] rounded transition-all shadow-md shadow-purple-600/20 cursor-pointer"
+                >
+                  Run Script
+                </button>
+                <button 
+                  onClick={() => setShowScriptConsole(false)}
+                  className="text-purple-400 hover:text-white p-1 rounded hover:bg-white/5 cursor-pointer"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            </div>
+
+            {/* Split area: editor & logs */}
+            <div className="flex-1 flex overflow-hidden text-[11px]">
+              {/* Code Editor */}
+              <div className="flex-1 flex flex-col border-r border-purple-500/10">
+                <textarea 
+                  value={scriptInputCode}
+                  onChange={(e) => setScriptInputCode(e.target.value)}
+                  className="flex-1 bg-slate-950 text-emerald-400 p-3 font-mono focus:outline-none resize-none overflow-y-auto w-full"
+                  spellCheck={false}
+                />
+              </div>
+
+              {/* Output Console Logs */}
+              <div className="w-80 bg-slate-900/40 p-3 flex flex-col gap-1 overflow-y-auto">
+                <span className="text-[9px] font-bold text-slate-500 tracking-wider uppercase border-b border-purple-500/10 pb-1 mb-1 flex items-center gap-1">
+                  <span>Console Logs</span>
+                  <span className="text-[8px] bg-purple-500/10 text-purple-400 px-1 rounded">{scriptConsoleLogs.length}</span>
+                </span>
+                {scriptConsoleLogs.length === 0 ? (
+                  <span className="text-slate-600 italic">No output logs. Click 'Run Script' to execute.</span>
+                ) : (
+                  <div className="space-y-1.5">
+                    {scriptConsoleLogs.map((log, idx) => (
+                      <div key={idx} className="leading-relaxed">
+                        <span className="text-slate-600 mr-2">[{log.timestamp}]</span>
+                        <span className={cn(
+                          log.type === 'error' ? "text-red-400" : log.type === 'warn' ? "text-yellow-400" : "text-slate-300"
+                        )}>
+                          {log.text}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

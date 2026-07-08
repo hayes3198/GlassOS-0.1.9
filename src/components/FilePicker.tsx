@@ -78,6 +78,8 @@ export function FilePicker({
     const ext = name.split('.').pop()?.toLowerCase();
     switch (ext) {
       case 'b': return <FileCode size={18} className="text-green-400" />;
+      case 'html': return <FileCode size={18} className="text-orange-400" />;
+      case 'js': return <FileCode size={18} className="text-yellow-400" />;
       case 'json': return <FileJson size={18} className="text-yellow-400" />;
       case 'jpg':
       case 'png': return <ImageIcon size={18} className="text-purple-400" />;
