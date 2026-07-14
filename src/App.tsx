@@ -210,6 +210,9 @@ import { BridgeLib } from './lib/Bridge.lib';
 import { DisplayLib } from './lib/Display.lib';
 import { INITIAL_FS, DEFAULT_PERMISSIONS } from './components/constants/initialFs';
 import { FilePicker } from './components/FilePicker';
+import { GlassTCP } from './components/GlassTCP';
+import { GlassKernel } from './components/GlassKernel';
+import { Network } from 'lucide-react';
 import { nativeBridge, SystemInfo } from './lib/NativeBridge.lib';
 import { 
   AppId, 
@@ -1279,6 +1282,7 @@ export default function App() {
                     networkNodes, setNetworkNodes, kernelCalls, setKernelCalls, networkTraffic, setNetworkTraffic,
                     authorizedTokens, setAuthorizedTokens,
                     isAdmin, setIsAdmin, isSandboxed, setIsSandboxed, requestSudo,
+                    socket: socketRef.current,
                   })}
                 </Window>
               ))}
@@ -8086,15 +8090,15 @@ function TaskSchedulerApp({ tasks, setTasks, addNotification }: { tasks: Schedul
   );
 }
 
-function SystemMonitorApp({ 
-  cpuUsage, ramUsage, kernelCalls, networkTraffic, 
-  networkNodes, authorizedTokens, networkConfig 
-}: { 
-  cpuUsage: number, ramUsage: number, kernelCalls: KernelCall[], 
-  networkTraffic: TrafficEvent[], networkNodes: NetworkNode[], 
-  authorizedTokens: OAuthToken[], networkConfig: NetworkConfig 
-}) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'traffic' | 'kernel' | 'security' | 'hardware'>('overview');
+function SystemMonitorApp(props: any) {
+  const { 
+    cpuUsage, ramUsage, kernelCalls, setKernelCalls, networkTraffic, 
+    networkNodes, authorizedTokens, networkConfig,
+    socket, fs, setFs, addNotification, currentUser,
+    setNetworkNodes, setNetworkTraffic, openWindow
+  } = props;
+
+  const [activeTab, setActiveTab] = useState<'overview' | 'traffic' | 'glasstcp' | 'kernel' | 'security' | 'hardware'>('overview');
   const [hwInfo, setHwInfo] = useState<SystemInfo | null>(null);
 
   useEffect(() => {
@@ -8110,30 +8114,42 @@ function SystemMonitorApp({
         <button 
           onClick={() => setActiveTab('overview')}
           className={cn("p-3 rounded-2xl transition-all", activeTab === 'overview' ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "text-white/40 hover:text-white hover:bg-white/5")}
+          title="Overview"
         >
           <LayoutGrid size={22} />
         </button>
         <button 
           onClick={() => setActiveTab('traffic')}
           className={cn("p-3 rounded-2xl transition-all", activeTab === 'traffic' ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "text-white/40 hover:text-white hover:bg-white/5")}
+          title="Live Traffic Stream"
         >
           <ArrowLeftRight size={22} />
         </button>
         <button 
+          onClick={() => setActiveTab('glasstcp')}
+          className={cn("p-3 rounded-2xl transition-all", activeTab === 'glasstcp' ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "text-white/40 hover:text-white hover:bg-white/5")}
+          title="GlassTCP Bridge"
+        >
+          <Network size={22} />
+        </button>
+        <button 
           onClick={() => setActiveTab('kernel')}
           className={cn("p-3 rounded-2xl transition-all", activeTab === 'kernel' ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "text-white/40 hover:text-white hover:bg-white/5")}
+          title="Kernel Calls"
         >
           <TerminalIcon size={22} />
         </button>
         <button 
           onClick={() => setActiveTab('security')}
           className={cn("p-3 rounded-2xl transition-all", activeTab === 'security' ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "text-white/40 hover:text-white hover:bg-white/5")}
+          title="Security"
         >
           <Shield size={22} />
         </button>
         <button 
           onClick={() => setActiveTab('hardware')}
           className={cn("p-3 rounded-2xl transition-all", activeTab === 'hardware' ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "text-white/40 hover:text-white hover:bg-white/5")}
+          title="Hardware"
         >
           <Cpu size={22} />
         </button>
@@ -8152,7 +8168,7 @@ function SystemMonitorApp({
           <div className="flex items-center gap-6">
             <div className="flex flex-col items-end">
               <span className="text-[10px] text-white/30 uppercase font-bold tracking-wider">Local Host</span>
-              <span className="text-xs text-blue-400 font-mono">{networkConfig.ip}</span>
+              <span className="text-xs text-blue-400 font-mono">{networkConfig?.ip || '192.168.1.104'}</span>
             </div>
             <div className="w-[1px] h-8 bg-white/5" />
             <div className="flex items-center gap-3">
@@ -8161,14 +8177,30 @@ function SystemMonitorApp({
               </div>
               <div className="flex flex-col">
                 <span className="text-[10px] text-white/30 uppercase font-bold">Identity</span>
-                <span className="text-[11px] text-white/70">{networkConfig.protocols.xmpp.jid}</span>
+                <span className="text-[11px] text-white/70">{networkConfig?.protocols?.xmpp?.jid || 'user@glass.os'}</span>
               </div>
             </div>
           </div>
         </div>
 
         {/* Dynamic Content Area */}
-        <div className="flex-1 overflow-y-auto p-8 no-scrollbar">
+        <div className={cn("flex-1 overflow-y-auto no-scrollbar", (activeTab === 'glasstcp' || activeTab === 'kernel') ? "p-0" : "p-8")}>
+          {activeTab === 'glasstcp' && (
+            <GlassTCP 
+              socket={socket}
+              fs={fs}
+              setFs={setFs}
+              addNotification={addNotification}
+              currentUser={currentUser}
+              networkConfig={networkConfig}
+              networkNodes={networkNodes}
+              setNetworkNodes={setNetworkNodes}
+              networkTraffic={networkTraffic}
+              setNetworkTraffic={setNetworkTraffic}
+              openWindow={openWindow}
+            />
+          )}
+
           {activeTab === 'overview' && (
             <div className="flex flex-col gap-8">
               {/* Connection Status Card */}
@@ -8309,45 +8341,13 @@ function SystemMonitorApp({
           )}
 
           {activeTab === 'kernel' && (
-            <div className="flex flex-col gap-6">
-              <h3 className="text-[10px] text-white/30 uppercase font-bold tracking-[0.2em]">Kernel API Calls</h3>
-              <div className="grid grid-cols-1 gap-3">
-                {kernelCalls.map(call => (
-                  <div key={call.id} className="bg-[#161b22] p-4 rounded-2xl border border-white/5 flex items-center justify-between group hover:border-white/10 transition-all">
-                    <div className="flex items-center gap-4">
-                      <div className={cn(
-                        "w-10 h-10 rounded-xl flex items-center justify-center",
-                        call.status === 'success' ? "bg-emerald-500/10 text-emerald-400" :
-                        call.status === 'warning' ? "bg-orange-500/10 text-orange-400" : "bg-red-500/10 text-red-400"
-                      )}>
-                        <Command size={18} />
-                      </div>
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-white/90">{call.service}</span>
-                          <span className="text-[10px] text-white/20">::</span>
-                          <span className="text-xs text-blue-400/80 font-mono">{call.method}</span>
-                        </div>
-                        <span className="text-[9px] text-white/30 font-mono">{call.id} • {call.timestamp}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-6">
-                      <div className="flex flex-col items-end">
-                        <span className="text-[9px] text-white/20 uppercase font-bold">Latency</span>
-                        <span className="text-[11px] font-mono text-white/50">{call.latency.toString()}ms</span>
-                      </div>
-                      <div className={cn(
-                        "px-2 py-1 rounded text-[9px] font-bold uppercase",
-                        call.status === 'success' ? "bg-emerald-500/10 text-emerald-400" :
-                        call.status === 'warning' ? "bg-orange-500/10 text-orange-400" : "bg-red-500/10 text-red-400"
-                      )}>
-                        {call.status}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <GlassKernel 
+              cpuUsage={cpuUsage}
+              ramUsage={ramUsage}
+              addNotification={addNotification}
+              kernelCalls={kernelCalls}
+              setKernelCalls={setKernelCalls}
+            />
           )}
 
           {activeTab === 'security' && (

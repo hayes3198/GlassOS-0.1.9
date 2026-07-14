@@ -52,12 +52,39 @@ async function startServer() {
 
   app.use(express.json({ limit: '50mb' }));
 
+  const activeNodes = new Map<string, any>();
+
   // Socket.io Connection Handling
   io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
     
+    socket.on('glasstcp:register', (nodeData) => {
+      activeNodes.set(socket.id, {
+        id: socket.id,
+        socketId: socket.id,
+        hostname: nodeData.hostname,
+        ip: nodeData.ip,
+        services: nodeData.services || ['GlassTCP'],
+        status: 'online',
+        isAuthorized: true
+      });
+      io.emit('glasstcp:nodes', Array.from(activeNodes.values()));
+    });
+
+    socket.on('glasstcp:send_packet', (packet) => {
+      // Send to destination if it is a real socket
+      const destNode = Array.from(activeNodes.values()).find(n => n.hostname === packet.destination || n.ip === packet.destination);
+      if (destNode && destNode.socketId) {
+        io.to(destNode.socketId).emit('glasstcp:receive_packet', packet);
+      }
+      // Also broadcast for visual logging in other users' NOC Centers
+      socket.broadcast.emit('glasstcp:traffic', packet);
+    });
+
     socket.on('disconnect', () => {
       console.log(`User disconnected: ${socket.id}`);
+      activeNodes.delete(socket.id);
+      io.emit('glasstcp:nodes', Array.from(activeNodes.values()));
     });
   });
 
