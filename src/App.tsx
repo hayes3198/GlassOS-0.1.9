@@ -1258,6 +1258,8 @@ export default function App() {
                     glassDrawSelectedFile, setGlassDrawSelectedFile,
                     builds, setBuilds,
                     openWindow,
+                    windows,
+                    setWindows,
                     fs,
                     setFs,
                     fsLib,
@@ -9268,7 +9270,8 @@ function TerminalApp({
   openWindow, setNotepadContent, setActiveFileInNotepad,
   setGlassWordContent, setActiveFileInGlassWord,
   setSheetData, setActiveFileInSheets,
-  setNetworkNodes, runGlassScript 
+  networkNodes, setNetworkNodes, runGlassScript,
+  windows, setWindows, tasks, setTasks, closeWindow
 }: any) {
   interface TerminalSession {
     id: string;
@@ -9313,22 +9316,68 @@ function TerminalApp({
     const interval = setInterval(() => {
       setSessions(prev => prev.map(s => {
         if (s.isTopActive) {
+          const systemDaemons = [
+            { pid: 101, proc: 'System Core', cpu: (Math.random() * 2 + 1).toFixed(1), mem: '128MB' },
+            { pid: 204, proc: 'Window Manager', cpu: (Math.random() * 4 + 2).toFixed(1), mem: '256MB' },
+            { pid: 501, proc: 'Network Stack (GlassTCP)', cpu: (Math.random() * 0.8 + 0.2).toFixed(1), mem: '64MB' },
+            { pid: 800, proc: 'Memory Daemon', cpu: (Math.random() * 0.4 + 0.1).toFixed(1), mem: '45MB' },
+            { pid: 900, proc: 'Kernel Core (GlassKernel)', cpu: (Math.random() * 0.5 + 0.1).toFixed(1), mem: '80MB' },
+          ];
+
+          const windowProcs = (windows || []).map((win: any, idx: number) => {
+            const appMetrics: Record<string, { cpu: number, mem: string }> = {
+              'terminal': { cpu: 1.5, mem: '64MB' },
+              'settings': { cpu: 0.8, mem: '96MB' },
+              'notepad': { cpu: 0.4, mem: '32MB' },
+              'browser': { cpu: 12.5, mem: '512MB' },
+              'photos': { cpu: 1.2, mem: '128MB' },
+              'music': { cpu: 3.5, mem: '160MB' },
+              'appfolder': { cpu: 0.2, mem: '24MB' },
+              'codestudio': { cpu: 8.5, mem: '380MB' },
+              'files': { cpu: 0.6, mem: '80MB' },
+              'systemmonitor': { cpu: 4.2, mem: '150MB' },
+              'glassword': { cpu: 2.8, mem: '210MB' },
+              'spreadsheet': { cpu: 3.1, mem: '180MB' },
+              'glassmail': { cpu: 1.0, mem: '110MB' },
+              'glassdatabase': { cpu: 5.4, mem: '290MB' },
+              'glassmessaging': { cpu: 1.8, mem: '90MB' },
+              'printers': { cpu: 0.3, mem: '40MB' },
+              'calendar': { cpu: 0.5, mem: '50MB' },
+              'taskscheduler': { cpu: 0.4, mem: '45MB' },
+              'glassdraw': { cpu: 6.2, mem: '220MB' },
+              'glasspaint': { cpu: 5.8, mem: '190MB' },
+              'glassphoto': { cpu: 7.1, mem: '310MB' },
+              'videostudio': { cpu: 14.8, mem: '640MB' },
+            };
+            const metric = appMetrics[win.id] || { cpu: 1.0, mem: '64MB' };
+            const cpuVal = Math.max(0.1, metric.cpu + (Math.random() * 2 - 1)).toFixed(1);
+            return {
+              pid: 1000 + idx,
+              proc: win.title,
+              cpu: cpuVal,
+              mem: metric.mem,
+            };
+          });
+
+          const taskDaemons = (tasks || []).filter((t: any) => t.enabled).map((t: any, idx: number) => {
+            return {
+              pid: 5000 + idx,
+              proc: `Task: ${t.name}`,
+              cpu: '0.1',
+              mem: '12MB',
+            };
+          });
+
           return {
             ...s,
-            topData: [
-              { pid: 101, proc: 'System', cpu: (Math.random() * 5).toFixed(1), mem: '128MB' },
-              { pid: 204, proc: 'Window Manager', cpu: (Math.random() * 10).toFixed(1), mem: '256MB' },
-              { pid: 305, proc: 'Terminal', cpu: (Math.random() * 2).toFixed(1), mem: '64MB' },
-              { pid: 402, proc: 'Browser', cpu: (Math.random() * 15).toFixed(1), mem: '512MB' },
-              { pid: 501, proc: 'Network Service', cpu: (Math.random() * 1).toFixed(1), mem: '32MB' },
-            ]
+            topData: [...systemDaemons, ...windowProcs, ...taskDaemons]
           };
         }
         return s;
       }));
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [windows, tasks]);
 
   const addSession = () => {
     const newId = Math.random().toString(36).substr(2, 9);
@@ -9379,6 +9428,83 @@ function TerminalApp({
 
     // Refactored to use fsLib
 
+    const titles: Record<string, string> = {
+      'terminal': 'Terminal',
+      'settings': 'Settings',
+      'notepad': 'Notepad',
+      'glassword': 'GlassWord 2026',
+      'spreadsheet': 'Glass Sheets Pro',
+      'browser': 'Web Browser',
+      'photos': 'Photos',
+      'music': 'Media Player',
+      'appfolder': 'App Folder',
+      'codestudio': 'Code Studio',
+      'files': 'File Explorer',
+      'systemmonitor': 'NOC Center',
+      'taskscheduler': 'Task Scheduler',
+      'printers': 'Printers',
+      'calendar': 'Calendar',
+      'glassmail': 'GlassMail',
+      'glassdatabase': 'Glass Database',
+      'glassmessaging': 'Glass Messaging',
+      'glassdraw': 'Glass Draw App',
+      'glasspaint': 'Glass Paint App',
+      'glassphoto': 'Glass Photo App',
+      'videostudio': 'Video Studio App'
+    };
+
+    const launchAppWithFile = (appId: string, fileNameOrPath: string) => {
+      const lowerApp = appId.toLowerCase();
+      if (!fileNameOrPath) {
+        openWindow(lowerApp, titles[lowerApp] || lowerApp);
+        addNotification('Terminal', `Launching application: ${titles[lowerApp] || lowerApp}`, 'success');
+        return true;
+      }
+
+      const targetPathStr = fileNameOrPath.startsWith('/') ? fileNameOrPath : (pathString === '/' ? `/${fileNameOrPath}` : `${pathString}/${fileNameOrPath}`);
+
+      if (!fsLib.exists(targetPathStr)) {
+        updateActiveSession({ history: [...newHistory, `Error: File "${fileNameOrPath}" does not exist.`] });
+        return false;
+      }
+
+      const fileParts = targetPathStr.split('/').filter(Boolean);
+      const fileName = fileParts[fileParts.length - 1];
+      const content = fsLib.read(targetPathStr);
+
+      if (content === null) {
+        updateActiveSession({ history: [...newHistory, `Error: "${fileNameOrPath}" is a folder, cannot open in ${titles[lowerApp] || lowerApp}.`] });
+        return false;
+      }
+
+      if (lowerApp === 'notepad') {
+        setNotepadContent(content);
+        setActiveFileInNotepad({ name: fileName, path: fileParts.slice(0, -1) });
+        openWindow('notepad', 'Notepad');
+        addNotification('Terminal', `Opened ${fileName} in Notepad`, 'success');
+      } else if (lowerApp === 'glassword') {
+        setGlassWordContent(content);
+        setActiveFileInGlassWord({ name: fileName, path: fileParts.slice(0, -1) });
+        openWindow('glassword', 'GlassWord 2026');
+        addNotification('Terminal', `Opened ${fileName} in GlassWord`, 'success');
+      } else if (lowerApp === 'spreadsheet') {
+        try {
+          const data = JSON.parse(content);
+          setSheetData(data);
+          setActiveFileInSheets({ name: fileName, path: fileParts.slice(0, -1) });
+          openWindow('spreadsheet', 'Glass Sheets Pro');
+          addNotification('Terminal', `Opened ${fileName} in Glass Sheets`, 'success');
+        } catch (e) {
+          updateActiveSession({ history: [...newHistory, `Error parsing sheet data for ${fileName}`] });
+          return false;
+        }
+      } else {
+        openWindow(lowerApp, titles[lowerApp] || lowerApp);
+        addNotification('Terminal', `Launching application: ${titles[lowerApp] || lowerApp}`, 'success');
+      }
+      return true;
+    };
+
     const findItems = (items: FileSystemItem[], currentPath: string[], query: string, searchContent: boolean = false): { path: string, name: string }[] => {
       let results: { path: string, name: string }[] = [];
       
@@ -9416,25 +9542,43 @@ function TerminalApp({
       case 'help':
         updateActiveSession({ history: [
           ...newHistory, 
-          'Available commands:',
-          '  ls [-l] [-a]   List directory contents',
-          '  cd <path>      Change current directory',
-          '  mkdir <name>   Create a new directory',
-          '  rm <f1> [f2]   Remove files or directories',
-          '  cat <f1> [f2]  Display file contents',
-          '  pwd            Print working directory',
-          '  find <pat>     Search for files/folders',
-          '  chmod <mode>   Change permissions (octal)',
-          '  open <file>    Open file in associated app',
-          '  run <app_id>   Launch a system app',
-          '  ping <node>    Test connection to a network node',
-          '  pkg <cmd>      Custom packet manager',
-          '  sudo <cmd>     Execute command as root',
-          '  shutdown <node> Shutdown a network node (requires sudo)',
-          '  restart <node>  Restart a network node (requires sudo)',
-          '  top [delay]    Monitor system processes',
-          '  clear          Clear terminal history',
-          '  whoami, sysinfo, quit'
+          '==================================================================',
+          '                    GlassOS Terminal Core Help                    ',
+          '==================================================================',
+          'FILE SYSTEM COMMANDS:',
+          '  ls [-l] [-a]           List directory contents',
+          '  cd <path>              Change current directory',
+          '  mkdir <name>           Create a new directory',
+          '  rm <f1> [f2]           Remove files or directories',
+          '  cat <f1> [f2]          Display file contents',
+          '  pwd                    Print working directory',
+          '  find <pat>             Search for files/folders',
+          '  chmod <mode>           Change permissions (octal format)',
+          '  open <file>            Open file in its default associated app',
+          '',
+          'PROCESS & RESOURCE COMMANDS:',
+          '  top [delay]            Monitor live system processes',
+          '  run <app_id>           Directly spin up an OS workspace app',
+          '',
+          'NETWORK COMMANDS:',
+          '  ping <node>            Test connection latency to a network node',
+          '  pkg <cmd>              Execute custom GlassOS packet manager',
+          '  shutdown <node>        Stop a network node (requires sudo)',
+          '  restart <node>         Reboot a network node (requires sudo)',
+          '',
+          'ACTION CONTROL SYSTEM (NEW FEATURES):',
+          '  start action <tgt>     Start/Launch an App, Scheduled Task, or Service',
+          '  halt action <tgt>      Stop/Term/Halt an App Window, Task, or Service',
+          '  get action info <tgt>  Inspect metadata, nominal stats, and state',
+          '                         (Tip: Run "get action info" alone for registry)',
+          '',
+          'SYSTEM COMMANDS:',
+          '  sudo <cmd>             Execute command as root administrator',
+          '  clear                  Clear terminal buffer history',
+          '  whoami                 Display active user session status',
+          '  sysinfo                Print host kernel compile statistics',
+          '  quit                   Exit active sub-shell or application',
+          '=================================================================='
         ] });
         addNotification('Terminal', 'Expanded help menu displayed', 'info');
         break;
@@ -9865,35 +10009,23 @@ function TerminalApp({
         break;
       }
       case 'run': {
-        const appId = args[0];
+        const appId = args[0]?.toLowerCase();
         if (!appId) {
-          updateActiveSession({ history: [...newHistory, 'usage: run <app_id>'] });
+          updateActiveSession({ history: [...newHistory, 'usage: run <app_id> [file_path]'] });
           break;
         }
-        const titles: Record<string, string> = {
-          'terminal': 'Terminal',
-          'settings': 'Settings',
-          'notepad': 'Notepad',
-          'glassword': 'GlassWord 2026',
-          'spreadsheet': 'Glass Sheets Pro',
-          'browser': 'Web Browser',
-          'photos': 'Photos',
-          'music': 'Media Player',
-          'appfolder': 'App Folder',
-          'codestudio': 'Code Studio',
-          'files': 'File Explorer',
-          'systemmonitor': 'NOC Center',
-          'taskscheduler': 'Task Scheduler',
-          'printers': 'Printers',
-          'calendar': 'Calendar',
-          'glassmail': 'GlassMail',
-          'glassdatabase': 'Glass Database',
-          'glassmessaging': 'Glass Messaging'
-        };
         
         if (titles[appId]) {
-          openWindow(appId, titles[appId]);
-          addNotification('Terminal', `Launching application: ${titles[appId]}`, 'success');
+          let runFileArg = '';
+          const runArgs = args.slice(1);
+          if (runArgs.length > 0) {
+            if (runArgs[0].toLowerCase() === 'open' && runArgs[1]) {
+              runFileArg = runArgs[1];
+            } else {
+              runFileArg = runArgs[0];
+            }
+          }
+          launchAppWithFile(appId, runFileArg);
         } else {
           updateActiveSession({ history: [...newHistory, `run: ${appId}: Application not found`] });
         }
@@ -9950,6 +10082,362 @@ function TerminalApp({
         addNotification('System', `Process monitor started (refresh: ${delay}ms)`, 'info');
         break;
       }
+      case 'start': {
+        let target = args[0] === 'action' ? args[1] : args[0];
+        if (!target) {
+          updateActiveSession({ history: [
+            ...newHistory,
+            'Usage: start action <app_id | task_id | service_name>',
+            'Examples:',
+            '  start action videostudio',
+            '  start action task-id-or-name',
+            '  start action GlassTCP'
+          ] });
+          break;
+        }
+
+        const appTitles: Record<string, string> = {
+          'terminal': 'Terminal',
+          'settings': 'Settings',
+          'notepad': 'Notepad',
+          'glassword': 'GlassWord 2026',
+          'spreadsheet': 'Glass Sheets Pro',
+          'browser': 'Web Browser',
+          'photos': 'Photos',
+          'music': 'Media Player',
+          'appfolder': 'App Folder',
+          'codestudio': 'Code Studio',
+          'files': 'File Explorer',
+          'systemmonitor': 'NOC Center',
+          'taskscheduler': 'Task Scheduler',
+          'printers': 'Printers',
+          'calendar': 'Calendar',
+          'glassmail': 'GlassMail',
+          'glassdatabase': 'Glass Database',
+          'glassmessaging': 'Glass Messaging',
+          'glassdraw': 'Glass Draw App',
+          'glasspaint': 'Glass Paint App',
+          'glassphoto': 'Glass Photo App',
+          'videostudio': 'Video Studio App'
+        };
+
+        const lowerTarget = target.toLowerCase();
+
+        // 1. App ID Match
+        if (appTitles[lowerTarget]) {
+          openWindow(lowerTarget, appTitles[lowerTarget]);
+          updateActiveSession({ history: [
+            ...newHistory,
+            `[SUCCESS] Launched application action: ${appTitles[lowerTarget]} (App ID: ${lowerTarget})`
+          ] });
+          addNotification('Terminal', `Launched ${appTitles[lowerTarget]}`, 'success');
+          break;
+        }
+
+        // 2. Scheduled Task Match
+        const task = (tasks || []).find((t: any) => t.id.toLowerCase() === lowerTarget || t.name.toLowerCase() === lowerTarget);
+        if (task) {
+          if (!task.enabled) {
+            setTasks((prev: any[]) => prev.map(t => t.id === task.id ? { ...t, enabled: true } : t));
+          }
+          updateActiveSession({ history: [
+            ...newHistory,
+            `[SUCCESS] Started scheduled action: "${task.name}" (ID: ${task.id})`,
+            `[EXECUTION] Automated trigger queued at ${task.time} (${task.repeat}).`
+          ] });
+          addNotification('Task Scheduler', `Started task "${task.name}"`, 'success');
+          break;
+        }
+
+        // 3. System Services Match
+        const systemServices = ['system', 'windowmanager', 'networkservice', 'memorydaemon', 'glasstcp', 'glasskernel'];
+        if (systemServices.includes(lowerTarget)) {
+          updateActiveSession({ history: [
+            ...newHistory,
+            `[SERVICE] Restarting service daemon: ${target}...`,
+            `[SERVICE] Handshaking Ring-0 security context and validating memory boundaries...`,
+            `[SUCCESS] Service daemon "${target}" is now fully start-actioned, online and listening.`
+          ] });
+          addNotification('Terminal', `Started service ${target}`, 'info');
+          break;
+        }
+
+        updateActiveSession({ history: [
+          ...newHistory,
+          `[ERROR] start: "${target}" does not match any known App, Scheduled Task ID/Name, or System Service.`
+        ] });
+        break;
+      }
+
+      case 'halt': {
+        let target = args[0] === 'action' ? args[1] : args[0];
+        if (!target) {
+          updateActiveSession({ history: [
+            ...newHistory,
+            'Usage: halt action <app_id | task_id | service_name>',
+            'Examples:',
+            '  halt action browser',
+            '  halt action task-id-or-name',
+            '  halt action GlassKernel'
+          ] });
+          break;
+        }
+
+        const lowerTarget = target.toLowerCase();
+
+        // 1. App ID / Active Window Match
+        const activeWin = (windows || []).find((w: any) => w.id.toLowerCase() === lowerTarget || w.title.toLowerCase() === lowerTarget);
+        if (activeWin) {
+          closeWindow(activeWin.id);
+          updateActiveSession({ history: [
+            ...newHistory,
+            `[SUCCESS] Terminated action: Closed window "${activeWin.title}" (ID: ${activeWin.id})`
+          ] });
+          addNotification('Terminal', `Closed ${activeWin.title}`, 'warning');
+          break;
+        }
+
+        // 2. Scheduled Task Match
+        const task = (tasks || []).find((t: any) => t.id.toLowerCase() === lowerTarget || t.name.toLowerCase() === lowerTarget);
+        if (task) {
+          if (task.enabled) {
+            setTasks((prev: any[]) => prev.map(t => t.id === task.id ? { ...t, enabled: false } : t));
+          }
+          updateActiveSession({ history: [
+            ...newHistory,
+            `[SUCCESS] Halted/Disabled scheduled action: "${task.name}" (ID: ${task.id}). Automator disabled.`
+          ] });
+          addNotification('Task Scheduler', `Halted task "${task.name}"`, 'warning');
+          break;
+        }
+
+        // 3. System Services Match
+        const systemServices = ['system', 'windowmanager', 'networkservice', 'memorydaemon', 'glasstcp', 'glasskernel'];
+        if (systemServices.includes(lowerTarget)) {
+          if (!forcedAdmin) {
+            updateActiveSession({ history: [
+              ...newHistory,
+              `[SECURITY] Access Denied: Halting critical system daemon "${target}" requires root privileges.`,
+              `[SECURITY] Please type: "sudo halt action ${target}" to override kernel boundary protection.`
+            ] });
+            addNotification('Security', `Unauthorized halt attempt for service ${target}`, 'error');
+          } else {
+            updateActiveSession({ history: [
+              ...newHistory,
+              `[KERNEL WARNING] Sudo override active. Terminating service daemon thread: ${target}...`,
+              `[SYSTEM] Initializing fallback virtualization virtualization to sustain user workspace.`,
+              `[SUCCESS] Critically halted service ${target}. Standby thread active.`
+            ] });
+            addNotification('Kernel', `Halted critical service ${target} via sudo`, 'warning');
+          }
+          break;
+        }
+
+        updateActiveSession({ history: [
+          ...newHistory,
+          `[ERROR] halt: "${target}" does not match any open app windows, scheduled tasks, or services.`
+        ] });
+        break;
+      }
+
+      case 'action':
+      case 'get':
+      case 'info': {
+        let target = '';
+        let isInfoRequest = false;
+
+        if (command === 'get' && args[0] === 'action' && args[1] === 'info') {
+          target = args.slice(2).join(' ');
+          isInfoRequest = true;
+        } else if (command === 'action' && args[0] === 'info') {
+          target = args.slice(1).join(' ');
+          isInfoRequest = true;
+        } else if (command === 'info') {
+          target = args.join(' ');
+          isInfoRequest = true;
+        }
+
+        if (!isInfoRequest || !target) {
+          // Comprehensive Registry display of all actions
+          const runningAppsList = (windows || []).map((w: any) => `    • ${w.id.padEnd(15)} | PID: ${(1000 + (windows || []).indexOf(w))} | ${w.title} (RUNNING)`).join('\n');
+          const taskList = (tasks || []).map((t: any) => `    • ${t.id.padEnd(15)} | ${t.name.padEnd(20)} | Target: ${t.target} (${t.enabled ? 'ACTIVE' : 'HALTED'})`).join('\n');
+          
+          updateActiveSession({ history: [
+            ...newHistory,
+            '==================================================================',
+            '                    GlassOS Action Registry                       ',
+            '==================================================================',
+            'SYSTEM APPS (Start via "start action <id>", Halt via "halt action <id>"):',
+            '    • terminal        - Retro Shell & Command Core',
+            '    • settings        - System Config, Wallpaper, Fonts & RAM Manager',
+            '    • notepad         - Plaintext Notepad Editor',
+            '    • browser         - Secure Web Browser Sandbox',
+            '    • videostudio     - Non-linear Video Studio Workstation',
+            '    • systemmonitor   - Network NOC Center & Traffic Monitor',
+            '    • taskscheduler   - Automated Action Scheduler',
+            '    • files           - Hierarchical File System Browser',
+            '    • glassword       - Dynamic Rich Text Processor',
+            '    • spreadsheet     - Glass Sheets Calculator',
+            '    • glassmail       - Secure gRPC/XMPP Email Client',
+            '    • glassdatabase   - NoSQL/JSON Collection Database',
+            '    • glassmessaging  - Direct Encrypted Chat Terminal',
+            '    • printers        - Spooler & Spooled Document Jobs',
+            '    • calendar        - Personal Scheduling Agenda',
+            '    • glassdraw       - Vector & Pencil Drawing Editor',
+            '    • glasspaint      - Creative Raster Graphics Paint',
+            '    • glassphoto      - Aesthetic Photo & Canvas Retoucher',
+            '',
+            'ACTIVE RUNNING WINDOW ACTIONS:',
+            runningAppsList || '    (No external application windows are currently open)',
+            '',
+            'SYSTEM SERVICES (Halt requires sudo):',
+            '    • System          - System Core Daemon (PID: 101)',
+            '    • WindowManager   - Compositor & Drag-Resize Frame Core (PID: 204)',
+            '    • NetworkService  - GlassTCP Ingress Lanes, Sockets & Enclave (PID: 501)',
+            '    • MemoryDaemon    - Primary RAM, SWAP File, Buffers (PID: 800)',
+            '    • GlassTCP        - Firewall Rules, Intercept Sockets (PID: 820)',
+            '    • GlassKernel     - Driver compilations, interrupt-IRQ handler (PID: 900)',
+            '',
+            'SCHEDULED ACTION TASKS (Start/Halt to trigger automator):',
+            taskList || '    (No scheduled tasks registered. Open Task Scheduler to create one.)',
+            '==================================================================',
+            'Type "get action info <target_id>" or "info <target_id>" for details.'
+          ] });
+          break;
+        }
+
+        const lowerTarget = target.toLowerCase();
+        const appDetails: Record<string, { title: string, desc: string, group: string, path: string, cpu: string, mem: string }> = {
+          'terminal': { title: 'GlassOS Terminal', desc: 'Command Line Shell & Virtual Host TTY interface.', group: 'System Utilities', path: '/sys/bin/terminal.bin', cpu: '1.5%', mem: '64MB' },
+          'settings': { title: 'System Settings', desc: 'Personalization panel, Theme presets, Fonts, Wallpaper, and RAM Subsystem Manager.', group: 'Control Panels', path: '/sys/bin/settings.bin', cpu: '0.8%', mem: '96MB' },
+          'notepad': { title: 'Notepad', desc: 'Simple plaintext editing companion with standard text buffers.', group: 'Office Apps', path: '/sys/bin/notepad.bin', cpu: '0.4%', mem: '32MB' },
+          'browser': { title: 'Web Browser', desc: 'Sandboxed virtual browser with secure DNS routing.', group: 'Communication', path: '/sys/bin/browser.bin', cpu: '12.5%', mem: '512MB' },
+          'photos': { title: 'Photos Viewer', desc: 'Optimized image renderer supporting JPG and PNG.', group: 'Media', path: '/sys/bin/photos.bin', cpu: '1.2%', mem: '128MB' },
+          'music': { title: 'Media Player', desc: 'Audio streaming and playlist companion.', group: 'Media', path: '/sys/bin/music.bin', cpu: '3.5%', mem: '160MB' },
+          'appfolder': { title: 'App Folder', desc: 'Directory launcher overlay for desktop shortcuts.', group: 'System Utilities', path: '/sys/bin/launcher.bin', cpu: '0.2%', mem: '24MB' },
+          'codestudio': { title: 'Code Studio', desc: 'Full-fledged IDE and workspace compiler.', group: 'Development', path: '/sys/bin/codestudio.bin', cpu: '8.5%', mem: '380MB' },
+          'files': { title: 'File Explorer', desc: 'Hierarchical directory visualizer for file read/write operations.', group: 'System Utilities', path: '/sys/bin/explorer.bin', cpu: '0.6%', mem: '80MB' },
+          'systemmonitor': { title: 'NOC System Monitor', desc: 'Live network traffic viewer, gRPC telemetry, and node controller.', group: 'System Utilities', path: '/sys/bin/monitor.bin', cpu: '4.2%', mem: '150MB' },
+          'glassword': { title: 'GlassWord Document Processor', desc: 'Rich document designer with formatting and exports.', group: 'Office Apps', path: '/sys/bin/glassword.bin', cpu: '2.8%', mem: '210MB' },
+          'spreadsheet': { title: 'Glass Sheets Pro', desc: 'Grid-based tabular processor supporting mathematical evaluation.', group: 'Office Apps', path: '/sys/bin/sheets.bin', cpu: '3.1%', mem: '180MB' },
+          'glassmail': { title: 'GlassMail Client', desc: 'Encrypted mail transceiver syncing inbox over custom ports.', group: 'Office Apps', path: '/sys/bin/glassmail.bin', cpu: '1.0%', mem: '110MB' },
+          'glassdatabase': { title: 'Glass Database', desc: 'JSON document persistence database with collection models.', group: 'Development', path: '/sys/bin/database.bin', cpu: '5.4%', mem: '290MB' },
+          'glassmessaging': { title: 'Glass Messaging', desc: 'Direct secure chat channel over XMPP lanes.', group: 'Communication', path: '/sys/bin/messaging.bin', cpu: '1.8%', mem: '90MB' },
+          'printers': { title: 'Printer Spooler', desc: 'Print spooler managing offline and online virtual printers.', group: 'Hardware', path: '/sys/bin/printers.bin', cpu: '0.3%', mem: '40MB' },
+          'calendar': { title: 'Calendar Agenda', desc: 'Timekeeping planner with custom meeting reminders.', group: 'Office Apps', path: '/sys/bin/calendar.bin', cpu: '0.5%', mem: '50MB' },
+          'taskscheduler': { title: 'Task Scheduler', desc: 'Automation manager running periodic command triggers.', group: 'System Utilities', path: '/sys/bin/scheduler.bin', cpu: '0.4%', mem: '45MB' },
+          'glassdraw': { title: 'GlassDraw Editor', desc: 'Vector illustration app for visual paths.', group: 'Media', path: '/sys/bin/glassdraw.bin', cpu: '6.2%', mem: '220MB' },
+          'glasspaint': { title: 'GlassPaint Editor', desc: 'Raster drawing canvas supporting pixel brushes.', group: 'Media', path: '/sys/bin/glasspaint.bin', cpu: '5.8%', mem: '190MB' },
+          'glassphoto': { title: 'GlassPhoto Studio', desc: 'Canvas filters and dynamic adjustment controls.', group: 'Media', path: '/sys/bin/glassphoto.bin', cpu: '7.1%', mem: '310MB' },
+          'videostudio': { title: 'Video Studio Editor', desc: 'Non-linear video suite with trimming, transitions, and text overlay.', group: 'Media', path: '/sys/bin/videostudio.bin', cpu: '14.8%', mem: '640MB' },
+        };
+
+        // 1. App match
+        if (appDetails[lowerTarget]) {
+          const details = appDetails[lowerTarget];
+          const isOpen = (windows || []).some((w: any) => w.id === lowerTarget);
+          updateActiveSession({ history: [
+            ...newHistory,
+            `Action / App Information:`,
+            `-------------------------------------------------------------`,
+            `  Title:        ${details.title}`,
+            `  App ID:       ${lowerTarget}`,
+            `  Group:        ${details.group}`,
+            `  Path:         ${details.path}`,
+            `  Description:  ${details.desc}`,
+            `  State:        ${isOpen ? 'RUNNING (Active Window)' : 'SUSPENDED / IDLE (Closed)'}`,
+            `  Nominal CPU:  ${details.cpu}`,
+            `  Nominal RAM:  ${details.mem}`
+          ] });
+          break;
+        }
+
+        // 2. Task match
+        const task = (tasks || []).find((t: any) => t.id.toLowerCase() === lowerTarget || t.name.toLowerCase() === lowerTarget);
+        if (task) {
+          updateActiveSession({ history: [
+            ...newHistory,
+            `Scheduled Action Information:`,
+            `-------------------------------------------------------------`,
+            `  Task ID:      ${task.id}`,
+            `  Name:         ${task.name}`,
+            `  Type:         ${task.type === 'app' ? 'Application Launch' : 'Shell Command'}`,
+            `  Target:       ${task.target}`,
+            `  Trigger Time: At ${task.time}`,
+            `  Interval:     ${task.repeat.toUpperCase()}`,
+            `  State:        ${task.enabled ? 'ENABLED (Listening to Clock ticks)' : 'HALTED / DISABLED'}`
+          ] });
+          break;
+        }
+
+        // 3. Service match
+        const serviceMap: Record<string, string[]> = {
+          'system': [
+            `Service Daemon: System Core (systemd)`,
+            `-------------------------------------------------------------`,
+            `  PID:          101`,
+            `  Uptime:       94210 seconds`,
+            `  Status:       RUNNING`,
+            `  CPU Load:     1.1%`,
+            `  Description:  Initial system coordinator managing core event loop, user sessions, and hardware handshakes.`
+          ],
+          'windowmanager': [
+            `Service Daemon: Window Manager (compositor)`,
+            `-------------------------------------------------------------`,
+            `  PID:          204`,
+            `  Status:       RUNNING`,
+            `  CPU Load:     3.4%`,
+            `  Description:  AnimatePresence layer, drag-constraints coordinator, multi-window zIndex stack scheduler.`
+          ],
+          'networkservice': [
+            `Service Daemon: Network Service Stack`,
+            `-------------------------------------------------------------`,
+            `  PID:          501`,
+            `  Status:       RUNNING`,
+            `  Active Nodes: ${(networkNodes || []).length} registered hosts`,
+            `  Description:  XMPP direct pipelines, gRPC telemetry log emitters, and socket authenticators.`
+          ],
+          'memorydaemon': [
+            `Service Daemon: Memory Subsystem Coordinator`,
+            `-------------------------------------------------------------`,
+            `  PID:          800`,
+            `  Status:       RUNNING`,
+            `  RAM:          16GB Physical virtualized`,
+            `  Features:     RAM Compression (Active), Page Flushing (Active), Swap-disk C: allocation active.`,
+            `  Description:  Aggregates physical RAM blocks, maps pages to SWAP, and super-fetches cache rings.`
+          ],
+          'glasstcp': [
+            `Service Daemon: GlassTCP Advanced Network Stack`,
+            `-------------------------------------------------------------`,
+            `  PID:          820`,
+            `  Status:       RUNNING`,
+            `  Enclave Mode: ACTIVE (Ring-0 Secure Enclave isolation)`,
+            `  Firewall:     Active rules monitoring incoming socket requests`,
+            `  Description:  Zero-copy TCP pipeline transceivers, TLS Inspectors, and firewall threat containment.`
+          ],
+          'glasskernel': [
+            `Service Daemon: GlassKernel (Silicon-Agnostic HAL)`,
+            `-------------------------------------------------------------`,
+            `  PID:          900`,
+            `  Status:       RUNNING`,
+            `  HAL Type:     Silicon-Agnostic compiled target descriptors`,
+            `  Active driver:Agnostic GPU Acceleration Driver v3.4`,
+            `  Description:  Compiles high-level OS commands into raw machine instructions. Manages hardware interrupts (IRQs) and secure hardware enclaves.`
+          ]
+        };
+
+        if (serviceMap[lowerTarget]) {
+          updateActiveSession({ history: [...newHistory, ...serviceMap[lowerTarget]] });
+          break;
+        }
+
+        updateActiveSession({ history: [
+          ...newHistory,
+          `[ERROR] get action info: "${target}" is not a recognized App, Scheduled Task, or System Service.`
+        ] });
+        break;
+      }
+
       case 'quit':
         if (activeSession.isTopActive) {
           updateActiveSession({ isTopActive: false, history: newHistory });
@@ -9957,7 +10445,18 @@ function TerminalApp({
         }
         break;
       default:
-        if (command) {
+        if (titles[command]) {
+          let fileArg = '';
+          if (args.length > 0) {
+            if (args[0].toLowerCase() === 'open' && args[1]) {
+              fileArg = args[1];
+            } else {
+              fileArg = args[0];
+            }
+          }
+          launchAppWithFile(command, fileArg);
+          updateActiveSession({ history: newHistory });
+        } else if (command) {
           updateActiveSession({ history: [...newHistory, `Command not found: ${command}`] });
           addNotification('Terminal', `Unknown command: ${command}`, 'error');
         }
@@ -10897,6 +11396,54 @@ function SettingsApp(props: any) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState(userName);
   const [isConnecting, setIsConnecting] = useState(false);
+  
+  // Memory Control Panel States
+  const [memPhysicalTotal, setMemPhysicalTotal] = useState(16384); // in MB (16 GB)
+  const [memPhysicalUsed, setMemPhysicalUsed] = useState(6450); // in MB
+  const [memVirtualTotal, setMemVirtualTotal] = useState(8192); // in MB
+  const [memVirtualUsed, setMemVirtualUsed] = useState(3120); // in MB
+  const [memVirtualCustomSize, setMemVirtualCustomSize] = useState(8192); // in MB
+  const [memVirtualEnabled, setMemVirtualEnabled] = useState(true);
+  const [memCacheTotal, setMemCacheTotal] = useState(4096); // in MB
+  const [memCacheUsed, setMemCacheUsed] = useState(1850); // in MB
+  const [memCompressionEnabled, setMemCompressionEnabled] = useState(true);
+  const [isMemoryCleaning, setIsMemoryCleaning] = useState(false);
+  const [memoryDiagnosticLog, setMemoryDiagnosticLog] = useState<string[]>([
+    `[${new Date().toLocaleTimeString()}] System Memory Subsystem online.`,
+    `[${new Date().toLocaleTimeString()}] Physical RAM detected: 16.0 GB (16384 MB).`,
+    `[${new Date().toLocaleTimeString()}] Virtual SWAP detected: 8.0 GB (8192 MB).`,
+    `[${new Date().toLocaleTimeString()}] Cache buffers allocated: 4.0 GB (4096 MB).`
+  ]);
+  const [memHistory, setMemHistory] = useState<number[]>(Array.from({ length: 20 }, () => Math.floor(Math.random() * 10) + 35)); // % used history
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      // Fluctuating physical and virtual memory slightly
+      setMemPhysicalUsed(prev => {
+        const delta = Math.floor(Math.random() * 80) - 40;
+        const next = Math.max(3000, Math.min(15000, prev + delta));
+        
+        // Add to history
+        setMemHistory(hist => [...hist.slice(1), Math.round((next / memPhysicalTotal) * 100)]);
+        
+        return next;
+      });
+      
+      setMemVirtualUsed(prev => {
+        if (!memVirtualEnabled) return 0;
+        const delta = Math.floor(Math.random() * 40) - 20;
+        return Math.max(1000, Math.min(memVirtualTotal - 500, prev + delta));
+      });
+
+      setMemCacheUsed(prev => {
+        const delta = Math.floor(Math.random() * 20) - 10;
+        return Math.max(500, Math.min(memCacheTotal - 200, prev + delta));
+      });
+    }, 4000);
+
+    return () => clearInterval(timer);
+  }, [memVirtualEnabled, memVirtualTotal, memPhysicalTotal, memCacheTotal]);
+
   const [hardwareStats, setHardwareStats] = useState({
     screen: {
       resolution: `${window.screen.width}x${window.screen.height}`,
@@ -11577,6 +12124,7 @@ function SettingsApp(props: any) {
                   { id: 'security', label: 'Security', icon: <Shield size={20} />, color: 'text-red-400' },
                   { id: 'text', label: 'Text', icon: <Type size={20} />, color: 'text-emerald-400' },
                   { id: 'sounds', label: 'Sounds', icon: <Volume2 size={20} />, color: 'text-amber-400' },
+                  { id: 'memory', label: 'Memory', icon: <Cpu size={20} />, color: 'text-rose-400' },
                 ].map(item => (
                   <button 
                     key={item.id}
@@ -11954,6 +12502,324 @@ function SettingsApp(props: any) {
                         </div>
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {activeControl === 'memory' && (
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                      <div className="flex items-center gap-2">
+                        <Cpu className="text-rose-400" size={18} />
+                        <h3 className="text-sm font-medium">Memory Management & Command Core</h3>
+                      </div>
+                      <span className="text-[10px] bg-rose-500/10 border border-rose-500/20 text-rose-400 px-2 py-0.5 rounded font-mono font-bold">
+                        PHYSICAL + VIRTUAL + CACHE
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      
+                      {/* Physical Memory Card */}
+                      <div className="glass p-5 rounded-2xl border border-white/5 space-y-4 flex flex-col justify-between">
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <p className="text-xs font-bold text-white/90">Physical Memory (RAM)</p>
+                              <p className="text-[10px] text-white/30">Primary volatile high-speed hardware registry</p>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-sm font-bold text-rose-400 font-mono">
+                                {((memPhysicalUsed) / 1024).toFixed(2)} GB
+                              </span>
+                              <span className="text-[10px] text-white/30 font-mono block">
+                                / {(memPhysicalTotal / 1024).toFixed(1)} GB ({Math.round((memPhysicalUsed / memPhysicalTotal) * 100)}%)
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-rose-400 transition-all duration-500" 
+                              style={{ width: `${(memPhysicalUsed / memPhysicalTotal) * 100}%` }}
+                            />
+                          </div>
+
+                          <div className="h-28 bg-black/10 border border-white/5 rounded-xl p-1 flex items-center justify-center overflow-hidden">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <ReAreaChart data={memHistory.map((val, i) => ({ index: i, Usage: val }))} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+                                <Tooltip 
+                                  contentStyle={{ backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', fontSize: '9px' }}
+                                  itemStyle={{ color: '#f43f5e' }}
+                                  labelFormatter={() => 'Telemetry Point'}
+                                />
+                                <Area type="monotone" dataKey="Usage" stroke="#fb7185" fill="url(#colorMem)" strokeWidth={1.5} isAnimationActive={false} />
+                                <defs>
+                                  <linearGradient id="colorMem" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.25}/>
+                                    <stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/>
+                                  </linearGradient>
+                                </defs>
+                              </ReAreaChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3 pt-2">
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-white/60">RAM Compression (Double Space)</span>
+                            <button 
+                              onClick={() => {
+                                setMemCompressionEnabled(!memCompressionEnabled);
+                                addNotification('Memory Manager', `Memory compression ${!memCompressionEnabled ? 'enabled' : 'disabled'}`, 'info');
+                              }}
+                              className={cn(
+                                "w-10 h-5 rounded-full relative transition-all",
+                                memCompressionEnabled ? "bg-rose-500" : "bg-white/10"
+                              )}
+                            >
+                              <div className={cn(
+                                "absolute top-1 w-3 h-3 bg-white rounded-full transition-all",
+                                memCompressionEnabled ? "left-6" : "left-1"
+                              )} />
+                            </button>
+                          </div>
+
+                          <button
+                            onClick={() => {
+                              setIsMemoryCleaning(true);
+                              setMemoryDiagnosticLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] Initializing RAM defragmentation...`]);
+                              setTimeout(() => {
+                                setMemoryDiagnosticLog(prev => [
+                                  ...prev,
+                                  `[${new Date().toLocaleTimeString()}] Sweeping orphan memory pages...`,
+                                  `[${new Date().toLocaleTimeString()}] Compressing memory blocks...`,
+                                  `[${new Date().toLocaleTimeString()}] Releasing cached process leaks...`
+                                ]);
+                              }, 1500);
+                              setTimeout(() => {
+                                setMemPhysicalUsed(prev => Math.floor(prev * 0.72));
+                                setIsMemoryCleaning(false);
+                                setMemoryDiagnosticLog(prev => [
+                                  ...prev, 
+                                  `[${new Date().toLocaleTimeString()}] Optimization complete! Reclaimed ${Math.floor(memPhysicalUsed * 0.28)} MB.`
+                                ]);
+                                addNotification('Memory Manager', 'Physical Memory optimized successfully', 'success');
+                              }, 3000);
+                            }}
+                            disabled={isMemoryCleaning}
+                            className="w-full py-2 bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/20 disabled:opacity-40 text-rose-300 font-bold rounded-xl text-[10px] transition-all uppercase tracking-wider flex items-center justify-center gap-2"
+                          >
+                            {isMemoryCleaning ? (
+                              <>
+                                <RefreshCw size={12} className="animate-spin" />
+                                Optimizing RAM...
+                              </>
+                            ) : (
+                              <>
+                                <Zap size={12} />
+                                Optimize RAM & Release Leaks
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Virtual Memory Card */}
+                      <div className="glass p-5 rounded-2xl border border-white/5 space-y-4 flex flex-col justify-between">
+                        <div className="space-y-4">
+                          <div>
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <p className="text-xs font-bold text-white/90">Virtual Memory (Swap Space)</p>
+                                <p className="text-[10px] text-white/30">Hard-drive allocation simulating system RAM paging</p>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-sm font-bold text-purple-400 font-mono">
+                                  {memVirtualEnabled ? `${((memVirtualUsed) / 1024).toFixed(2)} GB` : 'Disabled'}
+                                </span>
+                                <span className="text-[10px] text-white/30 font-mono block">
+                                  {memVirtualEnabled ? `/ ${(memVirtualTotal / 1024).toFixed(1)} GB (${Math.round((memVirtualUsed / memVirtualTotal) * 100)}%)` : 'Paging Offline'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="p-3 bg-[#0a0c10]/50 rounded-xl border border-white/5 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-[11px] font-bold text-white/80">Paging File On Drive C:</p>
+                                <p className="text-[9px] text-white/30">Enables secondary disk swap space buffers</p>
+                              </div>
+                              <button 
+                                onClick={() => {
+                                  const next = !memVirtualEnabled;
+                                  setMemVirtualEnabled(next);
+                                  if (!next) {
+                                    setMemVirtualUsed(0);
+                                    setMemoryDiagnosticLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] Paging file disabled. Reclaimed swap allocation.`]);
+                                  } else {
+                                    setMemVirtualUsed(3120);
+                                    setMemoryDiagnosticLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] Virtual memory paging file online.`]);
+                                  }
+                                  addNotification('Memory Manager', `Virtual memory paging file is now ${next ? 'ENABLED' : 'DISABLED'}`, next ? 'info' : 'warning');
+                                }}
+                                className={cn(
+                                  "w-10 h-5 rounded-full relative transition-all",
+                                  memVirtualEnabled ? "bg-purple-500" : "bg-white/10"
+                                )}
+                              >
+                                <div className={cn(
+                                  "absolute top-1 w-3 h-3 bg-white rounded-full transition-all",
+                                  memVirtualEnabled ? "left-6" : "left-1"
+                                )} />
+                              </button>
+                            </div>
+
+                            {memVirtualEnabled && (
+                              <div className="space-y-2 pt-2 border-t border-white/5">
+                                <div className="flex justify-between text-[10px]">
+                                  <span className="text-white/50">Custom Allocation Size</span>
+                                  <span className="font-mono text-purple-400 font-bold">{memVirtualCustomSize} MB</span>
+                                </div>
+                                <input 
+                                  type="range" 
+                                  min="2048" 
+                                  max="32768" 
+                                  step="1024"
+                                  value={memVirtualCustomSize}
+                                  onChange={(e) => setMemVirtualCustomSize(parseInt(e.target.value))}
+                                  className="w-full h-1 bg-white/10 accent-purple-500 rounded-lg appearance-none cursor-pointer"
+                                />
+                                <div className="flex justify-between text-[8px] text-white/20 font-mono">
+                                  <span>2 GB</span>
+                                  <span>16 GB</span>
+                                  <span>32 GB</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <button
+                            onClick={() => {
+                              if (!memVirtualEnabled) {
+                                addNotification('Memory Error', 'Paging is disabled. Enable to apply allocation size.', 'warning');
+                                return;
+                              }
+                              setMemVirtualTotal(memVirtualCustomSize);
+                              setMemoryDiagnosticLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] Virtual SWAP allocation updated to ${memVirtualCustomSize} MB.`]);
+                              addNotification('Memory Config', `Virtual swap allocation sized to ${memVirtualCustomSize} MB.`, 'success');
+                            }}
+                            disabled={!memVirtualEnabled}
+                            className="w-full py-2 bg-purple-500/10 hover:bg-purple-500/25 border border-purple-500/20 disabled:opacity-40 text-purple-300 font-bold rounded-xl text-[10px] transition-all uppercase tracking-wider flex items-center justify-center gap-1.5"
+                          >
+                            Apply Swap Configuration
+                          </button>
+                        </div>
+                      </div>
+
+                    </div>
+
+                    {/* Cache & Diagnostics row */}
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                      
+                      <div className="md:col-span-7 glass p-5 rounded-2xl border border-white/5 space-y-4 flex flex-col justify-between">
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <p className="text-xs font-bold text-white/90">System Cache Buffers</p>
+                              <p className="text-[10px] text-white/30">Fast disk reads / OS pipeline pre-fetched resources</p>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-sm font-bold text-amber-400 font-mono">
+                                {((memCacheUsed) / 1024).toFixed(2)} GB
+                              </span>
+                              <span className="text-[10px] text-white/30 font-mono block">
+                                / {(memCacheTotal / 1024).toFixed(1)} GB Cache Ring ({Math.round((memCacheUsed / memCacheTotal) * 100)}%)
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="bg-black/30 border border-white/5 rounded-xl p-2 text-center">
+                              <p className="text-[8px] text-white/30 uppercase font-bold font-mono">L1 Registry</p>
+                              <p className="text-[10px] font-bold text-white/90 font-mono mt-0.5">512 KB</p>
+                              <span className="text-[7px] text-emerald-400/80 font-bold">100% Hit</span>
+                            </div>
+                            <div className="bg-black/30 border border-white/5 rounded-xl p-2 text-center">
+                              <p className="text-[8px] text-white/30 uppercase font-bold font-mono">L2 Cache</p>
+                              <p className="text-[10px] font-bold text-white/90 font-mono mt-0.5">4.0 MB</p>
+                              <span className="text-[7px] text-emerald-400/80 font-bold">98.4% Hit</span>
+                            </div>
+                            <div className="bg-black/30 border border-white/5 rounded-xl p-2 text-center">
+                              <p className="text-[8px] text-white/30 uppercase font-bold font-mono">L3 Cache</p>
+                              <p className="text-[10px] font-bold text-white/90 font-mono mt-0.5">16.0 MB</p>
+                              <span className="text-[7px] text-blue-400/80 font-bold">92.1% Hit</span>
+                            </div>
+                          </div>
+
+                          <div className="p-3 bg-amber-500/5 border border-amber-500/10 rounded-xl flex items-center justify-between text-[10px]">
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-bold text-amber-300">Prefetch / Superfetch Daemon</span>
+                              <span className="text-[9px] text-white/40">Cache frequently booted binary applications</span>
+                            </div>
+                            <span className="text-[8px] px-1.5 py-0.5 rounded font-bold font-mono bg-amber-500/10 border border-amber-500/20 text-amber-400 animate-pulse">
+                              HOT CACHING ACTIVE
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            const flushedAmount = memCacheUsed - 120;
+                            setMemCacheUsed(120);
+                            addNotification('Memory Manager', `System Cache flushed. Reclaimed ${((flushedAmount) / 1024).toFixed(2)} GB buffer memory.`, 'success');
+                            setMemoryDiagnosticLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] Purged system disk buffers. Freed ${flushedAmount} MB.`]);
+                          }}
+                          className="w-full py-2 bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/20 text-amber-300 font-bold rounded-xl text-[10px] transition-all uppercase tracking-wider flex items-center justify-center gap-1.5"
+                        >
+                          Flush system buffers & cache
+                        </button>
+                      </div>
+
+                      {/* Diagnostic Log Column */}
+                      <div className="md:col-span-5 bg-[#0d1117]/80 border border-white/10 rounded-2xl p-4 flex flex-col h-[230px] font-mono justify-between text-[9px] relative overflow-hidden">
+                        <div>
+                          <div className="flex items-center justify-between border-b border-white/5 pb-2 mb-2">
+                            <span className="text-[8px] text-white/40 font-bold uppercase tracking-wider">Memory Diagnostics Console</span>
+                            <button 
+                              onClick={() => setMemoryDiagnosticLog([])}
+                              className="text-[8px] text-rose-400 hover:underline hover:text-rose-300 uppercase font-bold"
+                            >
+                              Clear Logs
+                            </button>
+                          </div>
+                          
+                          <div className="space-y-1.5 overflow-y-auto max-h-[150px] no-scrollbar pr-1">
+                            {memoryDiagnosticLog.length === 0 ? (
+                              <div className="py-12 text-center text-white/20 uppercase tracking-widest text-[8px]">
+                                No logs generated.<br />
+                                Run RAM Optimization or flush cache to see diagnostics.
+                              </div>
+                            ) : (
+                              memoryDiagnosticLog.map((log, index) => (
+                                <div key={index} className="text-white/60 leading-normal border-b border-white/2 break-words">
+                                  {log}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div className="pt-2 border-t border-white/5 text-[8px] text-white/20 flex justify-between font-bold">
+                          <span>MEM_DAEMON_ONLINE</span>
+                          <span>127.0.0.1:RAM</span>
+                        </div>
+                      </div>
+
+                    </div>
+
                   </div>
                 )}
               </motion.div>
