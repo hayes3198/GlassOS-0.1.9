@@ -91,7 +91,7 @@ interface SandboxFault {
   triggerSource: string;
   payloadSnippet: string;
   faultType: string;
-  isolationStatus: 'quarantined' | 'analyzed' | 'purged';
+  isolationStatus: 'quarantined' | 'analyzed' | 'purged' | 'enclave_isolated';
 }
 
 const DEFAULT_LOCATIONS: NodeLocation[] = [
@@ -117,7 +117,7 @@ export function GlassTCP({
   // Node coordination
   const [nodes, setNodes] = useState<NodeLocation[]>(DEFAULT_LOCATIONS);
   const [activeClients, setActiveClients] = useState<any[]>([]);
-  const [selectedTargetNode, setSelectedTargetNode] = useState<string>('loc-tokyo');
+  const [selectedTargetNode, setSelectedTargetNode] = useState<string>(DEFAULT_LOCATIONS[0].name);
 
   // TCP Protocol states
   const [connections, setConnections] = useState<Record<string, ActiveConnection>>({});
@@ -146,6 +146,21 @@ export function GlassTCP({
 
   // Firewall Asynchronous Filtering & Fault Isolation States
   const [firewallActive, setFirewallActive] = useState<boolean>(true);
+  const [holoCryptEnclaveActive, setHoloCryptEnclaveActive] = useState<boolean>(true);
+  const [rotatingKey, setRotatingKey] = useState<string>('0x9A4F8B2C1E706D53');
+
+  useEffect(() => {
+    const keyInterval = setInterval(() => {
+      const hex = '0123456789ABCDEF';
+      let key = '0x';
+      for (let i = 0; i < 16; i++) {
+        key += hex[Math.floor(Math.random() * 16)];
+      }
+      setRotatingKey(key);
+    }, 2000);
+    return () => clearInterval(keyInterval);
+  }, []);
+
   const [asyncFilters, setAsyncFilters] = useState<AsyncFilterRule[]>([
     { id: 'flt-udp', pattern: 'UDP Flood / Port Scanner Block', action: 'DROP', isActive: true, severity: 'high', matchesCount: 142 },
     { id: 'flt-sandbox', pattern: 'Sandbox Executable Payloads (.elf/.bin)', action: 'SANDBOX', isActive: true, severity: 'critical', matchesCount: 24 },
@@ -893,20 +908,26 @@ export function GlassTCP({
         }));
 
         // Isolated Threat
+        const isEnclaveIsolated = holoCryptEnclaveActive && (selectedFaultType === 'Memory Corruption Payload' || Math.random() > 0.4);
         const newFault: SandboxFault = {
           id: `fault-${Math.floor(Math.random() * 90) + 10}`,
           timestamp: new Date().toLocaleTimeString(),
           triggerSource: selectedSrc,
           payloadSnippet: selectedExploit,
           faultType: selectedFaultType,
-          isolationStatus: 'quarantined'
+          isolationStatus: isEnclaveIsolated ? 'enclave_isolated' : 'quarantined'
         };
 
         setSandboxFaults(prev => [newFault, ...prev]);
         setIsInjectingFault(false);
 
-        logToTerminal(`[FAULT ISOLATION SUCCESS] Malicious socket isolated inside Ring-3 Sandboxed Thread. Threat contained!`);
-        addNotification('Firewall Sandbox', `Isolated threat from ${selectedSrc} in sandboxed thread!`, 'error');
+        if (isEnclaveIsolated) {
+          logToTerminal(`[SECURE ENCLAVE CONTAINER] Malicious socket fully contained inside HoloCrypt Ring-0 Secure Enclave under rotating key ${rotatingKey}. Hardware shield locked!`);
+          addNotification('Firewall Sandbox', `Contained threat from ${selectedSrc} inside HoloCrypt Ring-0 Secure Enclave!`, 'success');
+        } else {
+          logToTerminal(`[FAULT ISOLATION SUCCESS] Malicious socket isolated inside Ring-3 Sandboxed Thread. Threat contained!`);
+          addNotification('Firewall Sandbox', `Isolated threat from ${selectedSrc} in sandboxed thread!`, 'error');
+        }
       }, 1000);
     }, 600);
   };
@@ -1115,7 +1136,7 @@ export function GlassTCP({
               {/* Display active real-time client peers if any */}
               {activeClients.map((client, i) => (
                 <div
-                  key={client.id}
+                  key={client?.id || i}
                   className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 z-10"
                   style={{ left: `${40 + (i * 12)}%`, top: `65%` }}
                 >
@@ -1123,7 +1144,7 @@ export function GlassTCP({
                     <Monitor size={14} />
                   </div>
                   <div className="bg-[#0d1117] border border-white/5 px-2 py-0.5 rounded text-[8px] font-bold text-purple-300">
-                    {client.hostname.split('-')[0]}
+                    {(client?.hostname || 'Unknown').split('-')[0]}
                   </div>
                 </div>
               ))}
@@ -1151,6 +1172,8 @@ export function GlassTCP({
                   </div>
                 ) : (
                   networkTraffic.map((pkt) => {
+                    const sourceName = (pkt.source || '').split(' ')[0] || 'N/A';
+                    const destName = (pkt.destination || '').split(' ')[0] || 'N/A';
                     return (
                       <div 
                         key={pkt.id} 
@@ -1161,20 +1184,21 @@ export function GlassTCP({
                       >
                         <span className="col-span-2 text-white/30">{pkt.timestamp}</span>
                         <span className="col-span-3 text-white/80 font-bold truncate flex items-center gap-1">
-                          {pkt.source.split(' ')[0]}
+                          {sourceName}
                           <ChevronRight size={10} className="text-white/20" />
-                          <span className="text-blue-400 truncate">{pkt.destination.split(' ')[0]}</span>
+                          <span className="text-blue-400 truncate">{destName}</span>
                         </span>
-                        <span className="col-span-1 text-purple-400 font-bold">{pkt.sourcePort}</span>
-                        <span className="col-span-1 text-purple-300 font-bold">{pkt.destPort}</span>
+                        <span className="col-span-1 text-purple-400 font-bold">{pkt.sourcePort || '-'}</span>
+                        <span className="col-span-1 text-purple-300 font-bold">{pkt.destPort || '-'}</span>
                         <span className="col-span-2 text-blue-300/80 tracking-tighter">
-                          {pkt.flags.syn ? 'SYN ' : ''}
-                          {pkt.flags.ack ? 'ACK ' : ''}
-                          {pkt.flags.psh ? 'PSH ' : ''}
-                          {pkt.flags.fin ? 'FIN ' : ''}
+                          {pkt.flags?.syn ? 'SYN ' : ''}
+                          {pkt.flags?.ack ? 'ACK ' : ''}
+                          {pkt.flags?.psh ? 'PSH ' : ''}
+                          {pkt.flags?.fin ? 'FIN ' : ''}
+                          {!pkt.flags && (pkt.protocol || 'IP')}
                         </span>
-                        <span className="col-span-2 text-white/50 truncate font-sans">{pkt.payload}</span>
-                        <span className="col-span-1 text-right text-amber-400/80 font-bold">{pkt.size}</span>
+                        <span className="col-span-2 text-white/50 truncate font-sans">{pkt.payload || 'No Payload'}</span>
+                        <span className="col-span-1 text-right text-amber-400/80 font-bold">{pkt.size || '0 B'}</span>
                       </div>
                     );
                   })
@@ -1757,6 +1781,56 @@ export function GlassTCP({
 
           {/* Fault Isolation Sandbox Sidebar (Ring-3 Sandbox Sandbagging) */}
           <div className="col-span-5 flex flex-col overflow-hidden bg-[#0d1117]/60 backdrop-blur-md p-6 gap-6">
+            
+            {/* HoloCrypt Ring-0 Secure Enclave Control Card */}
+            <div className={`p-5 rounded-2xl border transition-all relative overflow-hidden group ${
+              holoCryptEnclaveActive 
+                ? 'bg-gradient-to-br from-amber-500/10 to-amber-600/5 border-amber-500/20 shadow-lg shadow-amber-500/5' 
+                : 'bg-[#111622] border-white/5'
+            }`}>
+              {/* Background glowing sphere */}
+              <div className={`absolute -right-12 -top-12 w-28 h-28 rounded-full blur-2xl transition-opacity ${
+                holoCryptEnclaveActive ? 'bg-amber-500/10 group-hover:bg-amber-500/15' : 'bg-white/2'
+              }`} />
+              
+              <div className="flex items-center justify-between mb-3 relative z-10">
+                <div className="flex items-center gap-2">
+                  <Lock size={15} className={holoCryptEnclaveActive ? 'text-amber-400' : 'text-white/30'} />
+                  <span className="text-xs font-bold text-white uppercase tracking-wider">HoloCrypt Ring-0 Secure Enclave</span>
+                </div>
+                <button
+                  onClick={() => {
+                    setHoloCryptEnclaveActive(!holoCryptEnclaveActive);
+                    logToTerminal(`Firewall: HoloCrypt Ring-0 Secure Enclave toggled to ${!holoCryptEnclaveActive ? 'ACTIVE' : 'BYPASS'}`);
+                  }}
+                  className={`w-10 h-5 rounded-full p-0.5 transition-all ${holoCryptEnclaveActive ? 'bg-amber-500' : 'bg-white/10'}`}
+                >
+                  <div className={`w-4 h-4 rounded-full bg-[#0d1117] transition-all ${holoCryptEnclaveActive ? 'translate-x-5' : 'translate-x-0'}`} />
+                </button>
+              </div>
+
+              <p className="text-[10px] text-white/50 leading-relaxed relative z-10 mb-3">
+                Provides hardware-enforced cryptographic boundaries directly inside the ring-0 space, isolating anomalous kernel and sockets from guest execution.
+              </p>
+
+              {holoCryptEnclaveActive && (
+                <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-amber-500/10 text-[9px] font-mono relative z-10">
+                  <div>
+                    <span className="text-white/30 block uppercase tracking-wider">Active Key (256b OTP)</span>
+                    <span className="text-amber-400 font-bold block truncate">{rotatingKey}</span>
+                  </div>
+                  <div>
+                    <span className="text-white/30 block uppercase tracking-wider">Attestation Mode</span>
+                    <span className="text-amber-400 font-semibold block">QUANTUM-HARDWARE</span>
+                  </div>
+                  <div className="col-span-2 pt-1.5 flex items-center gap-1.5 text-amber-500/80 font-bold">
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                    Enforced: Intercepting and securing Ring-0 exploits
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="flex flex-col gap-1.5 border-b border-white/5 pb-4">
               <h3 className="text-xs font-bold uppercase tracking-widest text-red-400 flex items-center gap-1.5">
                 <AlertCircle size={14} /> Ring-3 Thread Fault Isolation Sandbox
@@ -1805,10 +1879,14 @@ export function GlassTCP({
               ) : (
                 <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 pr-1">
                   {sandboxFaults.map(fault => (
-                    <div key={fault.id} className="p-3.5 rounded-xl bg-red-500/5 border border-red-500/10 flex flex-col gap-2 font-mono text-[9px]">
+                    <div key={fault.id} className={`p-3.5 rounded-xl flex flex-col gap-2 font-mono text-[9px] transition-all duration-300 ${
+                      fault.isolationStatus === 'enclave_isolated'
+                        ? 'bg-amber-500/5 border border-amber-500/25 shadow-[0_0_12px_rgba(245,158,11,0.05)]'
+                        : 'bg-red-500/5 border border-red-500/10'
+                    }`}>
                       <div className="flex items-center justify-between border-b border-white/2 pb-1.5">
-                        <span className="text-red-400 font-bold flex items-center gap-1">
-                          <AlertCircle size={9} /> {fault.faultType}
+                        <span className={`${fault.isolationStatus === 'enclave_isolated' ? 'text-amber-400' : 'text-red-400'} font-bold flex items-center gap-1`}>
+                          {fault.isolationStatus === 'enclave_isolated' ? <Lock size={9} /> : <AlertCircle size={9} />} {fault.faultType}
                         </span>
                         <span className="text-white/30">{fault.timestamp}</span>
                       </div>
@@ -1820,10 +1898,17 @@ export function GlassTCP({
                         </div>
                         <div>
                           <span className="text-white/30 block">CONTAINER ROUTE</span>
-                          <span className="text-red-400 font-bold flex items-center gap-1">
-                            <div className="w-1 h-1 rounded-full bg-red-400 animate-ping" />
-                            RING-3 ISOLATED
-                          </span>
+                          {fault.isolationStatus === 'enclave_isolated' ? (
+                            <span className="text-amber-400 font-bold flex items-center gap-1">
+                              <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                              RING-0 SECURE ENCLAVE
+                            </span>
+                          ) : (
+                            <span className="text-red-400 font-bold flex items-center gap-1">
+                              <div className="w-1 h-1 rounded-full bg-red-400 animate-ping" />
+                              RING-3 ISOLATED
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -1872,40 +1957,41 @@ export function GlassTCP({
               <div className="col-span-5 grid grid-cols-2 gap-4 bg-[#0a0c10] p-4 rounded-xl border border-white/5 overflow-y-auto no-scrollbar">
                 <div>
                   <span className="text-white/30 block mb-0.5">Source IP / Host:</span>
-                  <span className="text-blue-400 font-bold">{selectedPacket.source} ({selectedPacket.sourceIp})</span>
+                  <span className="text-blue-400 font-bold">{selectedPacket.source || 'N/A'} ({selectedPacket.sourceIp || 'Unknown'})</span>
                 </div>
                 <div>
                   <span className="text-white/30 block mb-0.5">Dest IP / Host:</span>
-                  <span className="text-emerald-400 font-bold">{selectedPacket.destination} ({selectedPacket.destIp})</span>
+                  <span className="text-emerald-400 font-bold">{selectedPacket.destination || 'N/A'} ({selectedPacket.destIp || 'Unknown'})</span>
                 </div>
                 <div>
                   <span className="text-white/30 block mb-0.5">Source Port:</span>
-                  <span className="text-white/80">{selectedPacket.sourcePort}</span>
+                  <span className="text-white/80">{selectedPacket.sourcePort ?? 'N/A'}</span>
                 </div>
                 <div>
                   <span className="text-white/30 block mb-0.5">Destination Port:</span>
-                  <span className="text-white/80">{selectedPacket.destPort}</span>
+                  <span className="text-white/80">{selectedPacket.destPort ?? 'N/A'}</span>
                 </div>
                 <div>
                   <span className="text-white/30 block mb-0.5">Sequence Number:</span>
-                  <span className="text-purple-400 font-bold">{selectedPacket.seq}</span>
+                  <span className="text-purple-400 font-bold">{selectedPacket.seq ?? 'N/A'}</span>
                 </div>
                 <div>
                   <span className="text-white/30 block mb-0.5">Acknowledgment Num:</span>
-                  <span className="text-purple-300 font-bold">{selectedPacket.ack}</span>
+                  <span className="text-purple-300 font-bold">{selectedPacket.ack ?? 'N/A'}</span>
                 </div>
                 <div>
                   <span className="text-white/30 block mb-0.5">Header TCP Flags:</span>
                   <span className="text-amber-400 font-bold flex gap-1">
-                    {selectedPacket.flags.syn && <span className="bg-amber-500/10 px-1.5 py-0.5 rounded text-[8px]">SYN</span>}
-                    {selectedPacket.flags.ack && <span className="bg-amber-500/10 px-1.5 py-0.5 rounded text-[8px]">ACK</span>}
-                    {selectedPacket.flags.psh && <span className="bg-amber-500/10 px-1.5 py-0.5 rounded text-[8px]">PSH</span>}
-                    {selectedPacket.flags.fin && <span className="bg-amber-500/10 px-1.5 py-0.5 rounded text-[8px]">FIN</span>}
+                    {selectedPacket.flags?.syn && <span className="bg-amber-500/10 px-1.5 py-0.5 rounded text-[8px]">SYN</span>}
+                    {selectedPacket.flags?.ack && <span className="bg-amber-500/10 px-1.5 py-0.5 rounded text-[8px]">ACK</span>}
+                    {selectedPacket.flags?.psh && <span className="bg-amber-500/10 px-1.5 py-0.5 rounded text-[8px]">PSH</span>}
+                    {selectedPacket.flags?.fin && <span className="bg-amber-500/10 px-1.5 py-0.5 rounded text-[8px]">FIN</span>}
+                    {!selectedPacket.flags && <span className="bg-blue-500/10 px-1.5 py-0.5 rounded text-[8px]">{selectedPacket.protocol || 'IP'}</span>}
                   </span>
                 </div>
                 <div>
                   <span className="text-white/30 block mb-0.5">Calculated Size:</span>
-                  <span className="text-amber-500 font-bold">{selectedPacket.size}</span>
+                  <span className="text-amber-500 font-bold">{selectedPacket.size || '0 B'}</span>
                 </div>
               </div>
 

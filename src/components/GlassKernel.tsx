@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Cpu, Shield, Zap, Play, Pause, Terminal, Activity, X, Check, 
   AlertCircle, Sliders, RefreshCw, Eye, EyeOff, Lock, Unlock, Database, Layers, ArrowLeftRight,
-  HardDrive, Code2, Wrench
+  HardDrive, Code2, Wrench, MousePointer
 } from 'lucide-react';
 
 interface GlassKernelProps {
@@ -35,7 +35,7 @@ interface KernelLog {
 interface Driver {
   id: string;
   name: string;
-  type: 'network' | 'storage' | 'display' | 'accelerator';
+  type: 'network' | 'storage' | 'display' | 'accelerator' | 'input';
   version: string;
   agnosticCode: string;
   irqs: number;
@@ -133,6 +133,34 @@ void npu_handler() {
   glass_trigger_tensor_dot();
   glass_log("Tensor operation completed.");
 }`
+    },
+    {
+      id: 'input0',
+      name: 'USB & HID Pointer Controller',
+      type: 'input',
+      version: '2.1.0-SADF',
+      irqs: 5,
+      baseAddress: '0x0FC000',
+      status: 'unloaded',
+      transactionsCount: 0,
+      agnosticCode: `// Silicon-Agnostic Human Interface Device (HID) Parser
+void glass_init() {
+  glass_map_irq(5, &hid_pointer_handler);
+  glass_usb_register_driver(0x046D, 0xC52B); // Logi USB Receiver
+  glass_log("SADF: USB & HID Pointer Driver active.");
+}
+
+void hid_pointer_handler() {
+  u8 packet[64];
+  glass_usb_bulk_transfer(ENDPOINT_IN, packet, 64);
+  
+  // Extract absolute coordinate deltas
+  s16 dx = (packet[2] << 8) | packet[1];
+  s16 dy = (packet[4] << 8) | packet[3];
+  u8 buttons = packet[0];
+  
+  glass_inject_input_event(EV_REL_MOUSE, dx, dy, buttons);
+}`
     }
   ]);
 
@@ -144,6 +172,21 @@ void npu_handler() {
 
   // Kernel Tuning States
   const [strictIsolation, setStrictIsolation] = useState(true);
+  const [holoCryptEnclaveActive, setHoloCryptEnclaveActive] = useState(true);
+  const [rotatingKey, setRotatingKey] = useState<string>('0x9A4F8B2C1E706D53');
+
+  useEffect(() => {
+    const keyInterval = setInterval(() => {
+      const hex = '0123456789ABCDEF';
+      let key = '0x';
+      for (let i = 0; i < 16; i++) {
+        key += hex[Math.floor(Math.random() * 16)];
+      }
+      setRotatingKey(key);
+    }, 2000);
+    return () => clearInterval(keyInterval);
+  }, []);
+
   const [zeroCopyEnabled, setZeroCopyEnabled] = useState(true);
   const [pageSize, setPageSize] = useState<4 | 2048 | 1048576>(4); // 4KB, 2MB, 1GB
   
@@ -435,6 +478,17 @@ void npu_handler() {
           next[25] = -1;
           return next;
         });
+      } else if (holoCryptEnclaveActive) {
+        setExploitStatus('prevented');
+        addKernelLog('success', 'SECURE ENCLAVE', `[HoloCrypt Enclave] INTERCEPT: Blocked illegal read access using Ring-0 secure hardware protection boundaries.`);
+        addKernelLog('success', 'SECURE ENCLAVE', `[HoloCrypt Enclave] Enclave memory shield verified with dynamic quantum signature: HOLO-SECURE-${rotatingKey}.`);
+        addKernelLog('success', 'SECURE ENCLAVE', `[HoloCrypt Enclave] Process 512 memory frames quarantined inside Ring-0 Secure Enclave.`);
+        addNotification('HoloCrypt Enclave', 'HoloCrypt Enclave intercepted and neutralized memory read violation!', 'success');
+
+        // Visually place process 512 into enclave/suspended status
+        setProcesses(prev => prev.map(p => p.id === 512 ? { ...p, status: 'terminated' } : p));
+        // In the physical RAM map, mark its physical frames as secured inside the enclave!
+        // We can keep them as owned by 512 but mark them as secure in the log.
       } else {
         setExploitStatus('breached');
         addKernelLog('error', 'BREACH', 'EXPLOIT SUCCESSFUL! Process 512 successfully read 256 bytes from AuthService segment: token="gOS_usr_tok_8f9024c...".');
@@ -519,6 +573,28 @@ void npu_handler() {
               }`}
             >
               {zeroCopyEnabled ? 'ENABLED' : 'DISABLED'}
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 bg-[#161b22] px-4 py-2 rounded-2xl border border-white/5">
+            <Lock size={14} className={holoCryptEnclaveActive ? "text-amber-400" : "text-white/40"} />
+            <span className="text-xs font-semibold text-white">HoloCrypt Enclave:</span>
+            <button
+              onClick={() => {
+                setHoloCryptEnclaveActive(!holoCryptEnclaveActive);
+                addKernelLog(
+                  !holoCryptEnclaveActive ? 'success' : 'warning', 
+                  'SECURE ENCLAVE', 
+                  `HoloCrypt Ring-0 Secure Enclave toggled to ${!holoCryptEnclaveActive ? 'ENFORCED' : 'BYPASSED'}.`
+                );
+              }}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all uppercase ${
+                holoCryptEnclaveActive 
+                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-[0_0_8px_rgba(245,158,11,0.2)]' 
+                  : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/10'
+              }`}
+            >
+              {holoCryptEnclaveActive ? 'ENFORCED' : 'BYPASSED'}
             </button>
           </div>
         </div>
@@ -962,12 +1038,14 @@ void npu_handler() {
                           drv.type === 'network' ? 'bg-blue-500/10 text-blue-400' :
                           drv.type === 'storage' ? 'bg-amber-500/10 text-amber-400' :
                           drv.type === 'display' ? 'bg-purple-500/10 text-purple-400' :
+                          drv.type === 'input' ? 'bg-rose-500/10 text-rose-400' :
                           'bg-emerald-500/10 text-emerald-400'
                         }`}>
                           {drv.type === 'network' && <ArrowLeftRight size={16} />}
                           {drv.type === 'storage' && <HardDrive size={16} />}
                           {drv.type === 'display' && <Sliders size={16} />}
                           {drv.type === 'accelerator' && <Cpu size={16} />}
+                          {drv.type === 'input' && <MousePointer size={16} />}
                         </div>
                         <div className="flex flex-col">
                           <span className="text-xs font-bold text-white/90">{drv.name}</span>

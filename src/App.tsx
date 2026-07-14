@@ -8101,6 +8101,293 @@ function SystemMonitorApp(props: any) {
   const [activeTab, setActiveTab] = useState<'overview' | 'traffic' | 'glasstcp' | 'kernel' | 'security' | 'hardware'>('overview');
   const [hwInfo, setHwInfo] = useState<SystemInfo | null>(null);
 
+  // Firewall states
+  const [firewallActive, setFirewallActive] = useState<boolean>(true);
+  const [portFilters, setPortFilters] = useState<Record<number, { name: string; enabled: boolean; description: string }>>({
+    21: { name: 'FTP', enabled: false, description: 'File Transfer Control' },
+    22: { name: 'SSH', enabled: true, description: 'Secure Shell Management' },
+    23: { name: 'Telnet', enabled: true, description: 'Insecure Terminal Access' },
+    80: { name: 'HTTP', enabled: false, description: 'Hypertext Web Traffic' },
+    443: { name: 'HTTPS', enabled: false, description: 'Encrypted Web Traffic' },
+    3000: { name: 'Dev Server', enabled: false, description: 'Local App Port' },
+    8080: { name: 'Web Alt', enabled: true, description: 'Alternative Proxy' },
+  });
+
+  const [firewallRules, setFirewallRules] = useState<Array<{
+    id: string;
+    name: string;
+    pattern: string;
+    port: string;
+    action: 'DROP' | 'SANDBOX' | 'PASS' | 'DECRYPT';
+    isActive: boolean;
+    severity: 'low' | 'medium' | 'high' | 'critical';
+    matchesCount: number;
+  }>>([
+    { id: 'sec-rule-1', name: 'UDP Flood Prevention', pattern: 'SCAN_SWEEP', port: 'ANY', action: 'DROP', isActive: true, severity: 'high', matchesCount: 142 },
+    { id: 'sec-rule-2', name: 'Sandbox Shell Payloads', pattern: '.sh', port: '22', action: 'SANDBOX', isActive: true, severity: 'critical', matchesCount: 24 },
+    { id: 'sec-rule-3', name: 'Block Unencrypted Login', pattern: 'auth_plain', port: '21', action: 'DROP', isActive: true, severity: 'high', matchesCount: 11 },
+    { id: 'sec-rule-4', name: 'TLS Handshake Inspector', pattern: 'inspect', port: '443', action: 'DECRYPT', isActive: false, severity: 'low', matchesCount: 0 },
+    { id: 'sec-rule-5', name: 'Intranet Whitelist', pattern: '127.0.0.1', port: 'ANY', action: 'PASS', isActive: true, severity: 'medium', matchesCount: 89 }
+  ]);
+
+  const [firewallLogs, setFirewallLogs] = useState<Array<{
+    id: string;
+    timestamp: string;
+    source: string;
+    destination: string;
+    port: number;
+    protocol: string;
+    payload: string;
+    action: 'DROP' | 'SANDBOX' | 'PASS' | 'DECRYPT' | 'ALLOW';
+    matchedRule?: string;
+    severity: 'low' | 'medium' | 'high' | 'critical' | 'info';
+  }>>([
+    { id: 'log-init-1', timestamp: new Date(Date.now() - 45000).toLocaleTimeString(), source: '185.220.101.5', destination: '192.168.1.104', port: 23, protocol: 'TCP', payload: 'CONNECT telnet root', action: 'DROP', matchedRule: 'Port 23 Filter Block', severity: 'high' },
+    { id: 'log-init-2', timestamp: new Date(Date.now() - 32000).toLocaleTimeString(), source: '192.168.1.15', destination: '192.168.1.104', port: 80, protocol: 'TCP', payload: 'GET /index.html', action: 'ALLOW', matchedRule: undefined, severity: 'info' },
+    { id: 'log-init-3', timestamp: new Date(Date.now() - 15000).toLocaleTimeString(), source: '93.184.216.34', destination: '192.168.1.104', port: 22, protocol: 'TCP', payload: 'scp payload.sh root@host', action: 'SANDBOX', matchedRule: 'Sandbox Shell Payloads', severity: 'critical' }
+  ]);
+
+  const [newRuleName, setNewRuleName] = useState<string>('');
+  const [newRulePattern, setNewRulePattern] = useState<string>('');
+  const [newRulePort, setNewRulePort] = useState<string>('ANY');
+  const [newRuleAction, setNewRuleAction] = useState<'DROP' | 'SANDBOX' | 'PASS' | 'DECRYPT'>('DROP');
+  const [newRuleSeverity, setNewRuleSeverity] = useState<'low' | 'medium' | 'high' | 'critical'>('high');
+
+  const [logsPaused, setLogsPaused] = useState<boolean>(false);
+
+  // Firewall operations
+  const handleTogglePortFilter = (port: number) => {
+    setPortFilters(prev => ({
+      ...prev,
+      [port]: {
+        ...prev[port],
+        enabled: !prev[port].enabled
+      }
+    }));
+    addNotification('Firewall Config', `Port ${port} filter ${!portFilters[port].enabled ? 'enabled' : 'disabled'}`, 'info');
+  };
+
+  const handleToggleRule = (id: string) => {
+    setFirewallRules(prev => prev.map(r => r.id === id ? { ...r, isActive: !r.isActive } : r));
+    const rule = firewallRules.find(r => r.id === id);
+    if (rule) {
+      addNotification('Firewall Config', `Rule "${rule.name}" ${!rule.isActive ? 'activated' : 'deactivated'}`, 'info');
+    }
+  };
+
+  const handleDeleteRule = (id: string) => {
+    setFirewallRules(prev => prev.filter(r => r.id !== id));
+    addNotification('Firewall Config', 'Custom firewall rule deleted', 'info');
+  };
+
+  const handleAddRule = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newRuleName.trim() || !newRulePattern.trim()) return;
+
+    const newRule = {
+      id: 'rule-' + Date.now(),
+      name: newRuleName,
+      pattern: newRulePattern,
+      port: newRulePort,
+      action: newRuleAction,
+      isActive: true,
+      severity: newRuleSeverity,
+      matchesCount: 0
+    };
+
+    setFirewallRules(prev => [...prev, newRule]);
+    addNotification('Firewall Config', `Rule "${newRuleName}" added successfully`, 'success');
+
+    // Reset fields
+    setNewRuleName('');
+    setNewRulePattern('');
+    setNewRulePort('ANY');
+    setNewRuleAction('DROP');
+    setNewRuleSeverity('high');
+  };
+
+  const handleTriggerTestPacket = () => {
+    const attackPayloads = [
+      { source: '198.51.100.99', port: 22, payload: 'SCAN_SWEEP rapid connections', protocol: 'TCP' },
+      { source: '10.0.0.22', port: 22, payload: 'scp payload.sh root', protocol: 'TCP' },
+      { source: '203.0.113.5', port: 23, payload: 'CONNECT telnet exploit', protocol: 'TCP' },
+      { source: '185.220.101.42', port: 21, payload: 'auth_plain plain_passwd=admin', protocol: 'TCP' },
+      { source: '45.138.2.19', port: 8080, payload: 'GET /proxy_bypass HTTP/1.1', protocol: 'TCP' }
+    ];
+
+    const attack = attackPayloads[Math.floor(Math.random() * attackPayloads.length)];
+    const timeStr = new Date().toLocaleTimeString();
+    
+    let action: 'DROP' | 'SANDBOX' | 'PASS' | 'DECRYPT' | 'ALLOW' = 'ALLOW';
+    let matchedRule: string | undefined = undefined;
+    let severity: 'low' | 'medium' | 'high' | 'critical' | 'info' = 'high';
+
+    if (!firewallActive) {
+      action = 'ALLOW';
+      severity = 'info';
+    } else {
+      let ruleMatched = false;
+      const matched = firewallRules.find(rule => {
+        if (!rule.isActive) return false;
+        const portMatch = rule.port === 'ANY' || parseInt(rule.port) === attack.port;
+        const patternMatch = 
+          attack.source.toLowerCase().includes(rule.pattern.toLowerCase()) || 
+          attack.payload.toLowerCase().includes(rule.pattern.toLowerCase());
+        
+        return portMatch && patternMatch;
+      });
+
+      if (matched) {
+        ruleMatched = true;
+        action = matched.action;
+        matchedRule = matched.name;
+        severity = matched.severity as any;
+
+        // Increment match count
+        setFirewallRules(prev => prev.map(r => r.id === matched.id ? { ...r, matchesCount: r.matchesCount + 1 } : r));
+      }
+
+      if (!ruleMatched) {
+        const portFilter = portFilters[attack.port];
+        if (portFilter?.enabled) {
+          action = 'DROP';
+          matchedRule = `Port ${attack.port} Filter Block`;
+          severity = 'high';
+        } else {
+          action = 'ALLOW';
+          severity = 'info';
+        }
+      }
+    }
+
+    const newLog = {
+      id: 'test-log-' + Date.now(),
+      timestamp: timeStr,
+      source: attack.source,
+      destination: '192.168.1.104',
+      port: attack.port,
+      protocol: attack.protocol,
+      payload: attack.payload,
+      action,
+      matchedRule,
+      severity
+    };
+
+    setFirewallLogs(prev => [newLog, ...prev].slice(0, 100));
+    addNotification(
+      'Security Simulation', 
+      `Injected test packet: ${attack.source}:${attack.port} -> ${action}`, 
+      action === 'ALLOW' ? 'info' : 'success'
+    );
+  };
+
+  // Real-time asynchronous filtering log simulator
+  useEffect(() => {
+    if (activeTab !== 'security' || logsPaused) return;
+
+    const interval = setInterval(() => {
+      // 1. Generate a realistic random packet
+      const sources = [
+        '185.220.101.12', '192.168.1.42', '10.0.0.155', '82.165.12.98', 
+        '127.0.0.1', '8.8.8.8', '198.51.100.74', '203.0.113.88', '172.16.254.1'
+      ];
+      const destinations = ['192.168.1.104'];
+      const ports = [21, 22, 23, 80, 443, 3000, 8080, 5000, 9000];
+      const payloads = [
+        'SCAN_SWEEP ping test', 'GET /api/v1/health', 'POST /auth_plain plain_password=secret',
+        'CONNECT telnet root', 'GET /index.html', 'scp payload.sh root@node',
+        'TLS inspect handshake_syn', '127.0.0.1 admin_tunnel request', 'GET /ws/socket_stream',
+        'SQL injection test SELECT * FROM users', 'Worm payload execution'
+      ];
+      
+      const randomSrc = sources[Math.floor(Math.random() * sources.length)];
+      const randomDst = destinations[Math.floor(Math.random() * destinations.length)];
+      const randomPort = ports[Math.floor(Math.random() * ports.length)];
+      const randomPayload = payloads[Math.floor(Math.random() * payloads.length)];
+      const randomProtocol = Math.random() > 0.15 ? 'TCP' : 'UDP';
+
+      const timeStr = new Date().toLocaleTimeString();
+
+      let action: 'DROP' | 'SANDBOX' | 'PASS' | 'DECRYPT' | 'ALLOW' = 'ALLOW';
+      let matchedRule: string | undefined = undefined;
+      let severity: 'low' | 'medium' | 'high' | 'critical' | 'info' = 'info';
+
+      if (!firewallActive) {
+        action = 'ALLOW';
+        severity = 'info';
+      } else {
+        // Evaluate custom active rules first
+        let ruleMatched = false;
+        
+        setFirewallRules(prevRules => {
+          const matched = prevRules.find(rule => {
+            if (!rule.isActive) return false;
+            // check port
+            const portMatch = rule.port === 'ANY' || parseInt(rule.port) === randomPort;
+            // check pattern (IP or payload)
+            const patternMatch = 
+              randomSrc.toLowerCase().includes(rule.pattern.toLowerCase()) || 
+              randomPayload.toLowerCase().includes(rule.pattern.toLowerCase());
+            
+            return portMatch && patternMatch;
+          });
+
+          if (matched) {
+            ruleMatched = true;
+            action = matched.action;
+            matchedRule = matched.name;
+            severity = matched.severity as any;
+            
+            // Increment match count
+            return prevRules.map(r => r.id === matched.id ? { ...r, matchesCount: r.matchesCount + 1 } : r);
+          }
+          return prevRules;
+        });
+
+        if (!ruleMatched) {
+          // Evaluate port filter
+          const portFilter = portFilters[randomPort];
+          if (portFilter?.enabled) {
+            action = 'DROP';
+            matchedRule = `Port ${randomPort} Filter Block`;
+            severity = 'high';
+          } else {
+            action = 'ALLOW';
+            severity = 'info';
+          }
+        }
+      }
+
+      // 2. Insert into logs
+      const newLog = {
+        id: 'log-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+        timestamp: timeStr,
+        source: randomSrc,
+        destination: randomDst,
+        port: randomPort,
+        protocol: randomProtocol,
+        payload: randomPayload,
+        action,
+        matchedRule,
+        severity
+      };
+
+      setFirewallLogs(prev => [newLog, ...prev].slice(0, 100));
+
+      // Occasionally add notification if critical/high action is taken
+      const finalAction: string = action;
+      if (finalAction !== 'ALLOW' && Math.random() > 0.8) {
+        addNotification(
+          'Firewall Intercept', 
+          `${finalAction} applied to traffic from ${randomSrc} on Port ${randomPort}`, 
+          finalAction === 'PASS' || finalAction === 'DECRYPT' ? 'info' : 'warning'
+        );
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [activeTab, firewallActive, portFilters, logsPaused, firewallRules]);
+
   useEffect(() => {
     if (activeTab === 'hardware') {
       nativeBridge.getSystemInfo().then(setHwInfo);
@@ -8351,84 +8638,424 @@ function SystemMonitorApp(props: any) {
           )}
 
           {activeTab === 'security' && (
-            <div className="flex flex-col gap-8">
-              <div className="grid grid-cols-2 gap-8">
-                <div className="flex flex-col gap-4">
-                  <h3 className="text-[10px] text-white/30 uppercase font-bold tracking-[0.2em]">Active OAuth2 Grants</h3>
-                  <div className="bg-[#161b22] border border-white/5 rounded-3xl p-6 flex flex-col gap-6">
-                    {authorizedTokens.length === 0 ? (
-                      <div className="py-12 flex flex-col items-center justify-center gap-3 opacity-20">
-                        <Lock size={48} />
-                        <p className="text-xs font-medium uppercase tracking-widest">No Active Grants</p>
-                      </div>
-                    ) : (
-                      authorizedTokens.map((token, i) => (
-                        <div key={i} className="flex flex-col gap-3 p-4 bg-white/2 rounded-2xl border border-white/5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-blue-400">{networkNodes.find(n => n.id === token.nodeId)?.hostname}</span>
-                            <span className="text-[9px] text-white/20 font-mono">ID: {token.nodeId}</span>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {token.scope.map(s => (
-                              <span key={s} className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 text-[8px] font-bold uppercase tracking-tighter">
-                                {s}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      ))
+            <div className="flex flex-col gap-6 h-full overflow-y-auto pr-1 no-scrollbar pb-8">
+              {/* Header Title bar */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-4">
+                <div>
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Shield className="text-blue-500" size={20} />
+                    System Security & Firewall Command Core
+                  </h2>
+                  <p className="text-xs text-white/40">Configure out-of-band packet filtering policies and audit security tokens in real-time.</p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-white/40 font-medium">Global Shield Status:</span>
+                  <button
+                    onClick={() => {
+                      setFirewallActive(!firewallActive);
+                      addNotification('Firewall Alert', `Global firewall shield is now ${!firewallActive ? 'ENABLED' : 'DISABLED'}`, !firewallActive ? 'success' : 'warning');
+                    }}
+                    className={cn(
+                      "px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2 border",
+                      firewallActive
+                        ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30 shadow-lg shadow-emerald-500/5 animate-pulse"
+                        : "bg-red-500/15 text-red-400 border-red-500/30"
                     )}
+                  >
+                    <Shield size={14} />
+                    {firewallActive ? "Shield Active" : "Shield Offline"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Bento Grid */}
+              <div className="grid grid-cols-12 gap-6 items-start">
+                
+                {/* Left side: Rules Editor and Port Filters (7 cols) */}
+                <div className="col-span-12 lg:col-span-7 flex flex-col gap-6">
+                  
+                  {/* Port Filtering Toggle Grid */}
+                  <div className="bg-[#161b22] border border-white/5 rounded-3xl p-6 flex flex-col gap-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-white/30 uppercase font-bold tracking-[0.2em] font-mono">Port-Level Inspection Engine</span>
+                        <h4 className="text-sm font-bold text-white/90">Toggle Active Port Filters</h4>
+                      </div>
+                      <span className="text-[10px] bg-blue-500/10 border border-blue-500/25 text-blue-400 px-2 py-0.5 rounded font-bold font-mono">L4 PORT FILTERING</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {Object.entries(portFilters).map(([portStr, val]) => {
+                        const port = parseInt(portStr);
+                        const info = val as { name: string; enabled: boolean; description: string };
+                        return (
+                          <button
+                            key={port}
+                            onClick={() => handleTogglePortFilter(port)}
+                            className={cn(
+                              "p-3 rounded-2xl border transition-all text-left flex flex-col justify-between h-20 relative group overflow-hidden",
+                              info.enabled
+                                ? "bg-red-500/10 border-red-500/20 text-red-400 shadow-md shadow-red-500/5"
+                                : "bg-white/2 hover:bg-white/5 border-white/5 text-white/50 hover:text-white/80"
+                            )}
+                          >
+                            <div className="flex items-center justify-between w-full">
+                              <span className="font-mono text-xs font-bold bg-[#0a0c10] px-1.5 py-0.5 rounded border border-white/5">
+                                :{port}
+                              </span>
+                              <div className={cn(
+                                "w-1.5 h-1.5 rounded-full",
+                                info.enabled ? "bg-red-500 animate-ping" : "bg-white/10"
+                              )} />
+                            </div>
+                            <div className="flex flex-col mt-2">
+                              <span className="text-xs font-bold leading-tight">{info.name}</span>
+                              <span className="text-[8px] text-white/30 truncate leading-none mt-0.5">{info.description}</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Custom Policy Rules List */}
+                  <div className="bg-[#161b22] border border-white/5 rounded-3xl p-6 flex flex-col gap-4">
+                    <div className="flex items-center justify-between pb-2 border-b border-white/5">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-white/30 uppercase font-bold tracking-[0.2em] font-mono">Custom Asynchronous Rules</span>
+                        <h4 className="text-sm font-bold text-white/90">Active Security Policy Rules</h4>
+                      </div>
+                      <span className="text-xs font-bold text-white/30">{firewallRules.length} Rules defined</span>
+                    </div>
+
+                    <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1 no-scrollbar">
+                      {firewallRules.length === 0 ? (
+                        <div className="py-12 flex flex-col items-center justify-center gap-3 border border-dashed border-white/10 rounded-2xl text-white/20">
+                          <Shield size={32} />
+                          <span className="text-xs font-bold uppercase tracking-widest font-mono">No Active Policies</span>
+                        </div>
+                      ) : (
+                        firewallRules.map(rule => {
+                          const actionColors = {
+                            DROP: 'bg-red-500/10 text-red-400 border-red-500/20',
+                            SANDBOX: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+                            PASS: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+                            DECRYPT: 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                          };
+
+                          return (
+                            <div
+                              key={rule.id}
+                              className={cn(
+                                "p-4 rounded-2xl border transition-all flex items-center justify-between",
+                                rule.isActive
+                                  ? "bg-white/2 border-white/10 hover:border-white/20"
+                                  : "bg-white/1 border-transparent opacity-40"
+                              )}
+                            >
+                              <div className="flex items-center gap-4">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleRule(rule.id)}
+                                  className={cn(
+                                    "w-5 h-5 rounded-lg border flex items-center justify-center transition-all",
+                                    rule.isActive
+                                      ? "bg-blue-500 border-blue-500 text-white shadow-md shadow-blue-500/20"
+                                      : "bg-transparent border-white/20 text-transparent"
+                                  )}
+                                >
+                                  <Check size={12} />
+                                </button>
+
+                                <div className="flex flex-col">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold text-white/90">{rule.name}</span>
+                                    <span className={cn(
+                                      "px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase border",
+                                      actionColors[rule.action]
+                                    )}>
+                                      {rule.action}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-[9px] text-white/30 font-mono mt-1">
+                                    <span>Pattern: <strong className="text-blue-400/80">"{rule.pattern}"</strong></span>
+                                    <span>•</span>
+                                    <span>Port: <strong className="text-purple-400/80">{rule.port}</strong></span>
+                                    <span>•</span>
+                                    <span className="text-red-400/90 font-bold">{rule.matchesCount} packets filtered</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteRule(rule.id)}
+                                className="p-2 rounded-xl bg-white/2 hover:bg-red-500/10 text-white/40 hover:text-red-400 border border-transparent hover:border-red-500/20 transition-all"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {/* Form to create a custom rule */}
+                    <form onSubmit={handleAddRule} className="bg-white/2 border border-white/5 p-4 rounded-2xl flex flex-col gap-4 mt-2">
+                      <span className="text-[10px] text-white/40 uppercase font-bold tracking-[0.1em] font-mono">Create Asynchronous Filtering Policy Rule</span>
+                      
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-[9px] text-white/30 uppercase font-bold font-mono">Rule Name</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Block Tor Nodes"
+                            value={newRuleName}
+                            onChange={(e) => setNewRuleName(e.target.value)}
+                            className="h-9 bg-[#0a0c10] border border-white/10 rounded-xl px-3 text-xs text-white focus:outline-none focus:border-blue-500 font-medium"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-[9px] text-white/30 uppercase font-bold font-mono">Match Pattern (regex/substring)</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. 185.220. or .exe"
+                            value={newRulePattern}
+                            onChange={(e) => setNewRulePattern(e.target.value)}
+                            className="h-9 bg-[#0a0c10] border border-white/10 rounded-xl px-3 text-xs text-white focus:outline-none focus:border-blue-500 font-medium"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-3">
+                        <div className="flex flex-col gap-1.5 col-span-2 sm:col-span-1">
+                          <label className="text-[9px] text-white/30 uppercase font-bold font-mono">Port</label>
+                          <select
+                            value={newRulePort}
+                            onChange={(e) => setNewRulePort(e.target.value)}
+                            className="h-9 bg-[#0a0c10] border border-white/10 rounded-xl px-2 text-xs text-white font-medium focus:border-blue-500 focus:outline-none"
+                          >
+                            <option value="ANY">ANY</option>
+                            <option value="21">21 (FTP)</option>
+                            <option value="22">22 (SSH)</option>
+                            <option value="23">23 (Telnet)</option>
+                            <option value="80">80 (HTTP)</option>
+                            <option value="443">443 (HTTPS)</option>
+                            <option value="3000">3000 (Dev)</option>
+                            <option value="8080">8080 (Alt)</option>
+                          </select>
+                        </div>
+
+                        <div className="flex flex-col gap-1.5 col-span-2 sm:col-span-1">
+                          <label className="text-[9px] text-white/30 uppercase font-bold font-mono">Action</label>
+                          <select
+                            value={newRuleAction}
+                            onChange={(e: any) => setNewRuleAction(e.target.value)}
+                            className="h-9 bg-[#0a0c10] border border-white/10 rounded-xl px-2 text-xs text-white font-medium focus:border-blue-500 focus:outline-none"
+                          >
+                            <option value="DROP">DROP Packet</option>
+                            <option value="SANDBOX">SANDBOX Route</option>
+                            <option value="PASS">PASS Whitelist</option>
+                            <option value="DECRYPT">DECRYPT Inspect</option>
+                          </select>
+                        </div>
+
+                        <div className="flex flex-col gap-1.5 col-span-2 sm:col-span-1">
+                          <label className="text-[9px] text-white/30 uppercase font-bold font-mono">Severity</label>
+                          <select
+                            value={newRuleSeverity}
+                            onChange={(e: any) => setNewRuleSeverity(e.target.value)}
+                            className="h-9 bg-[#0a0c10] border border-white/10 rounded-xl px-2 text-xs text-white font-medium focus:border-blue-500 focus:outline-none"
+                          >
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                            <option value="critical">Critical</option>
+                          </select>
+                        </div>
+
+                        <div className="flex flex-col justify-end col-span-2 sm:col-span-1">
+                          <button
+                            type="submit"
+                            disabled={!newRuleName.trim() || !newRulePattern.trim()}
+                            className="h-9 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold rounded-xl px-3 text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all shadow-lg shadow-blue-600/10"
+                          >
+                            <Plus size={14} /> Add
+                          </button>
+                        </div>
+                      </div>
+                    </form>
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-4">
-                  <h3 className="text-[10px] text-white/30 uppercase font-bold tracking-[0.2em]">Security Protocol Health</h3>
-                  <div className="grid grid-cols-1 gap-4">
-                    <div className="bg-[#161b22] border border-white/5 p-6 rounded-3xl flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400">
-                          <Lock size={18} />
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-xs font-bold">XMPP Encryption</span>
-                          <span className="text-[10px] text-white/30">TLS 1.3 + OMEMO</span>
-                        </div>
-                      </div>
-                      <div className="w-12 h-6 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center px-1">
-                        <div className="w-4 h-4 rounded-full bg-emerald-500 ml-auto" />
-                      </div>
-                    </div>
+                {/* Right side: Real-time logs and Security health / OAuth (5 cols) */}
+                <div className="col-span-12 lg:col-span-5 flex flex-col gap-6">
+                  
+                  {/* Real-time Logs Terminal panel */}
+                  <div className="bg-[#0d1117] border border-white/10 rounded-3xl p-5 flex flex-col h-[400px] relative overflow-hidden font-mono">
                     
-                    <div className="bg-[#161b22] border border-white/5 p-6 rounded-3xl flex items-center justify-between opacity-50">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/30">
-                          <Eye size={18} />
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-xs font-bold">Stealth Mode</span>
-                          <span className="text-[10px] text-white/30">IP Obfuscation</span>
-                        </div>
+                    {/* Log Terminal Header */}
+                    <div className="flex items-center justify-between border-b border-white/5 pb-3 mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-2 w-2 relative">
+                          <span className={cn(
+                            "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
+                            logsPaused ? "bg-amber-500" : "bg-emerald-400"
+                          )} />
+                          <span className={cn(
+                            "relative inline-flex rounded-full h-2 w-2",
+                            logsPaused ? "bg-amber-500" : "bg-emerald-500"
+                          )} />
+                        </span>
+                        <span className="text-[10px] text-white/50 uppercase font-bold tracking-wider font-mono">
+                          Live Firewall Filter Streams
+                        </span>
                       </div>
-                      <div className="w-12 h-6 rounded-full bg-white/5 border border-white/10 flex items-center px-1">
-                        <div className="w-4 h-4 rounded-full bg-white/10" />
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={handleTriggerTestPacket}
+                          className="px-2 py-1 bg-blue-500/15 text-blue-400 border border-blue-500/25 hover:bg-blue-500/25 transition-all rounded text-[9px] font-bold uppercase tracking-tighter flex items-center gap-1"
+                          title="Inject simulated attack packet"
+                        >
+                          <Play size={8} fill="currentColor" /> Test Attack
+                        </button>
+                        
+                        <button
+                          type="button"
+                          onClick={() => setLogsPaused(!logsPaused)}
+                          className={cn(
+                            "p-1 rounded text-white/40 hover:text-white transition-all hover:bg-white/5",
+                            logsPaused && "text-amber-400"
+                          )}
+                          title={logsPaused ? "Resume logging" : "Pause logging"}
+                        >
+                          {logsPaused ? <Play size={10} /> : <Pause size={10} />}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setFirewallLogs([])}
+                          className="p-1 rounded text-white/40 hover:text-red-400 transition-all hover:bg-white/5"
+                          title="Clear logs"
+                        >
+                          <Trash size={10} />
+                        </button>
                       </div>
                     </div>
 
-                    <div className="bg-[#161b22] border border-white/5 p-6 rounded-[32px] mt-4">
-                      <div className="flex items-center gap-4 mb-4">
-                        <div className="w-12 h-12 rounded-2xl bg-orange-500/10 flex items-center justify-center text-orange-400">
-                          <Shield size={24} />
+                    {/* Scrolling terminal view */}
+                    <div className="flex-1 overflow-y-auto space-y-2 no-scrollbar pr-1 text-[10px]">
+                      {firewallLogs.length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center gap-2 text-white/20">
+                          <span>CONSOLE_LOGS_EMPTY</span>
+                          <span className="text-[8px] text-white/10 uppercase tracking-widest">Waiting for incoming traffic...</span>
                         </div>
-                        <div>
-                          <p className="text-xs font-bold">Root Authentication</p>
-                          <p className="text-[10px] text-white/30">Biometric + OAuth2 MFA Required</p>
-                        </div>
-                      </div>
-                      <button className="w-full py-3 bg-white/5 hover:bg-white/10 rounded-2xl text-[10px] font-bold uppercase tracking-widest text-white/40 transition-all border border-white/5">
-                        Refresh Security Tokens
-                      </button>
+                      ) : (
+                        firewallLogs.map(log => {
+                          const actionBadges = {
+                            DROP: 'text-red-400 bg-red-950/20 border-red-500/20',
+                            SANDBOX: 'text-purple-400 bg-purple-950/20 border-purple-500/20',
+                            PASS: 'text-emerald-400 bg-emerald-950/20 border-emerald-500/20',
+                            DECRYPT: 'text-blue-400 bg-blue-950/20 border-blue-500/20',
+                            ALLOW: 'text-white/40 bg-white/2 border-white/5'
+                          };
+
+                          return (
+                            <div key={log.id} className="p-2 bg-black/30 border border-white/5 rounded-xl hover:bg-black/50 transition-all relative group">
+                              <div className="flex items-center justify-between font-mono mb-1">
+                                <span className="text-white/30 text-[9px]">{log.timestamp}</span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-white/20 text-[8px] font-bold">{log.protocol}</span>
+                                  <span className={cn(
+                                    "px-1.5 py-0.5 rounded text-[8px] font-bold uppercase border leading-none font-mono",
+                                    actionBadges[log.action]
+                                  )}>
+                                    {log.action}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="text-white/70 font-mono flex flex-wrap items-center gap-x-1.5">
+                                <span className="text-blue-400">{log.source}</span>
+                                <span className="text-white/20">➔</span>
+                                <span className="text-emerald-400">{log.destination}</span>
+                                <span className="text-purple-400">:{log.port}</span>
+                              </div>
+
+                              <div className="text-white/45 truncate font-sans text-[9px] mt-1 italic">
+                                payload: "{log.payload}"
+                              </div>
+
+                              {log.matchedRule && (
+                                <div className="text-[8px] text-amber-500/80 mt-1 font-mono flex items-center gap-1">
+                                  <span className="font-bold">✔ Match:</span> {log.matchedRule}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {/* Terminal Footer Info */}
+                    <div className="mt-2 pt-2 border-t border-white/5 text-[9px] text-white/20 flex justify-between">
+                      <span>SECURE_ASYNC_DAEMON</span>
+                      <span>127.0.0.1:SHIELD</span>
                     </div>
                   </div>
+
+                  {/* Active OAuth2 Grants */}
+                  <div className="bg-[#161b22] border border-white/5 rounded-3xl p-5 flex flex-col gap-4">
+                    <h3 className="text-[10px] text-white/30 uppercase font-bold tracking-[0.2em] font-mono">Active OAuth2 Grants</h3>
+                    <div className="flex flex-col gap-3">
+                      {authorizedTokens.length === 0 ? (
+                        <div className="py-4 flex flex-col items-center justify-center gap-2 opacity-20 border border-dashed border-white/10 rounded-2xl">
+                          <Lock size={20} />
+                          <p className="text-[10px] font-bold uppercase tracking-widest font-mono">No Active Grants</p>
+                        </div>
+                      ) : (
+                        authorizedTokens.map((token, i) => (
+                          <div key={i} className="flex flex-col gap-2 p-3 bg-white/2 rounded-xl border border-white/5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-blue-400">{networkNodes.find(n => n.id === token.nodeId)?.hostname || `Node ${token.nodeId}`}</span>
+                              <span className="text-[8px] text-white/20 font-mono">ID: {token.nodeId}</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {token.scope.map(s => (
+                                <span key={s} className="px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 text-[7px] font-bold uppercase tracking-tighter">
+                                  {s}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Security Protocol Health */}
+                  <div className="bg-[#161b22] border border-white/5 rounded-3xl p-5 flex flex-col gap-3">
+                    <h3 className="text-[10px] text-white/30 uppercase font-bold tracking-[0.2em] font-mono">Security Protocol Health</h3>
+                    
+                    <div className="bg-white/2 border border-white/5 p-4 rounded-2xl flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400">
+                          <Lock size={14} />
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-xs font-bold">XMPP Encryption</span>
+                          <span className="text-[9px] text-white/30">TLS 1.3 + OMEMO</span>
+                        </div>
+                      </div>
+                      <div className="w-10 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center px-1">
+                        <div className="w-3.5 h-3.5 rounded-full bg-emerald-500 ml-auto animate-pulse" />
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
               </div>
             </div>
