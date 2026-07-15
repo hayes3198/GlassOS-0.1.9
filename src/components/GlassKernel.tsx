@@ -294,7 +294,402 @@ void hid_pointer_handler() {
   const [heuristicsEnabled, setHeuristicsEnabled] = useState<boolean>(true);
   const [activeShieldActive, setActiveShieldActive] = useState<boolean>(true);
 
+  // ==========================================
+  // SYSTEM CALLS, TRAPS & INTERRUPTS DAEMON STATES
+  // ==========================================
+  const [activeCtrlTab, setActiveCtrlTab] = useState<'syscall' | 'trap' | 'irq'>('syscall');
+  const [selectedSyscall, setSelectedSyscall] = useState<string>('SYS_WRITE');
+  const [selectedTrap, setSelectedTrap] = useState<string>('DIV_ZERO');
+  const [selectedIrq, setSelectedIrq] = useState<number>(1); // IRQ 1 - Keyboard
+  const [transitioningRing, setTransitioningRing] = useState<boolean>(false);
+  const [ringTarget, setRingTarget] = useState<'user' | 'kernel'>('user');
+  const [cpuRegisters, setCpuRegisters] = useState({
+    RAX: '0x0000000000000000',
+    RIP: '0x00007FFF8A3C4D00',
+    RSP: '0x00007FFFFFFFEDD8',
+    CR2: '0x0000000000000000',
+    EFLAGS: '0x00000202',
+    privilege: 'Ring 3 (User)'
+  });
+  const [kernelPanic, setKernelPanic] = useState<boolean>(false);
+  const [panicDetails, setPanicDetails] = useState<string>('');
+  const [kernelStack, setKernelStack] = useState<string[]>([
+    '0x00007FFFFFFFEDD8 (User RSP)',
+    '0x0000000000000202 (User EFLAGS)',
+    '0x00007FFF8A3C4D00 (User RIP)'
+  ]);
+  const [idtActiveVector, setIdtActiveVector] = useState<number | null>(null);
+  const [syscallLogs, setSyscallLogs] = useState<{ id: string; msg: string; time: string; type: 'info' | 'success' | 'error' | 'warning' }[]>([
+    { id: '1', msg: 'System call gates and CPU interrupt controllers synchronized in Ring-3 / Ring-0.', time: new Date().toLocaleTimeString(), type: 'success' },
+    { id: '2', msg: 'Interrupt Descriptor Table (IDT) mapped with standard trap service routine vectors.', time: new Date().toLocaleTimeString(), type: 'info' }
+  ]);
+
+  const addSyscallLog = useCallback((type: 'info' | 'success' | 'error' | 'warning', msg: string) => {
+    setSyscallLogs(prev => [
+      { id: Math.random().toString(36).substr(2, 9), msg, time: new Date().toLocaleTimeString(), type },
+      ...prev
+    ].slice(0, 40));
+  }, []);
+
+  // Invokes a virtual system call via software trap (int 0x80 / SYSENTER)
+  const handleInvokeSyscall = () => {
+    if (transitioningRing || kernelPanic) return;
+
+    setTransitioningRing(true);
+    setRingTarget('kernel');
+    let syscallNum = '0x0';
+    let syscallName = 'SYS_UNKNOWN';
+    let regRAX = '0x0000000000000000';
+    let startMsg = '';
+    let successMsg = '';
+    let resultRAX = '0x0000000000000000';
+
+    switch (selectedSyscall) {
+      case 'SYS_WRITE':
+        syscallNum = '1';
+        syscallName = 'SYS_WRITE';
+        regRAX = '0x0000000000000001';
+        startMsg = 'sys_write(fd=1, buf="Hello, glassOS!", size=16) invoked. Switching context...';
+        successMsg = 'sys_write returned 16. Characters written successfully to console tty0.';
+        resultRAX = '0x0000000000000010'; // 16 bytes
+        break;
+      case 'SYS_READ':
+        syscallNum = '0';
+        syscallName = 'SYS_READ';
+        regRAX = '0x0000000000000000';
+        startMsg = 'sys_read(fd=0, buf=0x7fff003a, count=256) polling user keyboard buffer...';
+        successMsg = 'sys_read retrieved 12 bytes scan data: "user_input\\n".';
+        resultRAX = '0x000000000000000C'; // 12 bytes
+        break;
+      case 'SYS_FORK':
+        syscallNum = '57';
+        syscallName = 'SYS_FORK';
+        regRAX = '0x0000000000000039';
+        startMsg = 'sys_fork() initiating copy-on-write page mirroring on active thread frame tables...';
+        successMsg = 'sys_fork completed. New child process cloned successfully with PID 1048!';
+        resultRAX = '0x0000000000000418'; // PID 1048
+        break;
+      case 'SYS_MMAP':
+        syscallNum = '9';
+        syscallName = 'SYS_MMAP';
+        regRAX = '0x0000000000000009';
+        startMsg = 'sys_mmap(addr=0, length=4096, prot=PROT_READ|PROT_WRITE, flags=MAP_ANONYMOUS) requested.';
+        successMsg = 'sys_mmap mapped standard physical page frame at virtual pointer 0x7FFF6A000000.';
+        resultRAX = '0x7FFF6A000000';
+        break;
+      case 'SYS_REBOOT':
+        syscallNum = '169';
+        syscallName = 'SYS_REBOOT';
+        regRAX = '0x00000000000000A9';
+        startMsg = 'sys_reboot(magic=0xfee1dead, cmd=LINUX_REBOOT_CMD_RESTART) triggered!';
+        successMsg = 'Rebooting virtual glassOS container core. Standard HAL warm cycle initialized...';
+        resultRAX = '0x0000000000000000';
+        break;
+    }
+
+    // Phase 1: Software Trap Transition to Ring 0
+    setIdtActiveVector(128); // 0x80 System Call Gate
+    addSyscallLog('info', `[CPU] TRAP: executing "int 0x80 / syscall" assembly instruction.`);
+    addSyscallLog('warning', `[KERNEL] Privilege escalation triggered: Ring-3 -> Ring-0`);
+    
+    // Push Exception frame onto Kernel Stack
+    setKernelStack(prev => [
+      `0x0000000000000080 (IDT Vector 128)`,
+      `0x0000000000000202 (User EFLAGS)`,
+      `0x00007FFFFFFFEDD8 (User RSP)`,
+      `0x00007FFF8A3C4D00 (User RIP)`,
+      `${regRAX} (User RAX / Syscall ID)`,
+      ...prev
+    ]);
+
+    setCpuRegisters(prev => ({
+      ...prev,
+      RAX: regRAX,
+      privilege: 'Ring 0 (Kernel)'
+    }));
+
+    addKernelLog('info', 'SYSCALL', `TRAP: ${syscallName} (${syscallNum}) intercepted by Ring-0 Vector 0x80 handler.`);
+
+    setTimeout(() => {
+      // Phase 2: Execute System Call Inside Kernel Space
+      addSyscallLog('info', `[KERNEL] ${startMsg}`);
+      
+      setTimeout(() => {
+        // Phase 3: Syscall executes & returns
+        addSyscallLog('success', `[KERNEL] ${successMsg}`);
+        addSyscallLog('info', `[CPU] Returning to Ring-3 via "sysret / iret" instructions.`);
+        
+        // Pop stack
+        setKernelStack([
+          '0x00007FFFFFFFEDD8 (User RSP)',
+          '0x0000000000000202 (User EFLAGS)',
+          '0x00007FFF8A3C4D00 (User RIP)'
+        ]);
+
+        setCpuRegisters(prev => ({
+          ...prev,
+          RAX: resultRAX,
+          RIP: selectedSyscall === 'SYS_REBOOT' ? '0x00007FFF8A3C0000' : '0x00007FFF8A3C4D04',
+          privilege: 'Ring 3 (User)'
+        }));
+
+        setRingTarget('user');
+        setTransitioningRing(false);
+        setIdtActiveVector(null);
+
+        if (selectedSyscall === 'SYS_REBOOT') {
+          addNotification('Kernel', 'System Reboot Syscall Triggered! Warm cycling core.', 'info');
+          // Restart driver list and trigger warm logs
+          addKernelLog('success', 'KERNEL', 'glassOS container rebooted successfully.');
+        } else {
+          addNotification('System Call', `Executed ${selectedSyscall} successfully.`, 'success');
+        }
+
+      }, 800);
+    }, 600);
+  };
+
+  // Triggers a CPU hardware/software Trap / Exception
+  const handleTriggerTrap = () => {
+    if (transitioningRing || kernelPanic) return;
+
+    setTransitioningRing(true);
+    setRingTarget('kernel');
+    
+    let vectorNum = 0;
+    let exceptionCode = '';
+    let faultMsg = '';
+    let regRIP = '0x0000000000000000';
+    let regCR2 = '0x0000000000000000';
+
+    switch (selectedTrap) {
+      case 'DIV_ZERO':
+        vectorNum = 0;
+        exceptionCode = '#DE (Divide Error Exception)';
+        faultMsg = 'CPU executed invalid "div ecx" with divisor register ECX set to zero.';
+        regRIP = '0x00007FFF8A3C4E52';
+        regCR2 = '0x0000000000000000';
+        break;
+      case 'PAGE_FAULT':
+        vectorNum = 14;
+        exceptionCode = '#PF (Page Fault Exception)';
+        faultMsg = 'CPU tried to dereference non-mapped virtual page segment at address 0x00000000DEADC0DE.';
+        regRIP = '0x00007FFF8A3C4F10';
+        regCR2 = '0x00000000DEADC0DE';
+        break;
+      case 'GP_FAULT':
+        vectorNum = 13;
+        exceptionCode = '#GP (General Protection Fault Exception)';
+        faultMsg = 'CPU Ring-3 process tried to execute privileged hardware CPU instruction "cli" directly.';
+        regRIP = '0x00007FFF8A3C4A2C';
+        regCR2 = '0x0000000000000000';
+        break;
+      case 'INVALID_OP':
+        vectorNum = 6;
+        exceptionCode = '#UD (Invalid Opcode Exception)';
+        faultMsg = 'CPU decode engine parsed a corrupted or unaligned instruction stream at pointer location.';
+        regRIP = '0x00007FFF8A3C4C90';
+        regCR2 = '0x0000000000000000';
+        break;
+    }
+
+    setIdtActiveVector(vectorNum);
+    addSyscallLog('error', `[CPU] CRITICAL TRAP: CPU raised interrupt Vector ${vectorNum} (${exceptionCode})!`);
+    addSyscallLog('warning', `[KERNEL] Intercepting trap. Freezing User Space process threads.`);
+
+    setCpuRegisters(prev => ({
+      ...prev,
+      RIP: regRIP,
+      CR2: regCR2,
+      privilege: 'Ring 0 (Kernel)'
+    }));
+
+    // Push Exception state onto kernel stack
+    setKernelStack(prev => [
+      `0x000000000000000D (Error Code: Vector ${vectorNum} Frame)`,
+      `0x0000000000000202 (User EFLAGS)`,
+      `0x00007FFFFFFFEDD8 (User RSP)`,
+      `${regRIP} (Faulting instruction RIP)`,
+      `${regCR2} (CR2 Faulting Address)`,
+      ...prev
+    ]);
+
+    addKernelLog('error', 'TRAP EXCEPTION', `Core trap vector ${vectorNum} raised! Cause: ${faultMsg}`);
+
+    setTimeout(() => {
+      addSyscallLog('info', `[KERNEL TRAP SERVICE] Dumped registers for Vector ${vectorNum}:`);
+      addSyscallLog('info', `[REG DUMP] RIP: ${regRIP} • RSP: 0x00007FFFFFFFEDD8 • CR2: ${regCR2}`);
+      addSyscallLog('warning', `[KERNEL TRAP SERVICE] Exception: ${faultMsg}`);
+
+      // Open interactive panic modal / crash sequence or trigger auto-quarantine options
+      addNotification('Kernel Trap', `Trap raised: ${exceptionCode}! Action required.`, 'error');
+    }, 800);
+  };
+
+  const handleResolveTrap = (action: 'quarantine' | 'panic') => {
+    if (action === 'quarantine') {
+      addSyscallLog('success', '[KERNEL] Process threads safely quarantined. Unmapping faulting addresses.');
+      addSyscallLog('info', '[CPU] Resuming scheduling. Back to Ring-3 user mode.');
+      
+      setKernelStack([
+        '0x00007FFFFFFFEDD8 (User RSP)',
+        '0x0000000000000202 (User EFLAGS)',
+        '0x00007FFF8A3C4D00 (User RIP)'
+      ]);
+
+      setCpuRegisters(prev => ({
+        ...prev,
+        CR2: '0x0000000000000000',
+        privilege: 'Ring 3 (User)'
+      }));
+
+      setRingTarget('user');
+      setTransitioningRing(false);
+      setIdtActiveVector(null);
+      addNotification('Kernel Safe', 'Process quarantined. System recovered.', 'success');
+      addKernelLog('success', 'RECOVERY', 'Quarantine engine cleared trapped thread vectors.');
+    } else {
+      // Trigger KERNEL PANIC (BSOD)
+      let dump = `*** STOP: 0x0000007E (0x00000000C0000005, 0x00007FFF8A3C4D00, 0x00000000DEADC0DE)\n`;
+      dump += `KERNEL_MODE_EXCEPTION_NOT_HANDLED (${selectedTrap})\n\n`;
+      dump += `CPUs: 8 Cores • glassOS Core version 2.5-Native\n`;
+      dump += `System crashed while executing hardware instructions.\n\n`;
+      dump += `REGISTER DUMP:\n`;
+      dump += `RAX: ${cpuRegisters.RAX}   RBX: 0x00000000FFCC22AA\n`;
+      dump += `RCX: 0x0000000000000000   RDX: 0x000000000000000F\n`;
+      dump += `RIP: ${cpuRegisters.RIP}   RSP: ${cpuRegisters.RSP}\n`;
+      dump += `RDI: 0x00007FFF00000400   RSI: 0x0000000000000010\n`;
+      dump += `CR2: ${cpuRegisters.CR2}   EFLAGS: ${cpuRegisters.EFLAGS}\n\n`;
+      dump += `STACK TRACE:\n`;
+      kernelStack.forEach((frame, i) => {
+        dump += `  [frame #${i}] ${frame}\n`;
+      });
+      
+      setPanicDetails(dump);
+      setKernelPanic(true);
+      addNotification('Kernel Panic', 'CRITICAL ERROR: glassOS has panicked!', 'error');
+    }
+  };
+
+  // Triggers an asynchronous Hardware Interrupt (IRQ)
+  const handleTriggerHardwareIRQ = (irqNum: number) => {
+    if (transitioningRing || kernelPanic) return;
+
+    setTransitioningRing(true);
+    setRingTarget('kernel');
+    setIdtActiveVector(32 + irqNum); // Hardware interrupts mapped at Vector 32+
+
+    let deviceName = '';
+    let isrMsg = '';
+    
+    switch (irqNum) {
+      case 0:
+        deviceName = 'System High-Precision HPET Timer (IRQ 0)';
+        isrMsg = 'ISR-0 (Timer Tick) updating scheduler quantum queues and process context arrays.';
+        break;
+      case 1:
+        deviceName = 'Keyboard Controller (IRQ 1)';
+        isrMsg = 'ISR-1 retrieved keydown scan code 0x1E (Key "A") from raw PS/2 serial register.';
+        break;
+      case 12:
+        deviceName = 'Mouse HID Controller (IRQ 12)';
+        isrMsg = 'ISR-12 parsed PS/2 mouse movement bytes (dx: +12, dy: -4, buttons: 0x00).';
+        break;
+      case 9:
+        deviceName = 'SADF Ethernet Controller (IRQ 9)';
+        isrMsg = 'ISR-9 loaded physical Ethernet frames into DMA shared memory boundaries.';
+        break;
+      case 14:
+        deviceName = 'SADF Storage Controller (IRQ 14)';
+        isrMsg = 'ISR-14 completed disk read sector queue for /sys/kernel/core_scheduler.bin.';
+        break;
+    }
+
+    addSyscallLog('warning', `[APIC] Hardware Interrupt ${irqNum} raised! Routing via CPU local APIC line...`);
+    addSyscallLog('info', `[CPU] Asynchronously pausing user thread. Swapping CPU registers.`);
+
+    // Push previous state
+    setKernelStack(prev => [
+      `0x0000000000000020 (IRQ Vector ${32 + irqNum})`,
+      `0x0000000000000202 (User EFLAGS)`,
+      `0x00007FFFFFFFEDD8 (User RSP)`,
+      `0x00007FFF8A3C4D00 (User RIP)`,
+      ...prev
+    ]);
+
+    setCpuRegisters(prev => ({
+      ...prev,
+      privilege: 'Ring 0 (Kernel)'
+    }));
+
+    addKernelLog('success', 'IRQ', `Asynchronous hardware interrupt ${irqNum} triggered by ${deviceName}. Routing to Ring-0.`);
+
+    setTimeout(() => {
+      addSyscallLog('success', `[ISR] Executing handler: ${isrMsg}`);
+      
+      setTimeout(() => {
+        addSyscallLog('info', `[ISR] Handled asynchronously. Restoring user registers via "iret".`);
+        
+        setKernelStack([
+          '0x00007FFFFFFFEDD8 (User RSP)',
+          '0x0000000000000202 (User EFLAGS)',
+          '0x00007FFF8A3C4D00 (User RIP)'
+        ]);
+
+        setCpuRegisters(prev => ({
+          ...prev,
+          privilege: 'Ring 3 (User)'
+        }));
+
+        setRingTarget('user');
+        setTransitioningRing(false);
+        setIdtActiveVector(null);
+
+        // Find SADF driver and increment transaction counts if applicable
+        if (irqNum === 9 || irqNum === 14) {
+          const drvId = irqNum === 9 ? 'net0' : 'store0';
+          setDrivers(prev => prev.map(drv => {
+            if (drv.id === drvId) {
+              return { ...drv, transactionsCount: drv.transactionsCount + 100, status: 'loaded' };
+            }
+            return drv;
+          }));
+        }
+
+        addNotification('Hardware HAL', `Handled IRQ ${irqNum} successfully.`, 'info');
+      }, 700);
+    }, 500);
+  };
+
+  const handleRebootPanic = () => {
+    setKernelPanic(false);
+    setTransitioningRing(false);
+    setRingTarget('user');
+    setIdtActiveVector(null);
+    setKernelStack([
+      '0x00007FFFFFFFEDD8 (User RSP)',
+      '0x0000000000000202 (User EFLAGS)',
+      '0x00007FFF8A3C4D00 (User RIP)'
+    ]);
+    setCpuRegisters({
+      RAX: '0x0000000000000000',
+      RIP: '0x00007FFF8A3C4D00',
+      RSP: '0x00007FFFFFFFEDD8',
+      CR2: '0x0000000000000000',
+      EFLAGS: '0x00000202',
+      privilege: 'Ring 3 (User)'
+    });
+    setSyscallLogs([
+      { id: 'reboot_1', msg: '--- KERNEL REBOOT COMPLETED ---', time: new Date().toLocaleTimeString(), type: 'success' },
+      { id: 'reboot_2', msg: 'Re-initializing CPU structures. Loading GDT, LDT, and IDT tables...', time: new Date().toLocaleTimeString(), type: 'info' },
+      { id: 'reboot_3', msg: 'IDT system call vector mapped at Vector 128 (0x80). Core recovered.', time: new Date().toLocaleTimeString(), type: 'success' }
+    ]);
+    addKernelLog('success', 'REBOOT', 'Kernel panic cleared. System successfully warm-booted.');
+    addNotification('Kernel Reboot', 'glassOS Core successfully rebooted and recovered from panic.', 'success');
+  };
+
   const scanTargets = [
+
     '/sys/kernel/core_scheduler.bin',
     '/sys/kernel/mmu_translator.bin',
     '/sys/drivers/net0_controller.sadf',
@@ -1660,6 +2055,478 @@ void hid_pointer_handler() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ========================================== */}
+      {/* SYSTEM CALLS, TRAPS & INTERRUPTS CORE PANEL */}
+      {/* ========================================== */}
+      <div className="bg-[#161b22] border border-white/5 rounded-3xl p-6 flex flex-col gap-6 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-48 h-48 bg-purple-500/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-48 h-48 bg-rose-500/5 rounded-full blur-3xl pointer-events-none" />
+
+        {/* Section Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-white/5">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400">
+              <Activity size={18} className="animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-white">System Call Gates, traps & IRQ interrupts</h3>
+                <span className="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 text-[8px] font-bold uppercase tracking-wider">
+                  Ring-0 / Ring-3 Gateway
+                </span>
+              </div>
+              <p className="text-[10px] text-white/40 mt-0.5">Hardware Interrupt Request routing, privileged assembly traps, and custom IDT exception handling</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-[#0d1117] p-1.5 rounded-xl border border-white/5">
+            <button
+              onClick={() => setActiveCtrlTab('syscall')}
+              className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all uppercase ${
+                activeCtrlTab === 'syscall'
+                  ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                  : 'text-white/40 hover:text-white/60'
+              }`}
+            >
+              Syscalls
+            </button>
+            <button
+              onClick={() => setActiveCtrlTab('trap')}
+              className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all uppercase ${
+                activeCtrlTab === 'trap'
+                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                  : 'text-white/40 hover:text-white/60'
+              }`}
+            >
+              Traps & Faults
+            </button>
+            <button
+              onClick={() => setActiveCtrlTab('irq')}
+              className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all uppercase ${
+                activeCtrlTab === 'irq'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                  : 'text-white/40 hover:text-white/60'
+              }`}
+            >
+              HW Interrupts (IRQ)
+            </button>
+          </div>
+        </div>
+
+        {/* Local Kernel Panic BSoD Screen Overlay */}
+        <AnimatePresence>
+          {kernelPanic && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              className="absolute inset-0 z-50 bg-[#000088] text-white p-8 font-mono flex flex-col justify-between overflow-y-auto"
+            >
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 border-b border-white/20 pb-3">
+                  <div className="bg-red-600 px-2 py-0.5 rounded text-xs font-bold uppercase animate-bounce">
+                    !!! KERNEL PANIC !!!
+                  </div>
+                  <span className="text-sm font-bold tracking-tight">glassOS Core Dump Interface v2.5</span>
+                </div>
+
+                <div className="bg-black/30 p-4 rounded border border-white/10 text-xs text-white/90 leading-relaxed whitespace-pre-wrap font-mono max-h-96 overflow-y-auto scrollbar-thin">
+                  {panicDetails}
+                </div>
+
+                <div className="text-xs text-blue-200 leading-relaxed space-y-1">
+                  <p>• If this is the first time you've seen this Stop error, restart the virtual kernel core.</p>
+                  <p>• Check to make sure any new hardware or drivers are properly configured.</p>
+                  <p>• If problems continue, disable Memory Isolation or resize MMU segment page size.</p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-4 pt-4 border-t border-white/20 mt-4">
+                <span className="text-[10px] text-white/50">Core: ESNext Native Virtual Core (Ring 0 Exception Trap)</span>
+                <button
+                  onClick={handleRebootPanic}
+                  className="px-4 py-2 bg-white text-[#000088] font-bold text-xs rounded hover:bg-white/90 transition-all flex items-center gap-1.5 shadow-lg shadow-black/20"
+                >
+                  <RefreshCw size={13} className="animate-spin" />
+                  Reboot Kernel Core
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Dashboard Columns */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+          {/* Column 1: Privilege Rings & CPU Registers (5 cols) */}
+          <div className="lg:col-span-5 flex flex-col gap-4 bg-[#0d1117] p-5 rounded-2xl border border-white/5">
+            <span className="text-[10px] text-white/30 uppercase font-bold tracking-wider">CPU Execution Ring & Registers</span>
+            
+            {/* Privilege Rings Visualizer */}
+            <div className="relative h-44 bg-[#090d12] rounded-xl border border-white/5 flex items-center justify-center overflow-hidden">
+              <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:14px_14px]" />
+              
+              {/* Outer Ring: Ring 3 User */}
+              <div className={`absolute w-36 h-36 rounded-full border-2 transition-all duration-300 flex items-center justify-center ${
+                ringTarget === 'user' 
+                  ? 'border-emerald-500/40 bg-emerald-500/5 shadow-[0_0_20px_rgba(16,185,129,0.15)] scale-100' 
+                  : 'border-white/5 bg-transparent scale-95 opacity-40'
+              }`}>
+                <span className="absolute top-1 text-[8px] font-mono font-bold tracking-wider text-emerald-400">RING 3 - USER SPACE</span>
+              </div>
+
+              {/* Inner Ring: Ring 0 Kernel */}
+              <div className={`absolute w-24 h-24 rounded-full border-2 transition-all duration-300 flex items-center justify-center ${
+                ringTarget === 'kernel' 
+                  ? 'border-purple-500/60 bg-purple-500/10 shadow-[0_0_25px_rgba(168,85,247,0.25)] scale-105' 
+                  : 'border-white/5 bg-transparent scale-95 opacity-40'
+              }`}>
+                <span className="absolute bottom-1 text-[8px] font-mono font-bold tracking-wider text-purple-400">RING 0 - KERNEL</span>
+              </div>
+
+              {/* CPU Core Center */}
+              <div className="z-10 w-12 h-12 rounded-xl bg-black border border-white/10 flex flex-col items-center justify-center text-white/90 shadow-lg">
+                <span className="text-[10px] font-bold font-sans">CPU</span>
+                <span className="text-[8px] font-mono text-white/40 uppercase">Core0</span>
+              </div>
+
+              {/* Privilege Transition Animation Stream */}
+              {transitioningRing && (
+                <motion.div
+                  initial={{ scale: ringTarget === 'kernel' ? 1.4 : 0.6, opacity: 0 }}
+                  animate={{ scale: ringTarget === 'kernel' ? 0.7 : 1.3, opacity: [0, 1, 1, 0] }}
+                  transition={{ duration: 0.8, ease: 'easeInOut', repeat: Infinity }}
+                  className={`absolute w-28 h-28 rounded-full border border-dashed z-0 ${
+                    ringTarget === 'kernel' ? 'border-purple-500 text-purple-400' : 'border-emerald-500 text-emerald-400'
+                  }`}
+                />
+              )}
+
+              {/* Operating Status HUD Badge */}
+              <div className="absolute top-2.5 left-3 px-2 py-0.5 rounded-md bg-[#161b22] border border-white/5 flex items-center gap-1.5">
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  ringTarget === 'kernel' ? 'bg-purple-400 animate-pulse' : 'bg-emerald-400 animate-pulse'
+                }`} />
+                <span className="text-[8px] font-mono font-bold text-white/80">
+                  {ringTarget === 'kernel' ? 'KERNEL MODE (Ring 0)' : 'USER MODE (Ring 3)'}
+                </span>
+              </div>
+
+              {/* Active Vector Frame HUD */}
+              {idtActiveVector !== null && (
+                <div className="absolute top-2.5 right-3 px-2 py-0.5 rounded-md bg-rose-500/10 border border-rose-500/20 flex items-center gap-1">
+                  <AlertCircle size={8} className="text-rose-400 animate-spin" />
+                  <span className="text-[8px] font-mono font-bold text-rose-400">
+                    VECTOR {idtActiveVector}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Processor Register State */}
+            <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
+              <div className="bg-[#090d12] p-2 rounded-lg border border-white/5 flex justify-between items-center">
+                <span className="text-white/40">RAX (SysNo):</span>
+                <span className="text-emerald-400 font-bold text-[10px] tracking-tight truncate max-w-[85px]" title={cpuRegisters.RAX}>
+                  {cpuRegisters.RAX}
+                </span>
+              </div>
+              <div className="bg-[#090d12] p-2 rounded-lg border border-white/5 flex justify-between items-center">
+                <span className="text-white/40">RIP (Pointer):</span>
+                <span className="text-blue-400 font-bold text-[10px] tracking-tight truncate max-w-[85px]" title={cpuRegisters.RIP}>
+                  {cpuRegisters.RIP}
+                </span>
+              </div>
+              <div className="bg-[#090d12] p-2 rounded-lg border border-white/5 flex justify-between items-center">
+                <span className="text-white/40">RSP (Stack):</span>
+                <span className="text-amber-400 font-bold text-[10px] tracking-tight truncate max-w-[85px]" title={cpuRegisters.RSP}>
+                  {cpuRegisters.RSP}
+                </span>
+              </div>
+              <div className="bg-[#090d12] p-2 rounded-lg border border-white/5 flex justify-between items-center">
+                <span className="text-white/40">CR2 (Fault):</span>
+                <span className="text-rose-400 font-bold text-[10px] tracking-tight truncate max-w-[85px]" title={cpuRegisters.CR2}>
+                  {cpuRegisters.CR2}
+                </span>
+              </div>
+              <div className="bg-[#090d12] p-2 col-span-2 rounded-lg border border-white/5 flex justify-between items-center">
+                <span className="text-white/40">EFLAGS (Status):</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-white/40 text-[9px] bg-white/5 px-1 rounded">IF (Interrupts Active)</span>
+                  <span className="text-purple-400 font-bold text-[10px]">{cpuRegisters.EFLAGS}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Column 2: IDT & Kernel Stack (3 cols) */}
+          <div className="lg:col-span-3 flex flex-col gap-4 bg-[#0d1117] p-5 rounded-2xl border border-white/5">
+            <span className="text-[10px] text-white/30 uppercase font-bold tracking-wider">IDT Mapping & Kernel Stack</span>
+            
+            {/* Real-time Stack visualizer */}
+            <div className="flex flex-col gap-1.5 flex-1 min-h-[120px] justify-end">
+              <span className="text-[9px] font-mono text-white/30 text-center uppercase tracking-wide">Kernel Stack Frames</span>
+              <div className="flex flex-col-reverse gap-1 border border-white/5 bg-black/40 p-1.5 rounded-xl font-mono text-[9px] overflow-y-auto max-h-36 scrollbar-thin">
+                {kernelStack.map((frame, index) => (
+                  <div 
+                    key={index} 
+                    className={`px-2 py-1 rounded text-center truncate select-none ${
+                      index === 0 
+                        ? 'bg-purple-500/25 border border-purple-500/40 text-purple-300 font-bold animate-pulse' 
+                        : 'bg-white/5 text-white/60 border border-white/5'
+                    }`}
+                  >
+                    {frame}
+                  </div>
+                ))}
+              </div>
+              <span className="text-[8px] text-white/20 text-center uppercase">← RSP Stack Pointer Base</span>
+            </div>
+
+            {/* Interrupt Descriptor Table (IDT) Mini Map */}
+            <div className="space-y-1">
+              <span className="text-[9px] font-mono text-white/30 uppercase tracking-wide">IDT Gate Registers</span>
+              <div className="grid grid-cols-4 gap-1 font-mono text-[8px]">
+                <div className={`p-1 text-center rounded border ${
+                  idtActiveVector === 0 ? 'bg-rose-500/30 border-rose-500 text-rose-300 font-bold' : 'bg-[#161b22] border-white/5 text-white/40'
+                }`} title="Vector 0: #DE Divide Error">
+                  #DE 00
+                </div>
+                <div className={`p-1 text-center rounded border ${
+                  idtActiveVector === 6 ? 'bg-rose-500/30 border-rose-500 text-rose-300 font-bold' : 'bg-[#161b22] border-white/5 text-white/40'
+                }`} title="Vector 6: #UD Invalid Opcode">
+                  #UD 06
+                </div>
+                <div className={`p-1 text-center rounded border ${
+                  idtActiveVector === 13 ? 'bg-rose-500/30 border-rose-500 text-rose-300 font-bold' : 'bg-[#161b22] border-white/5 text-white/40'
+                }`} title="Vector 13: #GP General Protection">
+                  #GP 13
+                </div>
+                <div className={`p-1 text-center rounded border ${
+                  idtActiveVector === 14 ? 'bg-rose-500/30 border-rose-500 text-rose-300 font-bold' : 'bg-[#161b22] border-white/5 text-white/40'
+                }`} title="Vector 14: #PF Page Fault">
+                  #PF 14
+                </div>
+                <div className={`p-1 text-center rounded border ${
+                  idtActiveVector === 32 ? 'bg-amber-500/30 border-amber-500 text-amber-300 font-bold' : 'bg-[#161b22] border-white/5 text-white/40'
+                }`} title="Vector 32: System Timer IRQ 0">
+                  IRQ 00
+                </div>
+                <div className={`p-1 text-center rounded border ${
+                  idtActiveVector === 33 ? 'bg-amber-500/30 border-amber-500 text-amber-300 font-bold' : 'bg-[#161b22] border-white/5 text-white/40'
+                }`} title="Vector 33: Keyboard IRQ 1">
+                  IRQ 01
+                </div>
+                <div className={`p-1 text-center rounded border ${
+                  idtActiveVector === 44 ? 'bg-amber-500/30 border-amber-500 text-amber-300 font-bold' : 'bg-[#161b22] border-white/5 text-white/40'
+                }`} title="Vector 44: Mouse IRQ 12">
+                  IRQ 12
+                </div>
+                <div className={`p-1 text-center rounded border ${
+                  idtActiveVector === 128 ? 'bg-purple-500/30 border-purple-500 text-purple-300 font-bold' : 'bg-[#161b22] border-white/5 text-white/40'
+                }`} title="Vector 128 (0x80): System Call Gateway">
+                  SYS 80
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Column 3: Interactive Trigger Actions (4 cols) */}
+          <div className="lg:col-span-4 flex flex-col gap-4 bg-[#0d1117] p-5 rounded-2xl border border-white/5 justify-between">
+            
+            {/* SUBTAB CONTENT: System Calls */}
+            {activeCtrlTab === 'syscall' && (
+              <div className="space-y-4 flex-1 flex flex-col justify-between">
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-white/80">
+                    <Code2 size={12} className="text-purple-400" />
+                    <span>Select software system call (trap)</span>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {[
+                      { name: 'SYS_WRITE (0x1)', val: 'SYS_WRITE', desc: 'Write payload buffer stream to console/tty' },
+                      { name: 'SYS_READ (0x0)', val: 'SYS_READ', desc: 'Retrieve keyboard scan characters dynamically' },
+                      { name: 'SYS_FORK (0x39)', val: 'SYS_FORK', desc: 'Clone memory process structures & address mapping' },
+                      { name: 'SYS_MMAP (0x9)', val: 'SYS_MMAP', desc: 'Allocate standard physical page frame in RAM' },
+                      { name: 'SYS_REBOOT (0xA9)', val: 'SYS_REBOOT', desc: 'Cycle processor power grids & reboot kernel' }
+                    ].map(call => (
+                      <button
+                        key={call.val}
+                        onClick={() => setSelectedSyscall(call.val)}
+                        className={`p-2 rounded-xl text-left border text-[11px] font-mono transition-all flex flex-col ${
+                          selectedSyscall === call.val
+                            ? 'bg-purple-500/10 border-purple-500/40 text-white'
+                            : 'bg-black/30 border-white/5 text-white/60 hover:bg-black/50'
+                        }`}
+                      >
+                        <span className="font-bold">{call.name}</span>
+                        <span className="text-[8.5px] opacity-60 font-sans mt-0.5 leading-none">{call.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleInvokeSyscall}
+                  disabled={transitioningRing}
+                  className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-lg shadow-purple-500/10 disabled:opacity-50"
+                >
+                  <Cpu size={14} />
+                  Invoke Syscall (int 0x80)
+                </button>
+              </div>
+            )}
+
+            {/* SUBTAB CONTENT: Traps & Faults */}
+            {activeCtrlTab === 'trap' && (
+              <div className="space-y-4 flex-1 flex flex-col justify-between">
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-white/80">
+                    <ShieldAlert size={12} className="text-rose-400" />
+                    <span>Trigger CPU Hardware Trap Fault</span>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {[
+                      { name: '#DE - Divide by Zero', val: 'DIV_ZERO', desc: 'Attempting division by direct register containing zero' },
+                      { name: '#PF - Page Fault Exception', val: 'PAGE_FAULT', desc: 'Core attempts to reference unmapped memory segment' },
+                      { name: '#GP - General Protection Fault', val: 'GP_FAULT', desc: 'Ring-3 instruction attempts Ring-0 hardware operations' },
+                      { name: '#UD - Invalid Instruction Opcode', val: 'INVALID_OP', desc: 'Processor encounters unknown assembly instruction' }
+                    ].map(trap => (
+                      <button
+                        key={trap.val}
+                        onClick={() => setSelectedTrap(trap.val)}
+                        className={`p-2 rounded-xl text-left border text-[11px] font-mono transition-all flex flex-col ${
+                          selectedTrap === trap.val
+                            ? 'bg-rose-500/10 border-rose-500/40 text-white'
+                            : 'bg-black/30 border-white/5 text-white/60 hover:bg-black/50'
+                        }`}
+                      >
+                        <span className="font-bold">{trap.name}</span>
+                        <span className="text-[8.5px] opacity-60 font-sans mt-0.5 leading-none">{trap.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Trap Action Buttons (Quarantine or Crash Panic) */}
+                {idtActiveVector !== null && idtActiveVector < 32 ? (
+                  <div className="space-y-2">
+                    <span className="text-[9px] text-rose-400 font-bold block text-center uppercase tracking-wide animate-pulse">
+                      ⚠️ CPU TRAP CAPTURED: RESOLVE FAULT
+                    </span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => handleResolveTrap('quarantine')}
+                        className="py-2 rounded-lg bg-emerald-600/25 hover:bg-emerald-600/35 text-emerald-300 font-bold text-[10px] border border-emerald-500/30 transition-all flex items-center justify-center gap-1"
+                      >
+                        <Check size={11} />
+                        Quarantine
+                      </button>
+                      <button
+                        onClick={() => handleResolveTrap('panic')}
+                        className="py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-[10px] transition-all flex items-center justify-center gap-1 shadow-lg shadow-red-500/20"
+                      >
+                        <AlertTriangle size={11} />
+                        Trigger Panic
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleTriggerTrap}
+                    disabled={transitioningRing}
+                    className="w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-lg shadow-rose-500/10 disabled:opacity-50"
+                  >
+                    <Bug size={14} />
+                    Fire Trap Exception
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* SUBTAB CONTENT: Hardware Interrupts */}
+            {activeCtrlTab === 'irq' && (
+              <div className="space-y-4 flex-1 flex flex-col justify-between">
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-white/80">
+                    <Zap size={12} className="text-amber-400" />
+                    <span>Assert Hardware Interrupt line</span>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {[
+                      { name: 'IRQ 0 - System PIT Timer', val: 0, desc: 'High frequency periodic scheduler quantum ticks' },
+                      { name: 'IRQ 1 - Keyboard Controller', val: 1, desc: 'Fires asynchronously on physical key entry scans' },
+                      { name: 'IRQ 12 - Mouse HID Pointer', val: 12, desc: 'Asserts serial mouse coordinates coordinate shifts' },
+                      { name: 'IRQ 9 - SADF Network Controller', val: 9, desc: 'Triggers on incoming packet segment frames' },
+                      { name: 'IRQ 14 - SADF Storage NVMe', val: 14, desc: 'Dispatched when disk partition block read operations finish' }
+                    ].map(irq => (
+                      <button
+                        key={irq.val}
+                        onClick={() => setSelectedIrq(irq.val)}
+                        className={`p-2 rounded-xl text-left border text-[11px] font-mono transition-all flex flex-col ${
+                          selectedIrq === irq.val
+                            ? 'bg-amber-500/10 border-amber-500/40 text-white'
+                            : 'bg-black/30 border-white/5 text-white/60 hover:bg-black/50'
+                        }`}
+                      >
+                        <span className="font-bold">{irq.name}</span>
+                        <span className="text-[8.5px] opacity-60 font-sans mt-0.5 leading-none">{irq.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => handleTriggerHardwareIRQ(selectedIrq)}
+                  disabled={transitioningRing}
+                  className="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-lg shadow-amber-500/10 disabled:opacity-50"
+                >
+                  <Layers size={14} />
+                  Assert IRQ Interrupt
+                </button>
+              </div>
+            )}
+
+          </div>
+
+        </div>
+
+        {/* Dynamic Bus Trace Log Terminal (Shared bottom tracer) */}
+        <div className="space-y-2 mt-2">
+          <div className="flex items-center justify-between text-[10px] text-white/40">
+            <span className="font-bold uppercase tracking-wider font-sans">Local CPU System Trap Trace Monitor</span>
+            <button
+              onClick={() => setSyscallLogs([])}
+              className="hover:text-white/60 transition-colors"
+            >
+              Flush Trace
+            </button>
+          </div>
+          <div className="bg-[#0d1117] border border-white/5 rounded-2xl p-3 h-28 overflow-y-auto font-mono text-[10px] flex flex-col gap-1 no-scrollbar shadow-inner">
+            {syscallLogs.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-white/20 select-none italic">
+                Awaiting assembly context traps or syscall entries...
+              </div>
+            ) : (
+              syscallLogs.map(log => (
+                <div key={log.id} className="flex gap-2.5 hover:bg-white/2 p-0.5 rounded transition-all">
+                  <span className="text-white/20">{log.time}</span>
+                  <span className={`font-bold ${
+                    log.type === 'success' ? 'text-emerald-400' :
+                    log.type === 'warning' ? 'text-purple-400' :
+                    log.type === 'error' ? 'text-rose-400' : 'text-blue-400'
+                  }`}>
+                    {log.type === 'success' ? '[RET]' : log.type === 'warning' ? '[RING]' : log.type === 'error' ? '[FAULT]' : '[INFO]'}
+                  </span>
+                  <span className="text-white/70 flex-1">{log.msg}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
       </div>
 
       {/* Settings Tuning Panel & Live Kernel Logging Console */}
