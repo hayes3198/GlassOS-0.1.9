@@ -54,6 +54,637 @@ interface VirusSignature {
   status: 'active' | 'quarantined' | 'neutralized' | 'not_detected';
 }
 
+interface VirtualSyscall {
+  val: string;
+  name: string;
+  num: number;
+  desc: string;
+  regRAX: string;
+  startMsg: string;
+  successMsg: string;
+  resultRAX: string;
+  category: 'Process' | 'Files / IO' | 'Network' | 'Memory' | 'Signals / Timer' | 'System Info';
+}
+
+const SYSTEM_CALLS: VirtualSyscall[] = [
+  {
+    val: 'SYS_WRITE',
+    name: 'SYS_WRITE (0x1)',
+    num: 1,
+    desc: 'Write payload buffer stream to console/tty',
+    regRAX: '0x0000000000000001',
+    startMsg: 'sys_write(fd=1, buf="Hello, glassOS!", size=16) invoked. Switching context...',
+    successMsg: 'sys_write returned 16. Characters written successfully to console tty0.',
+    resultRAX: '0x0000000000000010',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_READ',
+    name: 'SYS_READ (0x0)',
+    num: 0,
+    desc: 'Retrieve keyboard scan characters dynamically',
+    regRAX: '0x0000000000000000',
+    startMsg: 'sys_read(fd=0, buf=0x7fff003a, count=256) polling user keyboard buffer...',
+    successMsg: 'sys_read retrieved 12 bytes scan data: "user_input\\n".',
+    resultRAX: '0x000000000000000C',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_FORK',
+    name: 'SYS_FORK (0x39)',
+    num: 57,
+    desc: 'Clone memory process structures & address mapping',
+    regRAX: '0x0000000000000039',
+    startMsg: 'sys_fork() initiating copy-on-write page mirroring on active thread frame tables...',
+    successMsg: 'sys_fork completed. New child process cloned successfully with PID 1048!',
+    resultRAX: '0x0000000000000418',
+    category: 'Process'
+  },
+  {
+    val: 'SYS_MMAP',
+    name: 'SYS_MMAP (0x9)',
+    num: 9,
+    desc: 'Allocate standard physical page frame in RAM',
+    regRAX: '0x0000000000000009',
+    startMsg: 'sys_mmap(addr=0, length=4096, prot=PROT_READ|PROT_WRITE, flags=MAP_ANONYMOUS) requested.',
+    successMsg: 'sys_mmap mapped standard physical page frame at virtual pointer 0x7FFF6A000000.',
+    resultRAX: '0x00007FFF6A000000',
+    category: 'Memory'
+  },
+  {
+    val: 'SYS_REBOOT',
+    name: 'SYS_REBOOT (0xA9)',
+    num: 169,
+    desc: 'Cycle processor power grids & reboot kernel',
+    regRAX: '0x00000000000000A9',
+    startMsg: 'sys_reboot(magic=0xfee1dead, cmd=LINUX_REBOOT_CMD_RESTART) triggered!',
+    successMsg: 'Rebooting virtual glassOS container core. Standard HAL warm cycle initialized...',
+    resultRAX: '0x0000000000000000',
+    category: 'System Info'
+  },
+  {
+    val: 'SYS_EXIT',
+    name: 'SYS_EXIT (0x3C)',
+    num: 60,
+    desc: 'Terminate the current process and return exit code status',
+    regRAX: '0x000000000000003C',
+    startMsg: 'sys_exit(status=0) invoked. Terminating current user space task environment...',
+    successMsg: 'Process terminated with status code 0. Resources reclaimed.',
+    resultRAX: '0x0000000000000000',
+    category: 'Process'
+  },
+  {
+    val: 'SYS_WAITPID',
+    name: 'SYS_WAIT/WAITPID (0x72)',
+    num: 114,
+    desc: 'Wait for state changes in a child process',
+    regRAX: '0x0000000000000072',
+    startMsg: 'sys_wait4(pid=-1, status=0x7fff01a0, options=0) blocking until child state change...',
+    successMsg: 'Child process 1048 terminated. Cleaned zombie thread structures.',
+    resultRAX: '0x0000000000000418',
+    category: 'Process'
+  },
+  {
+    val: 'SYS_EXECVE',
+    name: 'SYS_EXECVE (0x3B)',
+    num: 59,
+    desc: 'Execute a new program binary file, replacing current program',
+    regRAX: '0x000000000000003B',
+    startMsg: 'sys_execve(filename="/bin/sh", argv=0x7fff02c0, envp=0x7fff02d8) executing...',
+    successMsg: 'New program loaded. RIP register reset to entry point of /bin/sh.',
+    resultRAX: '0x0000000000000000',
+    category: 'Process'
+  },
+  {
+    val: 'SYS_KILL',
+    name: 'SYS_KILL (0x3E)',
+    num: 62,
+    desc: 'Send a signal to a process',
+    regRAX: '0x000000000000003E',
+    startMsg: 'sys_kill(pid=1048, sig=SIGKILL) dispatching hardware signal vector...',
+    successMsg: 'Signal SIGKILL successfully delivered. Process 1048 killed.',
+    resultRAX: '0x0000000000000000',
+    category: 'Process'
+  },
+  {
+    val: 'SYS_PIPE',
+    name: 'SYS_PIPE (0x16)',
+    num: 22,
+    desc: 'Create an unidirectional data channel (pipe)',
+    regRAX: '0x0000000000000016',
+    startMsg: 'sys_pipe(pipefd=0x7fff0350) allocating kernel ring buffer...',
+    successMsg: 'Pipe created. Read FD 3 and Write FD 4 mapped in file descriptor table.',
+    resultRAX: '0x0000000000000000',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_OPEN',
+    name: 'SYS_OPEN (0x2)',
+    num: 2,
+    desc: 'Open a file or directory path, returning a file descriptor',
+    regRAX: '0x0000000000000002',
+    startMsg: 'sys_open(pathname="/etc/glassos.conf", flags=O_RDONLY) searching directory tree...',
+    successMsg: 'File opened. Returned file descriptor FD 3 pointing to node stream.',
+    resultRAX: '0x0000000000000003',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_CLOSE',
+    name: 'SYS_CLOSE (0x3)',
+    num: 3,
+    desc: 'Close a file descriptor',
+    regRAX: '0x0000000000000003',
+    startMsg: 'sys_close(fd=3) cleaning file descriptor mapping context...',
+    successMsg: 'File descriptor FD 3 released. Active socket or file handle closed.',
+    resultRAX: '0x0000000000000000',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_STAT',
+    name: 'SYS_STAT (0x4)',
+    num: 4,
+    desc: 'Retrieve file status metadata by pathname',
+    regRAX: '0x0000000000000004',
+    startMsg: 'sys_stat(pathname="/sys/bin/system", statbuf=0x7fff0480) reading disk metadata...',
+    successMsg: 'Stat loaded. Size: 240KB, Permissions: rwxr-xr-x, Owner: root.',
+    resultRAX: '0x0000000000000000',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_FSTAT',
+    name: 'SYS_FSTAT (0x5)',
+    num: 5,
+    desc: 'Retrieve file status metadata by active file descriptor',
+    regRAX: '0x0000000000000005',
+    startMsg: 'sys_fstat(fd=3, statbuf=0x7fff0510) fetching inode information...',
+    successMsg: 'Fstat loaded. File type: Regular File, Inode: 29481, Blocks: 480.',
+    resultRAX: '0x0000000000000000',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_LSEEK',
+    name: 'SYS_LSEEK (0x8)',
+    num: 8,
+    desc: 'Reposition read/write file offset pointer',
+    regRAX: '0x0000000000000008',
+    startMsg: 'sys_lseek(fd=3, offset=1024, whence=SEEK_SET) adjusting stream cursor...',
+    successMsg: 'File pointer moved to byte offset 1024 successfully.',
+    resultRAX: '0x0000000000000400',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_IOCTL',
+    name: 'SYS_IOCTL (0x10)',
+    num: 16,
+    desc: 'Control underlying device parameters of special files/tty',
+    regRAX: '0x0000000000000010',
+    startMsg: 'sys_ioctl(fd=1, request=TIOCGWINSZ, argp=0x7fff06a0) querying tty viewport...',
+    successMsg: 'Terminal geometry fetched: 80 columns, 24 rows.',
+    resultRAX: '0x0000000000000000',
+    category: 'System Info'
+  },
+  {
+    val: 'SYS_FCNTL',
+    name: 'SYS_FCNTL (0x48)',
+    num: 72,
+    desc: 'Manipulate file descriptor properties and flags',
+    regRAX: '0x0000000000000048',
+    startMsg: 'sys_fcntl(fd=3, cmd=F_SETFL, arg=O_NONBLOCK) altering descriptor flags...',
+    successMsg: 'Fcntl applied. Descriptor 3 is now configured for non-blocking I/O.',
+    resultRAX: '0x0000000000000000',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_DUP',
+    name: 'SYS_DUP (0x20)',
+    num: 32,
+    desc: 'Duplicate an active file descriptor',
+    regRAX: '0x0000000000000020',
+    startMsg: 'sys_dup(oldfd=1) cloning file descriptor reference...',
+    successMsg: 'Descriptor duplicated. FD 4 now targets same file structure as FD 1.',
+    resultRAX: '0x0000000000000004',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_SOCKET',
+    name: 'SYS_SOCKET (0x29)',
+    num: 41,
+    desc: 'Create a communication endpoint (network socket)',
+    regRAX: '0x0000000000000029',
+    startMsg: 'sys_socket(domain=AF_INET, type=SOCK_STREAM, protocol=0) provisioning socket...',
+    successMsg: 'Network endpoint instantiated. Mapped to file descriptor FD 5.',
+    resultRAX: '0x0000000000000005',
+    category: 'Network'
+  },
+  {
+    val: 'SYS_CONNECT',
+    name: 'SYS_CONNECT (0x2A)',
+    num: 42,
+    desc: 'Initiate a connection on a network socket descriptor',
+    regRAX: '0x000000000000002A',
+    startMsg: 'sys_connect(sockfd=5, addr=127.0.0.1:80, addrlen=16) transmitting TCP handshake...',
+    successMsg: 'TCP Handshake complete! Connected successfully to loopback host 127.0.0.1:80.',
+    resultRAX: '0x0000000000000000',
+    category: 'Network'
+  },
+  {
+    val: 'SYS_BIND',
+    name: 'SYS_BIND (0x31)',
+    num: 49,
+    desc: 'Bind a name/address to an active network socket',
+    regRAX: '0x0000000000000031',
+    startMsg: 'sys_bind(sockfd=5, addr=0.0.0.0:3000, addrlen=16) locking local network interface...',
+    successMsg: 'Socket successfully bound to interface 0.0.0.0 on local port 3000.',
+    resultRAX: '0x0000000000000000',
+    category: 'Network'
+  },
+  {
+    val: 'SYS_LISTEN',
+    name: 'SYS_LISTEN (0x32)',
+    num: 50,
+    desc: 'Listen for incoming network connections on a bound socket',
+    regRAX: '0x0000000000000032',
+    startMsg: 'sys_listen(sockfd=5, backlog=128) preparing listen queue structures...',
+    successMsg: 'Socket state updated to LISTEN. Enqueued backlog threshold established.',
+    resultRAX: '0x0000000000000000',
+    category: 'Network'
+  },
+  {
+    val: 'SYS_ACCEPT',
+    name: 'SYS_ACCEPT (0x2B)',
+    num: 43,
+    desc: 'Accept an incoming network connection request on a listening socket',
+    regRAX: '0x000000000000002B',
+    startMsg: 'sys_accept(sockfd=5, addr=0x7fff07b0, addrlen=16) blocking until incoming packet...',
+    successMsg: 'Connection accepted from client 192.168.1.50. Mapped to client descriptor FD 6.',
+    resultRAX: '0x0000000000000006',
+    category: 'Network'
+  },
+  {
+    val: 'SYS_SEND',
+    name: 'SYS_SEND/SENDTO (0x2C)',
+    num: 44,
+    desc: 'Transmit message packets over a connected socket',
+    regRAX: '0x000000000000002C',
+    startMsg: 'sys_sendto(sockfd=6, buf=0x7fff08a0, len=48, flags=0) copying bytes to TX buffers...',
+    successMsg: 'Sent 48 bytes payload stream to client socket successfully.',
+    resultRAX: '0x0000000000000030',
+    category: 'Network'
+  },
+  {
+    val: 'SYS_RECV',
+    name: 'SYS_RECV/RECVFROM (0x2D)',
+    num: 45,
+    desc: 'Receive message packets from a socket endpoint',
+    regRAX: '0x000000000000002D',
+    startMsg: 'sys_recvfrom(sockfd=6, buf=0x7fff09a0, len=256, flags=0) reading network interface...',
+    successMsg: 'Received 128 bytes from remote host: "GET / HTTP/1.1\\r\\n".',
+    resultRAX: '0x0000000000000080',
+    category: 'Network'
+  },
+  {
+    val: 'SYS_CHMOD',
+    name: 'SYS_CHMOD (0xF)',
+    num: 15,
+    desc: 'Change file access permissions / mode flags',
+    regRAX: '0x000000000000000F',
+    startMsg: 'sys_chmod(filename="/bin/shell", mode=0755) updating file permission bits...',
+    successMsg: 'Permissions updated to rwxr-xr-x (0755) for /bin/shell.',
+    resultRAX: '0x0000000000000000',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_CHOWN',
+    name: 'SYS_CHOWN (0x5C)',
+    num: 92,
+    desc: 'Change file owner and primary user group mappings',
+    regRAX: '0x000000000000005C',
+    startMsg: 'sys_chown(filename="/home/user", owner=1000, group=1000) rewriting inode uid/gid...',
+    successMsg: 'Ownership of /home/user updated to UID 1000 (user), GID 1000 successfully.',
+    resultRAX: '0x0000000000000000',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_MKDIR',
+    name: 'SYS_MKDIR (0x53)',
+    num: 83,
+    desc: 'Create a new directory folder',
+    regRAX: '0x0000000000000053',
+    startMsg: 'sys_mkdir(pathname="/home/user/docs", mode=0755) appending entry to parent inode...',
+    successMsg: 'Directory "/home/user/docs" created successfully.',
+    resultRAX: '0x0000000000000000',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_RMDIR',
+    name: 'SYS_RMDIR (0x54)',
+    num: 84,
+    desc: 'Remove an empty directory',
+    regRAX: '0x0000000000000054',
+    startMsg: 'sys_rmdir(pathname="/home/user/tmp") checking directory emptiness...',
+    successMsg: 'Directory "/home/user/tmp" successfully removed from volume structure.',
+    resultRAX: '0x0000000000000000',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_UNLINK',
+    name: 'SYS_UNLINK (0x57)',
+    num: 87,
+    desc: 'Delete a directory name or hard link',
+    regRAX: '0x0000000000000057',
+    startMsg: 'sys_unlink(pathname="/home/user/old.txt") decremented node links...',
+    successMsg: 'File "/home/user/old.txt" unlinked. Disk sectors marked as free space.',
+    resultRAX: '0x0000000000000000',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_RENAME',
+    name: 'SYS_RENAME (0x52)',
+    num: 82,
+    desc: 'Change the name or physical path location of a file',
+    regRAX: '0x0000000000000052',
+    startMsg: 'sys_rename(oldpath="/home/user/a.txt", newpath="/home/user/b.txt") altering directory tree...',
+    successMsg: 'File renamed to /home/user/b.txt successfully.',
+    resultRAX: '0x0000000000000000',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_LINK',
+    name: 'SYS_LINK (0x56)',
+    num: 86,
+    desc: 'Create a new hard link referencing an existing file',
+    regRAX: '0x0000000000000056',
+    startMsg: 'sys_link(oldpath="file.txt", newpath="link.txt") copying inode references...',
+    successMsg: 'Hard link "link.txt" mapped to inode 10243 successfully.',
+    resultRAX: '0x0000000000000000',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_SYMLINK',
+    name: 'SYS_SYMLINK (0x58)',
+    num: 88,
+    desc: 'Create a soft symbolic link pointing to a target path',
+    regRAX: '0x0000000000000058',
+    startMsg: 'sys_symlink(target="file.txt", linkpath="sym.txt") writing link path pointer...',
+    successMsg: 'Symbolic link "sym.txt" -> "file.txt" written successfully.',
+    resultRAX: '0x0000000000000000',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_GETPID',
+    name: 'SYS_GETPID (0x27)',
+    num: 39,
+    desc: 'Retrieve active process identifier (PID)',
+    regRAX: '0x0000000000000027',
+    startMsg: 'sys_getpid() parsing thread control block...',
+    successMsg: 'Retrieved active Process ID: PID 451.',
+    resultRAX: '0x00000000000001C3',
+    category: 'Process'
+  },
+  {
+    val: 'SYS_GETUID',
+    name: 'SYS_GETUID (0x66)',
+    num: 102,
+    desc: 'Retrieve user identity credentials of current process',
+    regRAX: '0x0000000000000066',
+    startMsg: 'sys_getuid() fetching user security token...',
+    successMsg: 'Retrieved Real User ID: UID 1000.',
+    resultRAX: '0x00000000000003E8',
+    category: 'Process'
+  },
+  {
+    val: 'SYS_GETGID',
+    name: 'SYS_GETGID (0x68)',
+    num: 104,
+    desc: 'Retrieve group identity credentials of current process',
+    regRAX: '0x0000000000000068',
+    startMsg: 'sys_getgid() fetching group security token...',
+    successMsg: 'Retrieved Real Group ID: GID 1000.',
+    resultRAX: '0x00000000000003E8',
+    category: 'Process'
+  },
+  {
+    val: 'SYS_SETUID',
+    name: 'SYS_SETUID (0x69)',
+    num: 105,
+    desc: 'Set user identity of current process (privileged)',
+    regRAX: '0x0000000000000069',
+    startMsg: 'sys_setuid(uid=0) verifying CAP_SETUID capability credentials...',
+    successMsg: 'User identity transitioned to UID 0 (root) successfully.',
+    resultRAX: '0x0000000000000000',
+    category: 'Process'
+  },
+  {
+    val: 'SYS_SETGID',
+    name: 'SYS_SETGID (0x6A)',
+    num: 106,
+    desc: 'Set group identity of current process (privileged)',
+    regRAX: '0x000000000000006A',
+    startMsg: 'sys_setgid(gid=0) verifying CAP_SETGID capability credentials...',
+    successMsg: 'Group identity transitioned to GID 0 (root) successfully.',
+    resultRAX: '0x0000000000000000',
+    category: 'Process'
+  },
+  {
+    val: 'SYS_CLOCK_GETTIME',
+    name: 'SYS_CLOCK_GETTIME (0xE4)',
+    num: 228,
+    desc: 'Retrieve current high-precision hardware system clock timer',
+    regRAX: '0x00000000000000E4',
+    startMsg: 'sys_clock_gettime(clk_id=CLOCK_REALTIME, tp=0x7fff0ab0) reading TSC oscillator...',
+    successMsg: 'Clock retrieved. Unix epoch time: 1784192842s, 492040182ns.',
+    resultRAX: '0x0000000000000000',
+    category: 'Signals / Timer'
+  },
+  {
+    val: 'SYS_NANOSLEEP',
+    name: 'SYS_NANOSLEEP (0x23)',
+    num: 35,
+    desc: 'Suspend process execution thread for high-precision nanoseconds interval',
+    regRAX: '0x0000000000000023',
+    startMsg: 'sys_nanosleep(req={tv_sec=1, tv_nsec=0}, rem=NULL) yielding CPU thread quantum...',
+    successMsg: 'Nanosleep interval expired. CPU task state returned to RUNNING.',
+    resultRAX: '0x0000000000000000',
+    category: 'Signals / Timer'
+  },
+  {
+    val: 'SYS_SIGNAL',
+    name: 'SYS_SIGNAL (0xE)',
+    num: 14,
+    desc: 'Configure signal action disposition (legacy)',
+    regRAX: '0x000000000000000E',
+    startMsg: 'sys_signal(signum=SIGINT, handler=0x7fff81a0) registering vector trap...',
+    successMsg: 'Signal SIGINT handler mapped to user function pointer 0x7FFF81A0.',
+    resultRAX: '0x0000000000000000',
+    category: 'Signals / Timer'
+  },
+  {
+    val: 'SYS_SIGACTION',
+    name: 'SYS_SIGACTION (0xD)',
+    num: 13,
+    desc: 'Examine and alter standard thread signal delivery handler',
+    regRAX: '0x000000000000000D',
+    startMsg: 'sys_rt_sigaction(signum=SIGSEGV, act=0x7fff0b80, oact=NULL) registering action handler...',
+    successMsg: 'Signal SIGSEGV action block registered. Mapped custom signal handler stack.',
+    resultRAX: '0x0000000000000000',
+    category: 'Signals / Timer'
+  },
+  {
+    val: 'SYS_SIGPROCMASK',
+    name: 'SYS_SIGPROCMASK (0xE)',
+    num: 14,
+    desc: 'Examine and change blocked system signals mask',
+    regRAX: '0x000000000000000E',
+    startMsg: 'sys_rt_sigprocmask(how=SIG_BLOCK, set=0x7fff0c40, oset=NULL) configuring thread mask...',
+    successMsg: 'Signals mask modified. Blocked async delivery of vectors: SIGALRM, SIGUSR1.',
+    resultRAX: '0x0000000000000000',
+    category: 'Signals / Timer'
+  },
+  {
+    val: 'SYS_SIGPENDING',
+    name: 'SYS_SIGPENDING (0x7F)',
+    num: 127,
+    desc: 'Examine currently pending signals blocked from delivery',
+    regRAX: '0x000000000000007F',
+    startMsg: 'sys_rt_sigpending(set=0x7fff0d10) checking deferred thread queues...',
+    successMsg: 'Pending signals fetched. Active blocked vectors waiting: none.',
+    resultRAX: '0x0000000000000000',
+    category: 'Signals / Timer'
+  },
+  {
+    val: 'SYS_BRK',
+    name: 'SYS_BRK (0xC)',
+    num: 12,
+    desc: 'Change process heap memory data segment breakpoint (brk pointer)',
+    regRAX: '0x000000000000000C',
+    startMsg: 'sys_brk(addr=0) querying current heap allocation pointer...',
+    successMsg: 'Heap base retrieved: 0x5555557A8000.',
+    resultRAX: '0x00005555557A8000',
+    category: 'Memory'
+  },
+  {
+    val: 'SYS_SBRK',
+    name: 'SYS_SBRK (0xC)',
+    num: 12,
+    desc: 'Increment process heap data segment by offset size',
+    regRAX: '0x000000000000000C',
+    startMsg: 'sys_sbrk(increment=16384) scaling program break limit...',
+    successMsg: 'Allocated 16KB heap space. Heap limit updated to 0x5555557AC000.',
+    resultRAX: '0x00005555557AC000',
+    category: 'Memory'
+  },
+  {
+    val: 'SYS_MUNMAP',
+    name: 'SYS_MUNMAP (0xB)',
+    num: 11,
+    desc: 'Unmap physical page allocations from process memory',
+    regRAX: '0x000000000000000B',
+    startMsg: 'sys_munmap(addr=0x7fff6a000000, length=4096) releasing page table entries...',
+    successMsg: 'Virtual pages unmapped. Reclaimed physical frames back to kernel page pool.',
+    resultRAX: '0x0000000000000000',
+    category: 'Memory'
+  },
+  {
+    val: 'SYS_MPROTECT',
+    name: 'SYS_MPROTECT (0xA)',
+    num: 10,
+    desc: 'Modify protection access flags (read/write/exec) of memory',
+    regRAX: '0x000000000000000A',
+    startMsg: 'sys_mprotect(addr=0x7fff6a000000, len=4096, prot=PROT_READ) modifying page attributes...',
+    successMsg: 'Memory permission updated to READ-ONLY. Execution / Writing prohibited on page segment.',
+    resultRAX: '0x0000000000000000',
+    category: 'Memory'
+  },
+  {
+    val: 'SYS_MSYNC',
+    name: 'SYS_MSYNC (0x1A)',
+    num: 26,
+    desc: 'Synchronize a mapped file cache buffer memory back to storage disk',
+    regRAX: '0x000000000000001A',
+    startMsg: 'sys_msync(addr=0x7fff6a000000, length=4096, flags=MS_SYNC) flushing dirty cache...',
+    successMsg: 'File-backed cache synchronized to storage sectors block 29481.',
+    resultRAX: '0x0000000000000000',
+    category: 'Memory'
+  },
+  {
+    val: 'SYS_MADVISE',
+    name: 'SYS_MADVISE (0x1C)',
+    num: 28,
+    desc: 'Give memory usage strategy advice to kernel page manager',
+    regRAX: '0x000000000000001C',
+    startMsg: 'sys_madvise(addr=0x7fff6a000000, len=4096, advice=MADV_SEQUENTIAL) optimizing paging...',
+    successMsg: 'Madvise advice applied. Aggressive pre-fetching enabled for target range.',
+    resultRAX: '0x0000000000000000',
+    category: 'Memory'
+  },
+  {
+    val: 'SYS_GETCWD',
+    name: 'SYS_GETCWD (0x4F)',
+    num: 79,
+    desc: 'Retrieve current process active working directory path',
+    regRAX: '0x000000000000004F',
+    startMsg: 'sys_getcwd(buf=0x7fff0e10, size=256) resolving active directory tree path...',
+    successMsg: 'Current working directory path fetched: "/home/user/workspace".',
+    resultRAX: '0x0000000000000015',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_CHDIR',
+    name: 'SYS_CHDIR (0x50)',
+    num: 80,
+    desc: 'Change current working directory path of process',
+    regRAX: '0x0000000000000050',
+    startMsg: 'sys_chdir(path="/var/log") checking directory node existences...',
+    successMsg: 'Working directory updated. Mapped process root to "/var/log" context.',
+    resultRAX: '0x0000000000000000',
+    category: 'Files / IO'
+  },
+  {
+    val: 'SYS_GETRUSAGE',
+    name: 'SYS_GETRUSAGE (0x62)',
+    num: 98,
+    desc: 'Retrieve process resource utilization consumption statistics',
+    regRAX: '0x0000000000000062',
+    startMsg: 'sys_getrusage(who=RUSAGE_SELF, usage=0x7fff0ed0) fetching thread counters...',
+    successMsg: 'Resource usage fetched. User CPU time: 42ms, System CPU: 18ms, Max RSS: 45MB.',
+    resultRAX: '0x0000000000000000',
+    category: 'Signals / Timer'
+  },
+  {
+    val: 'SYS_TIMES',
+    name: 'SYS_TIMES (0x64)',
+    num: 100,
+    desc: 'Retrieve task CPU execution time intervals',
+    regRAX: '0x0000000000000064',
+    startMsg: 'sys_times(buf=0x7fff0f40) summarizing execution timer ticks...',
+    successMsg: 'Times summary loaded. User ticks: 4200, System ticks: 1800.',
+    resultRAX: '0x0000000000021A4B',
+    category: 'Signals / Timer'
+  },
+  {
+    val: 'SYS_SYSINFO',
+    name: 'SYS_SYSINFO (0x63)',
+    num: 99,
+    desc: 'Retrieve global kernel resource utilization telemetry metrics',
+    regRAX: '0x0000000000000063',
+    startMsg: 'sys_sysinfo(info=0x7fff0fa0) scanning motherboard hardware structures...',
+    successMsg: 'Sysinfo loaded. Uptime: 32049s, RAM: 16384MB total / 8124MB free, Load: [0.05, 0.12, 0.18].',
+    resultRAX: '0x0000000000000000',
+    category: 'System Info'
+  },
+  {
+    val: 'SYS_UNAME',
+    name: 'SYS_UNAME (0x3F)',
+    num: 63,
+    desc: 'Retrieve global operating system identification properties',
+    regRAX: '0x000000000000003F',
+    startMsg: 'sys_uname(buf=0x7fff1010) copying identification strings...',
+    successMsg: 'Uname fetched. OS: glassOS-kernel, Release: 6.2.0-glass, Arch: x86_64.',
+    resultRAX: '0x0000000000000000',
+    category: 'System Info'
+  }
+];
+
 export function GlassKernel({
   cpuUsage,
   ramUsage,
@@ -323,6 +954,8 @@ void hid_pointer_handler() {
     { id: '1', msg: 'System call gates and CPU interrupt controllers synchronized in Ring-3 / Ring-0.', time: new Date().toLocaleTimeString(), type: 'success' },
     { id: '2', msg: 'Interrupt Descriptor Table (IDT) mapped with standard trap service routine vectors.', time: new Date().toLocaleTimeString(), type: 'info' }
   ]);
+  const [syscallFilter, setSyscallFilter] = useState<string>('');
+  const [syscallCategory, setSyscallCategory] = useState<string>('All');
 
   const addSyscallLog = useCallback((type: 'info' | 'success' | 'error' | 'warning', msg: string) => {
     setSyscallLogs(prev => [
@@ -337,55 +970,15 @@ void hid_pointer_handler() {
 
     setTransitioningRing(true);
     setRingTarget('kernel');
-    let syscallNum = '0x0';
-    let syscallName = 'SYS_UNKNOWN';
-    let regRAX = '0x0000000000000000';
-    let startMsg = '';
-    let successMsg = '';
-    let resultRAX = '0x0000000000000000';
 
-    switch (selectedSyscall) {
-      case 'SYS_WRITE':
-        syscallNum = '1';
-        syscallName = 'SYS_WRITE';
-        regRAX = '0x0000000000000001';
-        startMsg = 'sys_write(fd=1, buf="Hello, glassOS!", size=16) invoked. Switching context...';
-        successMsg = 'sys_write returned 16. Characters written successfully to console tty0.';
-        resultRAX = '0x0000000000000010'; // 16 bytes
-        break;
-      case 'SYS_READ':
-        syscallNum = '0';
-        syscallName = 'SYS_READ';
-        regRAX = '0x0000000000000000';
-        startMsg = 'sys_read(fd=0, buf=0x7fff003a, count=256) polling user keyboard buffer...';
-        successMsg = 'sys_read retrieved 12 bytes scan data: "user_input\\n".';
-        resultRAX = '0x000000000000000C'; // 12 bytes
-        break;
-      case 'SYS_FORK':
-        syscallNum = '57';
-        syscallName = 'SYS_FORK';
-        regRAX = '0x0000000000000039';
-        startMsg = 'sys_fork() initiating copy-on-write page mirroring on active thread frame tables...';
-        successMsg = 'sys_fork completed. New child process cloned successfully with PID 1048!';
-        resultRAX = '0x0000000000000418'; // PID 1048
-        break;
-      case 'SYS_MMAP':
-        syscallNum = '9';
-        syscallName = 'SYS_MMAP';
-        regRAX = '0x0000000000000009';
-        startMsg = 'sys_mmap(addr=0, length=4096, prot=PROT_READ|PROT_WRITE, flags=MAP_ANONYMOUS) requested.';
-        successMsg = 'sys_mmap mapped standard physical page frame at virtual pointer 0x7FFF6A000000.';
-        resultRAX = '0x7FFF6A000000';
-        break;
-      case 'SYS_REBOOT':
-        syscallNum = '169';
-        syscallName = 'SYS_REBOOT';
-        regRAX = '0x00000000000000A9';
-        startMsg = 'sys_reboot(magic=0xfee1dead, cmd=LINUX_REBOOT_CMD_RESTART) triggered!';
-        successMsg = 'Rebooting virtual glassOS container core. Standard HAL warm cycle initialized...';
-        resultRAX = '0x0000000000000000';
-        break;
-    }
+    const syscall = SYSTEM_CALLS.find(s => s.val === selectedSyscall);
+
+    const syscallNum = syscall ? String(syscall.num) : '0';
+    const syscallName = syscall ? syscall.val : 'SYS_UNKNOWN';
+    const regRAX = syscall ? syscall.regRAX : '0x0000000000000000';
+    const startMsg = syscall ? syscall.startMsg : 'Invoking system call...';
+    const successMsg = syscall ? syscall.successMsg : 'System call completed successfully.';
+    const resultRAX = syscall ? syscall.resultRAX : '0x0000000000000000';
 
     // Phase 1: Software Trap Transition to Ring 0
     setIdtActiveVector(128); // 0x80 System Call Gate
@@ -2337,47 +2930,116 @@ void hid_pointer_handler() {
           <div className="lg:col-span-4 flex flex-col gap-4 bg-[#0d1117] p-5 rounded-2xl border border-white/5 justify-between">
             
             {/* SUBTAB CONTENT: System Calls */}
-            {activeCtrlTab === 'syscall' && (
-              <div className="space-y-4 flex-1 flex flex-col justify-between">
-                <div className="space-y-2.5">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-white/80">
-                    <Code2 size={12} className="text-purple-400" />
-                    <span>Select software system call (trap)</span>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    {[
-                      { name: 'SYS_WRITE (0x1)', val: 'SYS_WRITE', desc: 'Write payload buffer stream to console/tty' },
-                      { name: 'SYS_READ (0x0)', val: 'SYS_READ', desc: 'Retrieve keyboard scan characters dynamically' },
-                      { name: 'SYS_FORK (0x39)', val: 'SYS_FORK', desc: 'Clone memory process structures & address mapping' },
-                      { name: 'SYS_MMAP (0x9)', val: 'SYS_MMAP', desc: 'Allocate standard physical page frame in RAM' },
-                      { name: 'SYS_REBOOT (0xA9)', val: 'SYS_REBOOT', desc: 'Cycle processor power grids & reboot kernel' }
-                    ].map(call => (
-                      <button
-                        key={call.val}
-                        onClick={() => setSelectedSyscall(call.val)}
-                        className={`p-2 rounded-xl text-left border text-[11px] font-mono transition-all flex flex-col ${
-                          selectedSyscall === call.val
-                            ? 'bg-purple-500/10 border-purple-500/40 text-white'
-                            : 'bg-black/30 border-white/5 text-white/60 hover:bg-black/50'
-                        }`}
-                      >
-                        <span className="font-bold">{call.name}</span>
-                        <span className="text-[8.5px] opacity-60 font-sans mt-0.5 leading-none">{call.desc}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
+            {activeCtrlTab === 'syscall' && (() => {
+              // Filter system calls
+              const filteredSyscalls = SYSTEM_CALLS.filter(call => {
+                const matchesCategory = syscallCategory === 'All' || call.category === syscallCategory;
+                const matchesFilter = call.val.toLowerCase().includes(syscallFilter.toLowerCase()) || 
+                                      call.desc.toLowerCase().includes(syscallFilter.toLowerCase()) ||
+                                      `0x${call.num.toString(16)}`.toLowerCase().includes(syscallFilter.toLowerCase());
+                return matchesCategory && matchesFilter;
+              });
 
-                <button
-                  onClick={handleInvokeSyscall}
-                  disabled={transitioningRing}
-                  className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-lg shadow-purple-500/10 disabled:opacity-50"
-                >
-                  <Cpu size={14} />
-                  Invoke Syscall (int 0x80)
-                </button>
-              </div>
-            )}
+              const categories: ('All' | 'Process' | 'Files / IO' | 'Network' | 'Memory' | 'Signals / Timer' | 'System Info')[] = [
+                'All', 'Process', 'Files / IO', 'Network', 'Memory', 'Signals / Timer', 'System Info'
+              ];
+
+              return (
+                <div className="space-y-3 flex-1 flex flex-col justify-between overflow-hidden">
+                  <div className="space-y-2 flex-1 flex flex-col min-h-0">
+                    <div className="flex items-center justify-between text-xs font-bold text-white/80">
+                      <div className="flex items-center gap-1.5">
+                        <Code2 size={12} className="text-purple-400" />
+                        <span>Select software system call (trap)</span>
+                      </div>
+                      <span className="text-[10px] text-purple-400 font-mono bg-purple-500/10 px-1.5 py-0.5 rounded-md">
+                        {filteredSyscalls.length} / {SYSTEM_CALLS.length} Syscalls
+                      </span>
+                    </div>
+
+                    {/* Category Filter Pills (Horizontal scrollable) */}
+                    <div className="flex gap-1 overflow-x-auto pb-1 select-none scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                      {categories.map(cat => (
+                        <button
+                          key={cat}
+                          onClick={() => setSyscallCategory(cat)}
+                          className={`px-2 py-0.5 rounded-full text-[9px] font-medium whitespace-nowrap transition-all cursor-pointer ${
+                            syscallCategory === cat
+                              ? 'bg-purple-600 text-white font-bold'
+                              : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Search Input */}
+                    <div className="relative">
+                      <Search size={11} className="absolute left-2.5 top-2.5 text-white/40" />
+                      <input
+                        type="text"
+                        placeholder="Search syscall name, hex, desc..."
+                        value={syscallFilter}
+                        onChange={(e) => setSyscallFilter(e.target.value)}
+                        className="w-full bg-black/40 border border-white/5 pl-7 pr-3 py-1.5 rounded-xl text-[10px] font-mono text-white placeholder-white/30 focus:outline-none focus:border-purple-500/40 transition-colors"
+                      />
+                      {syscallFilter && (
+                        <button 
+                          onClick={() => setSyscallFilter('')}
+                          className="absolute right-2 top-1.5 text-[9px] text-white/40 hover:text-white font-sans bg-white/5 px-1.5 py-0.5 rounded"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Scrollable list container */}
+                    <div className="flex-1 overflow-y-auto pr-1 space-y-1.5 max-h-[350px] min-h-[150px] scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                      {filteredSyscalls.length > 0 ? (
+                        filteredSyscalls.map(call => (
+                          <button
+                            key={call.val}
+                            onClick={() => setSelectedSyscall(call.val)}
+                            className={`w-full p-2 rounded-xl text-left border text-[11px] font-mono transition-all flex flex-col cursor-pointer ${
+                              selectedSyscall === call.val
+                                ? 'bg-purple-500/10 border-purple-500/40 text-white'
+                                : 'bg-black/30 border-white/5 text-white/60 hover:bg-black/50'
+                            }`}
+                          >
+                            <div className="flex justify-between items-center w-full">
+                              <span className="font-bold text-purple-300">{call.val}</span>
+                              <span className="text-[9px] text-white/40 bg-white/5 px-1 py-0.5 rounded font-mono">
+                                RAX: 0x{call.num.toString(16).toUpperCase()} ({call.num})
+                              </span>
+                            </div>
+                            <span className="text-[9px] opacity-65 font-sans mt-0.5 leading-tight">{call.desc}</span>
+                            <span className="text-[8px] opacity-40 font-mono mt-1 text-purple-400">
+                              Category: {call.category}
+                            </span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="h-full flex flex-col items-center justify-center text-center p-4 border border-white/5 border-dashed rounded-xl bg-black/20">
+                          <Code2 size={24} className="text-white/20 mb-2" />
+                          <span className="text-[10px] text-white/40 font-medium">No system calls found</span>
+                          <span className="text-[8px] text-white/30 mt-0.5">Adjust filter keywords or category selection</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleInvokeSyscall}
+                    disabled={transitioningRing}
+                    className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-lg shadow-purple-500/10 disabled:opacity-50 mt-1 cursor-pointer"
+                  >
+                    <Cpu size={14} />
+                    Invoke {selectedSyscall} (int 0x80)
+                  </button>
+                </div>
+              );
+            })()}
 
             {/* SUBTAB CONTENT: Traps & Faults */}
             {activeCtrlTab === 'trap' && (
