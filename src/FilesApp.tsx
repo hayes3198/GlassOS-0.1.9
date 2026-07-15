@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { 
   Folder, 
+  FolderArchive,
+  FileArchive,
   Image as ImageIcon, 
   FileText, 
   Search, 
@@ -88,6 +90,12 @@ interface FilesAppProps {
   runBrainscript: (script: string, onPrint: (msg: string) => void) => void;
   setPhotosAppProps?: (props: any) => void;
   setGlassDrawProps?: (props: any) => void;
+  systemMonitorActiveTab?: 'overview' | 'traffic' | 'glasstcp' | 'kernel' | 'security' | 'protocols' | 'hardware' | null;
+  setSystemMonitorActiveTab?: (tab: 'overview' | 'traffic' | 'glasstcp' | 'kernel' | 'security' | 'protocols' | 'hardware' | null) => void;
+  protocolsSelectedFile?: string;
+  setProtocolsSelectedFile?: (path: string) => void;
+  protocolsCompressSelectedFile?: string;
+  setProtocolsCompressSelectedFile?: (path: string) => void;
 }
 
 export function FilesApp({ 
@@ -99,7 +107,13 @@ export function FilesApp({
   accentColor,
   runBrainscript,
   setPhotosAppProps,
-  setGlassDrawProps
+  setGlassDrawProps,
+  systemMonitorActiveTab,
+  setSystemMonitorActiveTab,
+  protocolsSelectedFile,
+  setProtocolsSelectedFile,
+  protocolsCompressSelectedFile,
+  setProtocolsCompressSelectedFile
 }: FilesAppProps) {
   const [currentPath, setCurrentPath] = useState<string[]>(['Documents']);
   const [selectedItemNames, setSelectedItemNames] = useState<string[]>([]);
@@ -197,6 +211,7 @@ export function FilesApp({
       case 'exe':
       case 'pkg': return <Zap size={32} className="text-blue-400 fill-blue-400/20" />;
       case 'json': return <FileJson size={32} className="text-yellow-400" />;
+      case 'gsc': return <FileArchive size={32} className="text-amber-500 font-bold" />;
       case 'gdoc': return <FileText size={32} className="text-blue-400 font-bold" />;
       case 'gsheet': return <TableIcon size={32} className="text-emerald-400 font-bold" />;
       default: return <FileText size={32} className="text-white/40" />;
@@ -591,11 +606,19 @@ export function FilesApp({
         } catch (e) {
           addNotification('File Explorer', 'Failed to parse .gsheet file', 'error');
         }
+      } else if (ext === 'gsc') {
+        if (setSystemMonitorActiveTab) {
+          setSystemMonitorActiveTab('protocols');
+        }
+        if (setProtocolsSelectedFile) {
+          setProtocolsSelectedFile(currentPath.concat(item.name).join('/'));
+        }
+        openWindow('systemmonitor', 'System Monitor');
       } else {
         addNotification('File Explorer', `No application associated with .${ext} files`, 'warning');
       }
     }
-  }, [checkPermission, currentUser, addNotification, currentPath, setNotepadContent, setActiveFileInNotepad, openWindow, handleExecuteBinary, setGlassWordContent, setActiveFileInGlassWord, setSheetData, setActiveFileInSheets]);
+  }, [checkPermission, currentUser, addNotification, currentPath, setNotepadContent, setActiveFileInNotepad, openWindow, handleExecuteBinary, setGlassWordContent, setActiveFileInGlassWord, setSheetData, setActiveFileInSheets, setSystemMonitorActiveTab, setProtocolsSelectedFile]);
 
   const sortedFolder = useMemo(() => {
     let items = [...currentFolder];
@@ -1409,6 +1432,33 @@ export function FilesApp({
                       setLastSelectedIndex(idx);
                     }
 
+                    const isGsc = item.name.endsWith('.gsc');
+                    const fcepItem = isGsc ? {
+                      label: 'Decompress & Decrypt',
+                      icon: <FolderArchive size={14} />,
+                      onClick: () => {
+                        if (setSystemMonitorActiveTab) {
+                          setSystemMonitorActiveTab('protocols');
+                        }
+                        if (setProtocolsSelectedFile) {
+                          setProtocolsSelectedFile(itemPath.join('/'));
+                        }
+                        openWindow('systemmonitor', 'System Monitor');
+                      }
+                    } : {
+                      label: 'Compress & Encrypt',
+                      icon: <FolderArchive size={14} />,
+                      onClick: () => {
+                        if (setSystemMonitorActiveTab) {
+                          setSystemMonitorActiveTab('protocols');
+                        }
+                        if (setProtocolsCompressSelectedFile) {
+                          setProtocolsCompressSelectedFile(itemPath.join('/'));
+                        }
+                        openWindow('systemmonitor', 'System Monitor');
+                      }
+                    };
+
                     setContextMenu({
                       x: e.clientX,
                       y: e.clientY,
@@ -1424,6 +1474,7 @@ export function FilesApp({
                           }
                           else openItem(item);
                         }},
+                        fcepItem,
                         { label: 'Rename', icon: <Edit2 size={14} />, onClick: () => { setEditingItem({ path: itemPath, name: item.name }); setNewName(item.name); } },
                         { label: 'Cut', icon: <Scissors size={14} />, onClick: () => handleCut() },
                         { label: 'Copy', icon: <Copy size={14} />, onClick: () => handleCopy() },

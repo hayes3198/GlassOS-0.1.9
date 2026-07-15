@@ -13,6 +13,10 @@ interface ProtocolsDashboardProps {
   addNotification: (app: string, message: string, type: 'success' | 'info' | 'warning' | 'error') => void;
   cpuUsage: number;
   ramUsage: number;
+  protocolsSelectedFile?: string;
+  setProtocolsSelectedFile?: (path: string) => void;
+  protocolsCompressSelectedFile?: string;
+  setProtocolsCompressSelectedFile?: (path: string) => void;
 }
 
 // Interactive viruses for AV Protection Protocol (AVPP)
@@ -50,7 +54,11 @@ export function ProtocolsDashboard({
   fsLib,
   addNotification,
   cpuUsage,
-  ramUsage
+  ramUsage,
+  protocolsSelectedFile,
+  setProtocolsSelectedFile,
+  protocolsCompressSelectedFile,
+  setProtocolsCompressSelectedFile
 }: ProtocolsDashboardProps) {
   // Current Selected Section inside Protocols dashboard ('av' or 'compression')
   const [panelTab, setPanelTab] = useState<'av' | 'compression'>('av');
@@ -254,7 +262,24 @@ export function ProtocolsDashboard({
   const [decompressStatus, setDecompressStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
   const [decompressionReport, setDecompressionReport] = useState<any>(null);
 
-  // Crawl virtual filesystem starting from 'home/Administrator'
+  // Load preselected files if passed from props and switch tab to compression
+  useEffect(() => {
+    if (protocolsSelectedFile) {
+      setSelectedDecompressFile(protocolsSelectedFile);
+      setPanelTab('compression');
+      if (setProtocolsSelectedFile) setProtocolsSelectedFile('');
+    }
+  }, [protocolsSelectedFile, setProtocolsSelectedFile]);
+
+  useEffect(() => {
+    if (protocolsCompressSelectedFile) {
+      setSelectedCompressFile(protocolsCompressSelectedFile);
+      setPanelTab('compression');
+      if (setProtocolsCompressSelectedFile) setProtocolsCompressSelectedFile('');
+    }
+  }, [protocolsCompressSelectedFile, setProtocolsCompressSelectedFile]);
+
+  // Crawl virtual filesystem starting from root, excluding system directories
   const allUserFiles = useMemo(() => {
     if (!fsLib) return [];
     
@@ -273,28 +298,19 @@ export function ProtocolsDashboard({
             });
           }
         } else if (item.type === 'folder' && item.children) {
-          traverse(item.children, itemPath);
+          // Exclude non-user/system folders
+          if (item.name !== 'sys' && item.name !== 'dev' && item.name !== 'Trash') {
+            traverse(item.children, itemPath);
+          }
         }
       });
     };
 
-    // Find home/Administrator
-    try {
-      const home = fs.find(i => i.name === 'home');
-      if (home && home.children) {
-        const admin = home.children.find((i: any) => i.name === 'Administrator');
-        if (admin && admin.children) {
-          traverse(admin.children, 'home/Administrator');
-        }
-      }
-    } catch (e) {
-      // Fallback
-      traverse(fs, '');
-    }
+    traverse(fs, '');
     return filesList;
   }, [fs, fsLib]);
 
-  // Find all secure archives (*.gsc)
+  // Find all secure archives (*.gsc) excluding system/trash directories
   const compressedFiles = useMemo(() => {
     if (!fsLib) return [];
     
@@ -306,7 +322,9 @@ export function ProtocolsDashboard({
         if (item.type === 'file' && item.name.endsWith('.gsc')) {
           gscList.push({ path: itemPath, name: item.name });
         } else if (item.type === 'folder' && item.children) {
-          traverse(item.children, itemPath);
+          if (item.name !== 'sys' && item.name !== 'dev' && item.name !== 'Trash') {
+            traverse(item.children, itemPath);
+          }
         }
       });
     };

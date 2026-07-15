@@ -406,6 +406,9 @@ export default function App() {
   const [activeFileInSheets, setActiveFileInSheets] = useState<{name: string, path: string[]} | null>(null);
   const [photosAppSelectedFile, setPhotosAppSelectedFile] = useState<any>(null);
   const [glassDrawSelectedFile, setGlassDrawSelectedFile] = useState<any>(null);
+  const [systemMonitorActiveTab, setSystemMonitorActiveTab] = useState<'overview' | 'traffic' | 'glasstcp' | 'kernel' | 'security' | 'protocols' | 'hardware' | null>(null);
+  const [protocolsSelectedFile, setProtocolsSelectedFile] = useState<string>('');
+  const [protocolsCompressSelectedFile, setProtocolsCompressSelectedFile] = useState<string>('');
   const [notepadStyle, setNotepadStyle] = useState<any>({ fontSize: '14px', fontWeight: 'normal', textAlign: 'left' });
   const [glassScriptLine, setGlassScriptLine] = useState<number>(-1);
   const [brainscriptLine, setBrainscriptLine] = useState<number>(-1);
@@ -1259,6 +1262,9 @@ export default function App() {
                     activeFileInNotepad, setActiveFileInNotepad,
                     photosAppSelectedFile, setPhotosAppSelectedFile,
                     glassDrawSelectedFile, setGlassDrawSelectedFile,
+                    systemMonitorActiveTab, setSystemMonitorActiveTab,
+                    protocolsSelectedFile, setProtocolsSelectedFile,
+                    protocolsCompressSelectedFile, setProtocolsCompressSelectedFile,
                     builds, setBuilds,
                     openWindow,
                     windows,
@@ -4308,14 +4314,14 @@ function GlassMail(props: any) {
   );
 }
 
-function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, openWindow, selectedFile }: any) {
+function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, openWindow, closeWindow, selectedFile }: any) {
   const [elements, setElements] = useState<any[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [tool, setTool] = useState<'select' | 'rect' | 'circle' | 'line' | 'pencil'>('select');
+  const [tool, setTool] = useState<'select' | 'text' | 'line' | 'rect' | 'roundrect' | 'oval' | 'arc' | 'pencil' | 'polygon'>('select');
   const [fillColor, setFillColor] = useState('#3b82f6');
-  const [strokeColor, setStrokeColor] = useState('#ffffff');
+  const [strokeColor, setStrokeColor] = useState('#000000');
   const [strokeWidth, setStrokeWidth] = useState(2);
-  const [opacity, setOpacity] = useState(0.8);
+  const [opacity, setOpacity] = useState(1.0);
   const [blur, setBlur] = useState(0);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showOpenDialog, setShowOpenDialog] = useState(false);
@@ -4325,13 +4331,78 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [bgImage, setBgImage] = useState<string | null>(null);
   const [gridVisible, setGridVisible] = useState(true);
+  const [snapToGrid, setSnapToGrid] = useState(true);
+
+  // Expanded retro MacDraw Pro state engine
+  const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const [activeFont, setActiveFont] = useState('Chicago');
+  const [activeFontSize, setActiveFontSize] = useState(12);
+  const [activeStyle, setActiveStyle] = useState({ bold: false, italic: false, underline: false });
+  const [activePattern, setActivePattern] = useState<string>('solid');
+  const [arrowhead, setArrowhead] = useState<'none' | 'start' | 'end' | 'both'>('none');
+  const [scale, setScale] = useState(1.0);
+  const [showRulers, setShowRulers] = useState(true);
+  const [canvasWidth, setCanvasWidth] = useState(800);
+  const [canvasHeight, setCanvasHeight] = useState(1000);
+  const [showAboutModal, setShowAboutModal] = useState(false);
+  const [showPrefsModal, setShowPrefsModal] = useState(false);
+
+  // Element clipboard and history
+  const [clipboard, setClipboard] = useState<any>(null);
+  const [history, setHistory] = useState<any[][]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+
+  // Mouse positions
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [dragStartPos, setDragStartPos] = useState({ x: 0, y: 0 });
+  const [isDraggingElement, setIsDraggingElement] = useState(false);
+
+  // Polyline/polygon points
+  const [polygonPoints, setPolygonPoints] = useState<{ x: number, y: number }[]>([]);
+
+  // Inline text editing states
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [textInputValue, setTextInputValue] = useState('');
+  const [textInputPos, setTextInputPos] = useState({ x: 0, y: 0 });
+
+  // History tracking helpers
+  const saveStateToHistory = (newElements: any[]) => {
+    const nextHistory = history.slice(0, historyIndex + 1);
+    setHistory([...nextHistory, newElements]);
+    setHistoryIndex(nextHistory.length);
+  };
+
+  const handleUndo = () => {
+    if (historyIndex > 0) {
+      setHistoryIndex(historyIndex - 1);
+      setElements(history[historyIndex - 1]);
+      setSelectedId(null);
+      addNotification('GlassDraw', 'Undo successful', 'info');
+    } else {
+      addNotification('GlassDraw', 'Nothing to Undo', 'warning');
+    }
+  };
+
+  const handleRedo = () => {
+    if (historyIndex < history.length - 1) {
+      setHistoryIndex(historyIndex + 1);
+      setElements(history[historyIndex + 1]);
+      setSelectedId(null);
+      addNotification('GlassDraw', 'Redo successful', 'info');
+    } else {
+      addNotification('GlassDraw', 'Nothing to Redo', 'warning');
+    }
+  };
 
   useEffect(() => {
     if (selectedFile) {
       if (selectedFile.name.endsWith('.gdraw')) {
         try {
-          setElements(JSON.parse(selectedFile.content || '[]'));
+          const parsed = JSON.parse(selectedFile.content || '[]');
+          setElements(parsed);
           setSaveName(selectedFile.name);
+          setHistory([parsed]);
+          setHistoryIndex(0);
         } catch (e) {
           console.error('Failed to parse gdraw', e);
         }
@@ -4351,18 +4422,28 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
     fetchFiles();
   }, [fs]);
 
+  // Initial history record if empty
+  useEffect(() => {
+    if (elements.length > 0 && history.length === 0) {
+      setHistory([elements]);
+      setHistoryIndex(0);
+    }
+  }, [elements, history]);
+
   const handleOpenFile = (file: FileSystemItem) => {
     if (file.name.endsWith('.gdraw')) {
       try {
         const data = JSON.parse(file.content || '[]');
         setElements(data);
+        setHistory([data]);
+        setHistoryIndex(0);
         setBgImage(null);
+        setSaveName(file.name);
         addNotification('GlassDraw', `Opened ${file.name}`, 'info');
       } catch (e) {
         addNotification('GlassDraw', 'Error parsing drawing', 'error');
       }
     } else if (file.name.endsWith('.gpaint')) {
-      // Import paint raster as background
       setBgImage(file.content || null);
       addNotification('GlassDraw', `Imported ${file.name} as reference`, 'info');
     }
@@ -4381,17 +4462,170 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
     openWindow('glassword', 'GlassWord Professional');
   };
 
+  const applyFillColorToSelected = (color: string) => {
+    setFillColor(color);
+    if (selectedId) {
+      const nextElements = elements.map(el => el.id === selectedId ? { ...el, fill: color } : el);
+      setElements(nextElements);
+      saveStateToHistory(nextElements);
+    }
+  };
+
+  const applyStrokeColorToSelected = (color: string) => {
+    setStrokeColor(color);
+    if (selectedId) {
+      const nextElements = elements.map(el => el.id === selectedId ? { ...el, stroke: color } : el);
+      setElements(nextElements);
+      saveStateToHistory(nextElements);
+    }
+  };
+
+  const applyPatternToSelected = (pat: string) => {
+    setActivePattern(pat);
+    if (selectedId) {
+      const nextElements = elements.map(el => el.id === selectedId ? { ...el, pattern: pat } : el);
+      setElements(nextElements);
+      saveStateToHistory(nextElements);
+    }
+  };
+
+  const applyLineWidthToSelected = (width: number) => {
+    setStrokeWidth(width);
+    if (selectedId) {
+      const nextElements = elements.map(el => el.id === selectedId ? { ...el, strokeWidth: width } : el);
+      setElements(nextElements);
+      saveStateToHistory(nextElements);
+    }
+  };
+
+  const applyArrowheadToSelected = (arrow: 'none' | 'start' | 'end' | 'both') => {
+    setArrowhead(arrow);
+    if (selectedId) {
+      const nextElements = elements.map(el => el.id === selectedId && el.type === 'line' ? {
+        ...el,
+        arrowStart: arrow === 'start' || arrow === 'both',
+        arrowEnd: arrow === 'end' || arrow === 'both'
+      } : el);
+      setElements(nextElements);
+      saveStateToHistory(nextElements);
+    }
+  };
+
+  const applyFontToSelected = (font: string) => {
+    setActiveFont(font);
+    if (selectedId) {
+      const nextElements = elements.map(el => el.id === selectedId && el.type === 'text' ? { ...el, fontFamily: font } : el);
+      setElements(nextElements);
+      saveStateToHistory(nextElements);
+    }
+  };
+
+  const applySizeToSelected = (size: number) => {
+    setActiveFontSize(size);
+    if (selectedId) {
+      const nextElements = elements.map(el => el.id === selectedId && el.type === 'text' ? { ...el, fontSize: size } : el);
+      setElements(nextElements);
+      saveStateToHistory(nextElements);
+    }
+  };
+
+  const applyStyleToSelected = (key: 'bold' | 'italic' | 'underline') => {
+    const updatedStyle = { ...activeStyle, [key]: !activeStyle[key] };
+    setActiveStyle(updatedStyle);
+    if (selectedId) {
+      const nextElements = elements.map(el => {
+        if (el.id === selectedId && el.type === 'text') {
+          return {
+            ...el,
+            fontWeight: key === 'bold' ? (updatedStyle.bold ? 'bold' : 'normal') : el.fontWeight,
+            fontStyle: key === 'italic' ? (updatedStyle.italic ? 'italic' : 'normal') : el.fontStyle,
+            textDecoration: key === 'underline' ? (updatedStyle.underline ? 'underline' : 'none') : el.textDecoration
+          };
+        }
+        return el;
+      });
+      setElements(nextElements);
+      saveStateToHistory(nextElements);
+    }
+  };
+
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
     const svg = e.currentTarget;
     const CTM = svg.getScreenCTM();
     if (!CTM) return;
-    const x = (e.clientX - CTM.e) / CTM.a;
-    const y = (e.clientY - CTM.f) / CTM.d;
+    const rawX = (e.clientX - CTM.e) / CTM.a;
+    const rawY = (e.clientY - CTM.f) / CTM.d;
+
+    const x = snapToGrid ? Math.round(rawX / 16) * 16 : rawX;
+    const y = snapToGrid ? Math.round(rawY / 16) * 16 : rawY;
 
     if (tool === 'select') {
       const target = e.target as SVGElement;
       const id = target.getAttribute('data-id');
       setSelectedId(id);
+      if (id) {
+        setIsDraggingElement(true);
+        setDragStartPos({ x: rawX, y: rawY });
+      }
+      return;
+    }
+
+    if (tool === 'polygon') {
+      // Finished polygon if clicked close to start
+      if (polygonPoints.length > 2 && Math.hypot(x - polygonPoints[0].x, y - polygonPoints[0].y) < 15) {
+        const newId = Math.random().toString(36).substr(2, 9);
+        const newElement = {
+          id: newId,
+          type: 'polygon',
+          points: [...polygonPoints],
+          fill: fillColor,
+          stroke: strokeColor,
+          strokeWidth: strokeWidth,
+          opacity: opacity,
+          pattern: activePattern,
+          rotate: 0,
+          scaleX: 1,
+          scaleY: 1
+        };
+        const next = [...elements, newElement];
+        setElements(next);
+        saveStateToHistory(next);
+        setPolygonPoints([]);
+        setSelectedId(newId);
+        setIsDrawing(false);
+      } else {
+        setPolygonPoints([...polygonPoints, { x, y }]);
+        setIsDrawing(true);
+      }
+      return;
+    }
+
+    if (tool === 'text') {
+      const newId = Math.random().toString(36).substr(2, 9);
+      const newElement = {
+        id: newId,
+        type: 'text',
+        x, y,
+        text: 'Type text here...',
+        fontFamily: activeFont,
+        fontSize: activeFontSize,
+        fontWeight: activeStyle.bold ? 'bold' : 'normal',
+        fontStyle: activeStyle.italic ? 'italic' : 'normal',
+        textDecoration: activeStyle.underline ? 'underline' : 'none',
+        fill: fillColor,
+        opacity: opacity,
+        rotate: 0,
+        scaleX: 1,
+        scaleY: 1
+      };
+      const next = [...elements, newElement];
+      setElements(next);
+      saveStateToHistory(next);
+      setSelectedId(newId);
+      setEditingTextId(newId);
+      setTextInputValue('Type text here...');
+      setTextInputPos({ x, y });
+      setIsDrawing(false);
       return;
     }
 
@@ -4401,31 +4635,87 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
     const newElement = {
       id: newId,
       type: tool,
-      x, y, width: 0, height: 0,
-      radius: 0,
+      x, y, 
+      width: 0, height: 0,
+      rx: 0, ry: 0,
       x2: x, y2: y,
+      xc: x, yc: y,
       points: tool === 'pencil' ? [{ x, y }] : [],
       fill: fillColor,
       stroke: strokeColor,
       strokeWidth: strokeWidth,
       opacity: opacity,
-      blur: blur
+      blur: blur,
+      pattern: activePattern,
+      arrowStart: arrowhead === 'start' || arrowhead === 'both',
+      arrowEnd: arrowhead === 'end' || arrowhead === 'both',
+      rotate: 0,
+      scaleX: 1,
+      scaleY: 1
     };
     setElements([...elements, newElement]);
     setSelectedId(newId);
   };
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (!isDrawing || tool === 'select') return;
     const svg = e.currentTarget;
     const CTM = svg.getScreenCTM();
     if (!CTM) return;
-    const x = (e.clientX - CTM.e) / CTM.a;
-    const y = (e.clientY - CTM.f) / CTM.d;
+    const rawX = (e.clientX - CTM.e) / CTM.a;
+    const rawY = (e.clientY - CTM.f) / CTM.d;
+
+    setMousePos({ x: rawX, y: rawY });
+
+    if (tool === 'select') {
+      if (isDraggingElement && selectedId) {
+        const dx = rawX - dragStartPos.x;
+        const dy = rawY - dragStartPos.y;
+
+        setElements(prev => prev.map(el => {
+          if (el.id !== selectedId) return el;
+          let finalDx = dx;
+          let finalDy = dy;
+          if (snapToGrid) {
+            finalDx = Math.round(dx / 16) * 16;
+            finalDy = Math.round(dy / 16) * 16;
+            if (finalDx === 0 && finalDy === 0) return el;
+          }
+
+          if (el.type === 'rect' || el.type === 'roundrect' || el.type === 'text') {
+            return { ...el, x: el.x + finalDx, y: el.y + finalDy };
+          } else if (el.type === 'circle' || el.type === 'oval') {
+            return { ...el, x: el.x + finalDx, y: el.y + finalDy };
+          } else if (el.type === 'line') {
+            return { ...el, x: el.x + finalDx, y: el.y + finalDy, x2: el.x2 + finalDx, y2: el.y2 + finalDy };
+          } else if (el.type === 'pencil' || el.type === 'polygon') {
+            return {
+              ...el,
+              points: (el.points || []).map((p: any) => ({ x: p.x + finalDx, y: p.y + finalDy }))
+            };
+          } else if (el.type === 'arc') {
+            return { ...el, x: el.x + finalDx, y: el.y + finalDy, x2: el.x2 + finalDx, y2: el.y2 + finalDy, xc: el.xc + finalDx, yc: el.yc + finalDy };
+          }
+          return el;
+        }));
+
+        if (!snapToGrid || Math.abs(dx) >= 16 || Math.abs(dy) >= 16) {
+          setDragStartPos({
+            x: snapToGrid ? dragStartPos.x + Math.round(dx / 16) * 16 : rawX,
+            y: snapToGrid ? dragStartPos.y + Math.round(dy / 16) * 16 : rawY
+          });
+        }
+      }
+      return;
+    }
+
+    if (!isDrawing) return;
+
+    const x = snapToGrid ? Math.round(rawX / 16) * 16 : rawX;
+    const y = snapToGrid ? Math.round(rawY / 16) * 16 : rawY;
 
     setElements(prev => prev.map(el => {
       if (el.id !== selectedId) return el;
-      if (el.type === 'rect') {
+      if (el.type === 'rect' || el.type === 'roundrect') {
         return { 
           ...el, 
           x: Math.min(x, startPos.x), 
@@ -4436,207 +4726,1302 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
       } else if (el.type === 'circle') {
         const radius = Math.sqrt(Math.pow(x - startPos.x, 2) + Math.pow(y - startPos.y, 2));
         return { ...el, radius };
+      } else if (el.type === 'oval') {
+        const rx = Math.abs(x - startPos.x) / 2;
+        const ry = Math.abs(y - startPos.y) / 2;
+        return { ...el, x: Math.min(x, startPos.x), y: Math.min(y, startPos.y), rx, ry };
       } else if (el.type === 'line') {
         return { ...el, x2: x, y2: y };
+      } else if (el.type === 'arc') {
+        const mx = (startPos.x + x) / 2;
+        const my = (startPos.y + y) / 2;
+        const dx = x - startPos.x;
+        const dy = y - startPos.y;
+        const len = Math.sqrt(dx*dx + dy*dy) || 1;
+        const px = -dy / len * 30;
+        const py = dx / len * 30;
+        return { ...el, x2: x, y2: y, xc: mx + px, yc: my + py };
       } else if (el.type === 'pencil') {
-        return { ...el, points: [...el.points, { x, y }] };
+        return { ...el, points: [...(el.points || []), { x, y }] };
       }
       return el;
     }));
   };
 
   const handleMouseUp = () => {
+    if (isDrawing || isDraggingElement) {
+      saveStateToHistory(elements);
+    }
     setIsDrawing(false);
+    setIsDraggingElement(false);
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (tool === 'polygon' && polygonPoints.length > 1) {
+      const newId = Math.random().toString(36).substr(2, 9);
+      const newElement = {
+        id: newId,
+        type: 'polygon',
+        points: [...polygonPoints],
+        fill: fillColor,
+        stroke: strokeColor,
+        strokeWidth: strokeWidth,
+        opacity: opacity,
+        pattern: activePattern,
+        rotate: 0,
+        scaleX: 1,
+        scaleY: 1
+      };
+      const next = [...elements, newElement];
+      setElements(next);
+      saveStateToHistory(next);
+      setPolygonPoints([]);
+      setSelectedId(newId);
+      setIsDrawing(false);
+    }
   };
 
   const handleSave = async () => {
+    let finalName = saveName.trim();
+    if (!finalName) {
+      addNotification('GlassDraw', 'File name cannot be empty', 'warning');
+      return;
+    }
+    if (!finalName.endsWith('.gdraw')) {
+      finalName += '.gdraw';
+    }
+    setSaveName(finalName);
     const data = JSON.stringify(elements);
     try {
-      fsLib.write('Documents/Drawings/' + saveName, data);
-      addNotification('GlassDraw', `Saved ${saveName}`, 'success');
+      fsLib.write('Documents/Drawings/' + finalName, data);
+      addNotification('GlassDraw', `Saved ${finalName}`, 'success');
       setShowSaveDialog(false);
     } catch (e) {
       addNotification('GlassDraw', 'Error saving file', 'error');
     }
   };
 
+  const handleSaveAttempt = () => {
+    if (!saveName || saveName === 'untitled.gdraw') {
+      setShowSaveDialog(true);
+    } else {
+      handleSave();
+    }
+  };
+
   const clearCanvas = () => {
     setElements([]);
+    saveStateToHistory([]);
+    setSelectedId(null);
+    addNotification('GlassDraw', 'Canvas cleared', 'info');
   };
 
   const deleteSelected = () => {
     if (selectedId) {
-      setElements(elements.filter(el => el.id !== selectedId));
+      const next = elements.filter(el => el.id !== selectedId);
+      setElements(next);
+      saveStateToHistory(next);
       setSelectedId(null);
+      addNotification('GlassDraw', 'Deleted selected element', 'success');
     }
   };
 
+  const handleMenuHover = (menuName: string) => {
+    if (activeMenu !== null) {
+      setActiveMenu(menuName);
+    }
+  };
+
+  const handleMenuAction = (action: () => void) => {
+    action();
+    setActiveMenu(null);
+  };
+
+  // Helper bounds calculations for selected element bounds drawing
+  const getElementBounds = (el: any) => {
+    if (!el) return null;
+    if (el.type === 'rect' || el.type === 'roundrect') {
+      return { x: el.x, y: el.y, width: el.width, height: el.height };
+    }
+    if (el.type === 'circle') {
+      return { x: el.x - el.radius, y: el.y - el.radius, width: el.radius * 2, height: el.radius * 2 };
+    }
+    if (el.type === 'oval') {
+      return { x: el.x, y: el.y, width: el.rx * 2, height: el.ry * 2 };
+    }
+    if (el.type === 'line' || el.type === 'arc') {
+      const minX = Math.min(el.x, el.x2);
+      const minY = Math.min(el.y, el.y2);
+      const maxX = Math.max(el.x, el.x2);
+      const maxY = Math.max(el.y, el.y2);
+      return { x: minX, y: minY, width: Math.max(10, maxX - minX), height: Math.max(10, maxY - minY) };
+    }
+    if (el.type === 'pencil' || el.type === 'polygon') {
+      const pts = el.points || [];
+      if (pts.length === 0) return { x: el.x, y: el.y, width: 20, height: 20 };
+      const xs = pts.map((p: any) => p.x);
+      const ys = pts.map((p: any) => p.y);
+      const minX = Math.min(...xs);
+      const minY = Math.min(...ys);
+      const maxX = Math.max(...xs);
+      const maxY = Math.max(...ys);
+      return { x: minX, y: minY, width: Math.max(10, maxX - minX), height: Math.max(10, maxY - minY) };
+    }
+    if (el.type === 'text') {
+      const approxWidth = (el.text || '').length * (el.fontSize || 12) * 0.6;
+      const approxHeight = el.fontSize || 12;
+      return { x: el.x, y: el.y - approxHeight, width: approxWidth, height: approxHeight + 4 };
+    }
+    return null;
+  };
+
+  const tools = [
+    { id: 'select', name: 'Select Arrow', icon: (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M4 4l7 16 3-6 6-3z" fill="currentColor" />
+      </svg>
+    )},
+    { id: 'text', name: 'Text Label (A)', icon: (
+      <span className="text-sm font-serif font-bold leading-none">A</span>
+    )},
+    { id: 'line', name: 'Diagonal Line', icon: (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <line x1="4" y1="20" x2="20" y2="4" />
+      </svg>
+    )},
+    { id: 'rect', name: 'Rectangle', icon: (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="4" y="5" width="16" height="14" rx="0" />
+      </svg>
+    )},
+    { id: 'roundrect', name: 'Rounded Rectangle', icon: (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="4" y="5" width="16" height="14" rx="4" />
+      </svg>
+    )},
+    { id: 'oval', name: 'Oval / Ellipse', icon: (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <ellipse cx="12" cy="12" rx="8" ry="6" />
+      </svg>
+    )},
+    { id: 'arc', name: 'Arc', icon: (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M4 19 C12 19, 19 12, 19 4" />
+      </svg>
+    )},
+    { id: 'pencil', name: 'Freehand Pencil', icon: (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+      </svg>
+    )},
+    { id: 'polygon', name: 'Polygon', icon: (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <polygon points="6,18 12,4 18,10 14,20" fill="none" />
+      </svg>
+    )},
+    { id: 'eyedropper', name: 'Eyedropper', icon: (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M12 2l3 3-9 9-3 3 1-4 8-8 1-1z" />
+        <path d="M16 6l2 2" />
+      </svg>
+    )}
+  ];
+
   return (
-    <div className="h-full flex flex-col bg-[#0f172a] text-white">
-      <div className="h-10 border-b border-white/10 flex items-center px-4 justify-between bg-slate-900/50">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1 bg-white/5 p-1 rounded-lg">
-            <button onClick={() => setTool('select')} className={cn("p-1.5 rounded", tool === 'select' ? "bg-blue-500 text-white" : "hover:bg-white/10")} title="Select"><MousePointer2 size={14} /></button>
-            <button onClick={() => setTool('pencil')} className={cn("p-1.5 rounded", tool === 'pencil' ? "bg-blue-500 text-white" : "hover:bg-white/10")} title="Pencil"><Pencil size={14} /></button>
-            <button onClick={() => setTool('rect')} className={cn("p-1.5 rounded", tool === 'rect' ? "bg-blue-500 text-white" : "hover:bg-white/10")} title="Rectangle"><Square size={14} /></button>
-            <button onClick={() => setTool('circle')} className={cn("p-1.5 rounded", tool === 'circle' ? "bg-blue-500 text-white" : "hover:bg-white/10")} title="Circle"><Circle size={14} /></button>
-            <button onClick={() => setTool('line')} className={cn("p-1.5 rounded", tool === 'line' ? "bg-blue-500 text-white" : "hover:bg-white/10")} title="Line"><Minus size={14} /></button>
+    <div className="h-full flex flex-col bg-[#ebebeb] text-black font-sans relative overflow-hidden select-none">
+      <style>{`
+        @font-face {
+          font-family: 'Chicago';
+          src: local('Impact'), local('HelveticaNeue-CondensedBold'), local('Arial-BoldMT');
+        }
+        .pattern-dots {
+          background-image: radial-gradient(#bbb 1.2px, transparent 1.2px);
+          background-size: 16px 16px;
+        }
+        .paint-outline {
+          filter: drop-shadow(0 0 1px #3b82f6) drop-shadow(0 0 1px #3b82f6);
+        }
+      `}</style>
+
+      {/* Retro Macintosh Menu Bar */}
+      <div className="h-6 bg-[#ebebeb] border-b border-gray-400 flex items-center px-4 select-none relative z-[100] text-xs font-semibold gap-1">
+        {/* File Menu */}
+        <div className="relative">
+          <button 
+            onClick={() => setActiveMenu(activeMenu === 'file' ? null : 'file')}
+            onMouseEnter={() => handleMenuHover('file')}
+            className={cn("px-2.5 py-0.5 rounded hover:bg-black hover:text-white leading-none", activeMenu === 'file' && "bg-black text-white")}
+          >
+            File
+          </button>
+          {activeMenu === 'file' && (
+            <div className="absolute left-0 mt-0.5 w-48 bg-white border border-gray-400 shadow-lg py-1 text-black text-xs rounded z-50">
+              <button onClick={() => handleMenuAction(() => setShowAboutModal(true))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white font-medium">About GlassDraw...</button>
+              <button onClick={() => handleMenuAction(() => addNotification('System', 'System is active on GlassOS 2026 container.', 'info'))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">System Info...</button>
+              <button onClick={() => handleMenuAction(() => setShowPrefsModal(true))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">Preferences...</button>
+              <div className="border-t border-gray-300 my-1" />
+              <button onClick={() => handleMenuAction(clearCanvas)} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">New Drawing</button>
+              <button onClick={() => handleMenuAction(() => setShowOpenDialog(true))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">Open...</button>
+              <div className="border-t border-gray-300 my-1" />
+              <button onClick={() => handleMenuAction(handleSaveAttempt)} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">Save</button>
+              <button onClick={() => handleMenuAction(() => setShowSaveDialog(true))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">Save As...</button>
+              <div className="border-t border-gray-300 my-1" />
+              <button onClick={() => handleMenuAction(() => setShowOpenDialog(true))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">Import Paint Reference...</button>
+              <button onClick={() => handleMenuAction(handleImportToWord)} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white text-blue-600 font-bold">Export to GlassWord</button>
+              <div className="border-t border-gray-300 my-1" />
+              <button onClick={() => handleMenuAction(() => closeWindow('glassdraw'))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">Close</button>
+            </div>
+          )}
+        </div>
+
+        {/* Edit Menu */}
+        <div className="relative">
+          <button 
+            onClick={() => setActiveMenu(activeMenu === 'edit' ? null : 'edit')}
+            onMouseEnter={() => handleMenuHover('edit')}
+            className={cn("px-2.5 py-0.5 rounded hover:bg-black hover:text-white leading-none", activeMenu === 'edit' && "bg-black text-white")}
+          >
+            Edit
+          </button>
+          {activeMenu === 'edit' && (
+            <div className="absolute left-0 mt-0.5 w-48 bg-white border border-gray-400 shadow-lg py-1 text-black text-xs rounded z-50">
+              <button onClick={() => handleMenuAction(handleUndo)} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>Undo</span><span className="opacity-50">⌘Z</span></button>
+              <button onClick={() => handleMenuAction(handleRedo)} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>Redo</span><span className="opacity-50">⌘Y</span></button>
+              <div className="border-t border-gray-300 my-1" />
+              <button 
+                onClick={() => handleMenuAction(() => {
+                  if (selectedId) {
+                    const el = elements.find(item => item.id === selectedId);
+                    if (el) {
+                      setClipboard(el);
+                      const next = elements.filter(item => item.id !== selectedId);
+                      setElements(next);
+                      saveStateToHistory(next);
+                      setSelectedId(null);
+                      addNotification('GlassDraw', 'Cut element', 'info');
+                    }
+                  }
+                })} 
+                disabled={!selectedId}
+                className="w-full text-left px-4 py-1 hover:bg-black hover:text-white disabled:opacity-30 flex justify-between"
+              >
+                <span>Cut</span><span className="opacity-50">⌘X</span>
+              </button>
+              <button 
+                onClick={() => handleMenuAction(() => {
+                  if (selectedId) {
+                    const el = elements.find(item => item.id === selectedId);
+                    if (el) {
+                      setClipboard(el);
+                      addNotification('GlassDraw', 'Copied element', 'info');
+                    }
+                  }
+                })} 
+                disabled={!selectedId}
+                className="w-full text-left px-4 py-1 hover:bg-black hover:text-white disabled:opacity-30 flex justify-between"
+              >
+                <span>Copy</span><span className="opacity-50">⌘C</span>
+              </button>
+              <button 
+                onClick={() => handleMenuAction(() => {
+                  if (clipboard) {
+                    const newId = Math.random().toString(36).substr(2, 9);
+                    const pasted = { ...clipboard, id: newId, x: (clipboard.x || 0) + 20, y: (clipboard.y || 0) + 20, x2: (clipboard.x2 || 0) + 20, y2: (clipboard.y2 || 0) + 20 };
+                    const next = [...elements, pasted];
+                    setElements(next);
+                    saveStateToHistory(next);
+                    setSelectedId(newId);
+                    addNotification('GlassDraw', 'Pasted element', 'info');
+                  }
+                })} 
+                disabled={!clipboard}
+                className="w-full text-left px-4 py-1 hover:bg-black hover:text-white disabled:opacity-30 flex justify-between"
+              >
+                <span>Paste</span><span className="opacity-50">⌘V</span>
+              </button>
+              <button 
+                onClick={() => handleMenuAction(() => {
+                  if (selectedId) {
+                    const el = elements.find(item => item.id === selectedId);
+                    if (el) {
+                      const newId = Math.random().toString(36).substr(2, 9);
+                      const dup = { ...el, id: newId, x: el.x + 15, y: el.y + 15, x2: el.x2 + 15, y2: el.y2 + 15 };
+                      const next = [...elements, dup];
+                      setElements(next);
+                      saveStateToHistory(next);
+                      setSelectedId(newId);
+                      addNotification('GlassDraw', 'Duplicated element', 'info');
+                    }
+                  }
+                })} 
+                disabled={!selectedId}
+                className="w-full text-left px-4 py-1 hover:bg-black hover:text-white disabled:opacity-30"
+              >
+                Duplicate
+              </button>
+              <button onClick={() => handleMenuAction(deleteSelected)} disabled={!selectedId} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white disabled:opacity-30">Delete</button>
+              <div className="border-t border-gray-300 my-1" />
+              <button 
+                onClick={() => handleMenuAction(() => {
+                  if (elements.length > 0) {
+                    setSelectedId(elements[0].id);
+                    addNotification('GlassDraw', 'Selected first layer element', 'info');
+                  }
+                })} 
+                className="w-full text-left px-4 py-1 hover:bg-black hover:text-white"
+              >
+                Select All
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* View Menu */}
+        <div className="relative">
+          <button 
+            onClick={() => setActiveMenu(activeMenu === 'view' ? null : 'view')}
+            onMouseEnter={() => handleMenuHover('view')}
+            className={cn("px-2.5 py-0.5 rounded hover:bg-black hover:text-white leading-none", activeMenu === 'view' && "bg-black text-white")}
+          >
+            View
+          </button>
+          {activeMenu === 'view' && (
+            <div className="absolute left-0 mt-0.5 w-48 bg-white border border-gray-400 shadow-lg py-1 text-black text-xs rounded z-50">
+              <button onClick={() => handleMenuAction(() => setScale(0.5))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>Zoom 50%</span>{scale === 0.5 && <span>✓</span>}</button>
+              <button onClick={() => handleMenuAction(() => setScale(1.0))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>Zoom 100% (Actual)</span>{scale === 1.0 && <span>✓</span>}</button>
+              <button onClick={() => handleMenuAction(() => setScale(1.5))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>Zoom 150%</span>{scale === 1.5 && <span>✓</span>}</button>
+              <button onClick={() => handleMenuAction(() => setScale(2.0))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>Zoom 200%</span>{scale === 2.0 && <span>✓</span>}</button>
+              <div className="border-t border-gray-300 my-1" />
+              <button onClick={() => handleMenuAction(() => setGridVisible(!gridVisible))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>Show Grid</span>{gridVisible && <span>✓</span>}</button>
+              <button onClick={() => handleMenuAction(() => setShowRulers(!showRulers))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>Show Rulers</span>{showRulers && <span>✓</span>}</button>
+            </div>
+          )}
+        </div>
+
+        {/* Layout Menu */}
+        <div className="relative">
+          <button 
+            onClick={() => setActiveMenu(activeMenu === 'layout' ? null : 'layout')}
+            onMouseEnter={() => handleMenuHover('layout')}
+            className={cn("px-2.5 py-0.5 rounded hover:bg-black hover:text-white leading-none", activeMenu === 'layout' && "bg-black text-white")}
+          >
+            Layout
+          </button>
+          {activeMenu === 'layout' && (
+            <div className="absolute left-0 mt-0.5 w-48 bg-white border border-gray-400 shadow-lg py-1 text-black text-xs rounded z-50">
+              <button onClick={() => handleMenuAction(() => setSnapToGrid(!snapToGrid))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>Snap to Grid</span>{snapToGrid && <span>✓</span>}</button>
+              <button onClick={() => handleMenuAction(() => setGridVisible(!gridVisible))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>Show Grid Dots</span>{gridVisible && <span>✓</span>}</button>
+              <div className="border-t border-gray-300 my-1" />
+              <button onClick={() => handleMenuAction(() => { setCanvasWidth(800); setCanvasHeight(1000); })} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">Standard Letter (800x1000)</button>
+              <button onClick={() => handleMenuAction(() => { setCanvasWidth(1200); setCanvasHeight(1200); })} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">Square Poster (1200x1200)</button>
+            </div>
+          )}
+        </div>
+
+        {/* Arrange Menu */}
+        <div className="relative">
+          <button 
+            onClick={() => setActiveMenu(activeMenu === 'arrange' ? null : 'arrange')}
+            onMouseEnter={() => handleMenuHover('arrange')}
+            className={cn("px-2.5 py-0.5 rounded hover:bg-black hover:text-white leading-none", activeMenu === 'arrange' && "bg-black text-white")}
+          >
+            Arrange
+          </button>
+          {activeMenu === 'arrange' && (
+            <div className="absolute left-0 mt-0.5 w-48 bg-white border border-gray-400 shadow-lg py-1 text-black text-xs rounded z-50">
+              <button 
+                onClick={() => handleMenuAction(() => {
+                  if (selectedId) {
+                    const elIdx = elements.findIndex(item => item.id === selectedId);
+                    if (elIdx !== -1) {
+                      const next = [...elements];
+                      const [el] = next.splice(elIdx, 1);
+                      next.push(el);
+                      setElements(next);
+                      saveStateToHistory(next);
+                      addNotification('GlassDraw', 'Brought element to front', 'info');
+                    }
+                  }
+                })} 
+                disabled={!selectedId}
+                className="w-full text-left px-4 py-1 hover:bg-black hover:text-white disabled:opacity-30"
+              >
+                Bring to Front
+              </button>
+              <button 
+                onClick={() => handleMenuAction(() => {
+                  if (selectedId) {
+                    const elIdx = elements.findIndex(item => item.id === selectedId);
+                    if (elIdx !== -1) {
+                      const next = [...elements];
+                      const [el] = next.splice(elIdx, 1);
+                      next.unshift(el);
+                      setElements(next);
+                      saveStateToHistory(next);
+                      addNotification('GlassDraw', 'Sent element to back', 'info');
+                    }
+                  }
+                })} 
+                disabled={!selectedId}
+                className="w-full text-left px-4 py-1 hover:bg-black hover:text-white disabled:opacity-30"
+              >
+                Send to Back
+              </button>
+              <div className="border-t border-gray-300 my-1" />
+              <button onClick={() => handleMenuAction(() => addNotification('GlassDraw', 'Group features require multiple selection (Pro edition)', 'info'))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">Group</button>
+              <button onClick={() => handleMenuAction(() => addNotification('GlassDraw', 'Ungroup features are active on current layout.', 'info'))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">Ungroup</button>
+              <div className="border-t border-gray-300 my-1" />
+              <button 
+                onClick={() => handleMenuAction(() => {
+                  if (selectedId) {
+                    const next = elements.map(el => el.id === selectedId ? { ...el, x: 20, x2: el.x2 - el.x + 20 } : el);
+                    setElements(next);
+                    saveStateToHistory(next);
+                  }
+                })} 
+                disabled={!selectedId}
+                className="w-full text-left px-4 py-1 hover:bg-black hover:text-white disabled:opacity-30"
+              >
+                Align Left
+              </button>
+              <button 
+                onClick={() => handleMenuAction(() => {
+                  if (selectedId) {
+                    const next = elements.map(el => el.id === selectedId ? { ...el, x: (canvasWidth - (el.width || 200)) / 2 } : el);
+                    setElements(next);
+                    saveStateToHistory(next);
+                  }
+                })} 
+                disabled={!selectedId}
+                className="w-full text-left px-4 py-1 hover:bg-black hover:text-white disabled:opacity-30"
+              >
+                Align Center
+              </button>
+              <button 
+                onClick={() => handleMenuAction(() => {
+                  if (selectedId) {
+                    const next = elements.map(el => el.id === selectedId ? { ...el, x: canvasWidth - (el.width || 100) - 20 } : el);
+                    setElements(next);
+                    saveStateToHistory(next);
+                  }
+                })} 
+                disabled={!selectedId}
+                className="w-full text-left px-4 py-1 hover:bg-black hover:text-white disabled:opacity-30"
+              >
+                Align Right
+              </button>
+              <div className="border-t border-gray-300 my-1" />
+              <button 
+                onClick={() => handleMenuAction(() => {
+                  if (selectedId) {
+                    const next = elements.map(el => el.id === selectedId ? { ...el, rotate: ((el.rotate || 0) + 90) % 360 } : el);
+                    setElements(next);
+                    saveStateToHistory(next);
+                  }
+                })} 
+                disabled={!selectedId}
+                className="w-full text-left px-4 py-1 hover:bg-black hover:text-white disabled:opacity-30"
+              >
+                Rotate 90° CW
+              </button>
+              <button 
+                onClick={() => handleMenuAction(() => {
+                  if (selectedId) {
+                    const next = elements.map(el => el.id === selectedId ? { ...el, rotate: ((el.rotate || 0) - 90 + 360) % 360 } : el);
+                    setElements(next);
+                    saveStateToHistory(next);
+                  }
+                })} 
+                disabled={!selectedId}
+                className="w-full text-left px-4 py-1 hover:bg-black hover:text-white disabled:opacity-30"
+              >
+                Rotate 90° CCW
+              </button>
+              <button 
+                onClick={() => handleMenuAction(() => {
+                  if (selectedId) {
+                    const next = elements.map(el => el.id === selectedId ? { ...el, scaleX: (el.scaleX || 1) * -1 } : el);
+                    setElements(next);
+                    saveStateToHistory(next);
+                  }
+                })} 
+                disabled={!selectedId}
+                className="w-full text-left px-4 py-1 hover:bg-black hover:text-white disabled:opacity-30"
+              >
+                Flip Horizontal
+              </button>
+              <button 
+                onClick={() => handleMenuAction(() => {
+                  if (selectedId) {
+                    const next = elements.map(el => el.id === selectedId ? { ...el, scaleY: (el.scaleY || 1) * -1 } : el);
+                    setElements(next);
+                    saveStateToHistory(next);
+                  }
+                })} 
+                disabled={!selectedId}
+                className="w-full text-left px-4 py-1 hover:bg-black hover:text-white disabled:opacity-30"
+              >
+                Flip Vertical
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Pen Menu */}
+        <div className="relative">
+          <button 
+            onClick={() => setActiveMenu(activeMenu === 'pen' ? null : 'pen')}
+            onMouseEnter={() => handleMenuHover('pen')}
+            className={cn("px-2.5 py-0.5 rounded hover:bg-black hover:text-white leading-none", activeMenu === 'pen' && "bg-black text-white")}
+          >
+            Pen
+          </button>
+          {activeMenu === 'pen' && (
+            <div className="absolute left-0 mt-0.5 w-48 bg-white border border-gray-400 shadow-lg py-1 text-black text-xs rounded z-50">
+              <div className="px-4 py-1 text-gray-400 font-bold text-[9px] uppercase tracking-wider">Line Width</div>
+              <button onClick={() => handleMenuAction(() => applyLineWidthToSelected(1))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>Hairline (1px)</span>{strokeWidth === 1 && <span>✓</span>}</button>
+              <button onClick={() => handleMenuAction(() => applyLineWidthToSelected(2))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>1pt (2px)</span>{strokeWidth === 2 && <span>✓</span>}</button>
+              <button onClick={() => handleMenuAction(() => applyLineWidthToSelected(4))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>2pt (4px)</span>{strokeWidth === 4 && <span>✓</span>}</button>
+              <button onClick={() => handleMenuAction(() => applyLineWidthToSelected(6))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>4pt (6px)</span>{strokeWidth === 6 && <span>✓</span>}</button>
+              <button onClick={() => handleMenuAction(() => applyLineWidthToSelected(8))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>6pt (8px)</span>{strokeWidth === 8 && <span>✓</span>}</button>
+              <div className="border-t border-gray-300 my-1" />
+              <div className="px-4 py-1 text-gray-400 font-bold text-[9px] uppercase tracking-wider">Pen Pattern</div>
+              <button onClick={() => handleMenuAction(() => applyPatternToSelected('solid'))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>Solid</span>{activePattern === 'solid' && <span>✓</span>}</button>
+              <button onClick={() => handleMenuAction(() => applyPatternToSelected('checker'))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>Checker</span>{activePattern === 'checker' && <span>✓</span>}</button>
+              <button onClick={() => handleMenuAction(() => applyPatternToSelected('dots'))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>Dotted</span>{activePattern === 'dots' && <span>✓</span>}</button>
+              <button onClick={() => handleMenuAction(() => applyPatternToSelected('diagonal'))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>Diagonal</span>{activePattern === 'diagonal' && <span>✓</span>}</button>
+              <button onClick={() => handleMenuAction(() => applyPatternToSelected('none'))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"><span>None (Hollow)</span>{activePattern === 'none' && <span>✓</span>}</button>
+            </div>
+          )}
+        </div>
+
+        {/* Font Menu */}
+        <div className="relative">
+          <button 
+            onClick={() => setActiveMenu(activeMenu === 'font' ? null : 'font')}
+            onMouseEnter={() => handleMenuHover('font')}
+            className={cn("px-2.5 py-0.5 rounded hover:bg-black hover:text-white leading-none", activeMenu === 'font' && "bg-black text-white")}
+          >
+            Font
+          </button>
+          {activeMenu === 'font' && (
+            <div className="absolute left-0 mt-0.5 w-48 bg-white border border-gray-400 shadow-lg py-1 text-black text-xs rounded z-50">
+              {['Chicago', 'Monaco', 'Geneva', 'Helvetica', 'Times', 'Courier', 'Space Grotesk', 'System-UI'].map(f => (
+                <button 
+                  key={f}
+                  onClick={() => handleMenuAction(() => applyFontToSelected(f))} 
+                  className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between"
+                  style={{ fontFamily: f }}
+                >
+                  <span>{f}</span>
+                  {activeFont === f && <span>✓</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Size Menu */}
+        <div className="relative">
+          <button 
+            onClick={() => setActiveMenu(activeMenu === 'size' ? null : 'size')}
+            onMouseEnter={() => handleMenuHover('size')}
+            className={cn("px-2.5 py-0.5 rounded hover:bg-black hover:text-white leading-none", activeMenu === 'size' && "bg-black text-white")}
+          >
+            Size
+          </button>
+          {activeMenu === 'size' && (
+            <div className="absolute left-0 mt-0.5 w-48 bg-white border border-gray-400 shadow-lg py-1 text-black text-xs rounded z-50">
+              {[9, 10, 12, 14, 18, 24, 36, 48, 72].map(sz => (
+                <button 
+                  key={sz}
+                  onClick={() => handleMenuAction(() => applySizeToSelected(sz))} 
+                  className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex justify-between font-mono"
+                >
+                  <span>{sz} pt</span>
+                  {activeFontSize === sz && <span>✓</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Style Menu */}
+        <div className="relative">
+          <button 
+            onClick={() => setActiveMenu(activeMenu === 'style' ? null : 'style')}
+            onMouseEnter={() => handleMenuHover('style')}
+            className={cn("px-2.5 py-0.5 rounded hover:bg-black hover:text-white leading-none", activeMenu === 'style' && "bg-black text-white")}
+          >
+            Style
+          </button>
+          {activeMenu === 'style' && (
+            <div className="absolute left-0 mt-0.5 w-48 bg-white border border-gray-400 shadow-lg py-1 text-black text-xs rounded z-50">
+              <button 
+                onClick={() => handleMenuAction(() => {
+                  setActiveStyle({ bold: false, italic: false, underline: false });
+                  if (selectedId) {
+                    const next = elements.map(el => el.id === selectedId && el.type === 'text' ? { ...el, fontWeight: 'normal', fontStyle: 'normal', textDecoration: 'none' } : el);
+                    setElements(next);
+                    saveStateToHistory(next);
+                  }
+                })} 
+                className="w-full text-left px-4 py-1 hover:bg-black hover:text-white"
+              >
+                Plain Text
+              </button>
+              <div className="border-t border-gray-300 my-1" />
+              <button onClick={() => handleMenuAction(() => applyStyleToSelected('bold'))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white font-bold flex justify-between"><span>Bold</span>{activeStyle.bold && <span>✓</span>}</button>
+              <button onClick={() => handleMenuAction(() => applyStyleToSelected('italic'))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white italic flex justify-between"><span>Italic</span>{activeStyle.italic && <span>✓</span>}</button>
+              <button onClick={() => handleMenuAction(() => applyStyleToSelected('underline'))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white underline flex justify-between"><span>Underline</span>{activeStyle.underline && <span>✓</span>}</button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Pattern Selector / Styling Attributes Sub-Toolbar */}
+      <div className="bg-[#f0f0f0] border-b border-gray-400 p-2 text-black flex flex-wrap items-center justify-between gap-3 text-xs select-none">
+        <div className="flex items-center gap-3">
+          {/* Stroke Color */}
+          <div className="flex flex-col items-center">
+            <span className="text-[8px] font-bold uppercase tracking-tight text-gray-500">Pen Color</span>
+            <input 
+              type="color" 
+              value={strokeColor} 
+              onChange={e => applyStrokeColorToSelected(e.target.value)} 
+              className="w-5 h-5 border border-gray-400 rounded cursor-pointer p-0 bg-transparent"
+            />
           </div>
-          <div className="h-6 w-[1px] bg-white/10" />
-          <div className="flex items-center gap-2">
-            <div className="flex flex-col">
-              <span className="text-[8px] uppercase font-bold text-white/40">Fill</span>
-              <input type="color" value={fillColor} onChange={e => setFillColor(e.target.value)} className="w-4 h-4 rounded border-0 bg-transparent cursor-pointer" />
-            </div>
-            <div className="flex flex-col">
-              <span className="text-[8px] uppercase font-bold text-white/40">Stroke</span>
-              <input type="color" value={strokeColor} onChange={e => setStrokeColor(e.target.value)} className="w-4 h-4 rounded border-0 bg-transparent cursor-pointer" />
-            </div>
-            <div className="flex flex-col">
-              <span className="text-[8px] uppercase font-bold text-white/40">Size</span>
-              <input type="range" min="1" max="20" value={strokeWidth} onChange={e => setStrokeWidth(parseInt(e.target.value))} className="w-16 accent-blue-500 h-1" />
-            </div>
-            <div className="flex flex-col">
-              <span className="text-[8px] uppercase font-bold text-white/40">Blur</span>
-              <input type="range" min="0" max="10" value={blur} onChange={e => setBlur(parseInt(e.target.value))} className="w-16 accent-purple-500 h-1" />
-            </div>
-            <div className="flex flex-col">
-              <span className="text-[8px] uppercase font-bold text-white/40">Glass</span>
-              <input type="range" min="0" max="1" step="0.1" value={opacity} onChange={e => setOpacity(parseFloat(e.target.value))} className="w-16 accent-emerald-500 h-1" />
-            </div>
+
+          {/* Fill Color */}
+          <div className="flex flex-col items-center">
+            <span className="text-[8px] font-bold uppercase tracking-tight text-gray-500">Fill Color</span>
+            <input 
+              type="color" 
+              value={fillColor} 
+              onChange={e => applyFillColorToSelected(e.target.value)} 
+              className="w-5 h-5 border border-gray-400 rounded cursor-pointer p-0 bg-transparent"
+            />
           </div>
-          <div className="flex gap-1 bg-white/5 p-1 rounded-lg ml-2">
-            <button onClick={() => setGridVisible(!gridVisible)} className={cn("p-1.5 rounded", gridVisible ? "text-blue-400" : "text-white/40")} title="Toggle Grid"><Grid size={14} /></button>
-            <button onClick={() => setShowOpenDialog(true)} className="p-1.5 hover:bg-white/10 rounded" title="Open Drawing or Paint"><FolderOpen size={14} /></button>
-            <button onClick={handleImportToWord} className="p-1.5 hover:bg-white/10 rounded text-amber-400 font-bold text-[10px]" title="Export to Word">WORD</button>
+
+          {/* Pen Size */}
+          <div className="flex flex-col">
+            <span className="text-[8px] font-bold uppercase tracking-tight text-gray-500">Pen Size</span>
+            <select 
+              value={strokeWidth} 
+              onChange={e => applyLineWidthToSelected(parseInt(e.target.value))}
+              className="bg-white border border-gray-400 rounded px-1 py-0.5 text-[10px] h-5 outline-none font-sans font-medium"
+            >
+              <option value={1}>Hairline (1px)</option>
+              <option value={2}>Thin (2px)</option>
+              <option value={4}>Medium (4px)</option>
+              <option value={6}>Thick (6px)</option>
+              <option value={8}>Heavy (8px)</option>
+            </select>
+          </div>
+
+          {/* Arrowhead */}
+          <div className="flex flex-col">
+            <span className="text-[8px] font-bold uppercase tracking-tight text-gray-500">Arrowheads</span>
+            <select 
+              value={arrowhead} 
+              onChange={e => applyArrowheadToSelected(e.target.value as any)}
+              className="bg-white border border-gray-400 rounded px-1 py-0.5 text-[10px] h-5 outline-none font-sans font-medium"
+            >
+              <option value="none">None</option>
+              <option value="start">Start</option>
+              <option value="end">End</option>
+              <option value="both">Both</option>
+            </select>
+          </div>
+
+          <div className="h-6 w-[1px] bg-gray-300" />
+
+          {/* Active Pattern Selector */}
+          <div className="flex flex-col">
+            <span className="text-[8px] font-bold uppercase tracking-tight text-gray-500 mb-0.5">Fill Pattern</span>
+            <div className="flex items-center border border-gray-400 rounded bg-white p-0.5 gap-0.5">
+              {[
+                { id: 'solid', label: 'Solid', icon: '■' },
+                { id: 'checker', label: 'Checker', icon: '▞' },
+                { id: 'dots', label: 'Dots', icon: '⁛' },
+                { id: 'diagonal', label: 'Diag', icon: '⧄' },
+                { id: 'stripes', label: 'Strip', icon: '▤' },
+                { id: 'grid', label: 'Grid', icon: '▦' },
+                { id: 'none', label: 'None', icon: '⬚' }
+              ].map(pat => (
+                <button
+                  key={pat.id}
+                  onClick={() => applyPatternToSelected(pat.id)}
+                  className={cn(
+                    "px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border transition-colors",
+                    activePattern === pat.id 
+                      ? "bg-black text-white border-black" 
+                      : "hover:bg-gray-200 text-gray-700 border-transparent"
+                  )}
+                  title={`Fill Pattern: ${pat.label}`}
+                >
+                  {pat.icon}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
+
         <div className="flex items-center gap-2">
           {selectedId && (
-            <button onClick={deleteSelected} className="p-1.5 hover:bg-white/10 rounded text-red-500" title="Delete Selected">
-              <Trash2 size={14} />
-            </button>
+            <div className="text-[9px] font-mono bg-amber-100 text-amber-800 border border-amber-300 px-2 py-0.5 rounded">
+              Selected: {elements.find(el => el.id === selectedId)?.type.toUpperCase()}
+            </div>
           )}
-          <button onClick={clearCanvas} className="p-1.5 hover:bg-white/10 rounded text-red-400" title="Clear"><RefreshCcw size={14} /></button>
-          <button onClick={() => setShowSaveDialog(true)} className="flex items-center gap-2 px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-[10px] font-bold uppercase tracking-wider"><Save size={14} /> Save</button>
+          <button 
+            onClick={handleImportToWord} 
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] px-2 py-1 rounded shadow-sm flex items-center gap-1 uppercase tracking-wide"
+          >
+            Export to GlassWord
+          </button>
         </div>
       </div>
-      <div className={cn("flex-1 relative overflow-hidden bg-white/5", gridVisible && "pattern-dots")}>
-        <svg 
-          id="draw-canvas"
-          className="w-full h-full cursor-crosshair"
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-        >
-          <defs>
-            <filter id="glass-shadow" x="-50%" y="-50%" width="200%" height="200%">
-              <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#000000" floodOpacity="0.3" />
-            </filter>
-            <filter id="frosted-glass">
-              <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
-              <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" result="goo" />
-              <feComposite in="SourceGraphic" in2="goo" operator="atop" />
-            </filter>
-            <linearGradient id="glass-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="rgba(255,255,255,0.1)" />
-              <stop offset="100%" stopColor="rgba(255,255,255,0.02)" />
-            </linearGradient>
-          </defs>
 
-          {bgImage && <image href={bgImage} x="0" y="0" width="100%" height="100%" opacity="0.3" />}
-          
-          <g filter="url(#glass-shadow)">
-            {elements.map(el => (
-              <React.Fragment key={el.id}>
-                {el.type === 'rect' && (
-                  <rect 
-                    x={el.x} y={el.y} width={el.width} height={el.height} 
-                    fill={el.fill} stroke={el.stroke} strokeWidth={el.strokeWidth}
-                    fillOpacity={el.opacity || 0.8}
-                    style={{ filter: el.blur > 0 ? `blur(${el.blur}px)` : undefined }}
-                    data-id={el.id}
-                    rx="4"
-                    className={cn("transition-all", selectedId === el.id && "stroke-blue-400 stroke-2 ring-4 ring-blue-500/20")}
+      {/* Main Workspace Frame */}
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Left Tool Palette */}
+        <div className="w-12 bg-[#ebebeb] border-r border-gray-400 shrink-0 flex flex-col items-center py-2 gap-3 text-black select-none justify-between h-full">
+          <div className="flex flex-col gap-1 w-full items-center">
+            <div className="grid grid-cols-1 gap-1 w-full px-1">
+              {tools.map(t => {
+                const isSelected = tool === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => {
+                      if (t.id === 'eyedropper') {
+                        if (selectedId) {
+                          const el = elements.find(item => item.id === selectedId);
+                          if (el) {
+                            setFillColor(el.fill || '#3b82f6');
+                            setStrokeColor(el.stroke || '#000000');
+                            setStrokeWidth(el.strokeWidth || 1);
+                            setActivePattern(el.pattern || 'solid');
+                            addNotification('GlassDraw', 'Sampled shape style', 'info');
+                          }
+                        } else {
+                          addNotification('GlassDraw', 'Select a shape first to sample style', 'warning');
+                        }
+                        return;
+                      }
+                      setTool(t.id as any);
+                      setPolygonPoints([]);
+                      setIsDrawing(false);
+                    }}
+                    className={cn(
+                      "h-8 w-8 border flex items-center justify-center transition-all shadow-[1px_1px_1px_rgba(0,0,0,0.1)] rounded mx-auto",
+                      isSelected 
+                        ? "bg-[#333333] text-white border-black ring-1 ring-black/50" 
+                        : "bg-white text-gray-800 border-gray-400 hover:bg-gray-100 active:bg-gray-200"
+                    )}
+                    title={t.name}
+                  >
+                    {t.icon}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Zoom Controls & Layers */}
+          <div className="w-full flex flex-col gap-1 items-center border-t border-gray-300 pt-2 bg-[#ebebeb] px-1 text-[9px] mb-2">
+            <span className="font-bold text-gray-500 uppercase">Zoom</span>
+            <div className="flex flex-col items-center bg-white border border-gray-400 rounded w-full py-0.5">
+              <span className="font-mono font-bold leading-tight">{Math.round(scale * 100)}%</span>
+              <div className="flex border-t border-gray-200 w-full mt-0.5 text-[8px] font-bold">
+                <button onClick={() => setScale(prev => Math.max(0.5, prev - 0.25))} className="w-1/2 hover:bg-gray-100 border-r border-gray-200">-</button>
+                <button onClick={() => setScale(prev => Math.min(2.0, prev + 0.25))} className="w-1/2 hover:bg-gray-100">+</button>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-0.5 w-full mt-1">
+              <button 
+                onClick={() => {
+                  if (selectedId) {
+                    setElements(prev => {
+                      const elIdx = prev.findIndex(item => item.id === selectedId);
+                      if (elIdx === -1) return prev;
+                      const next = [...prev];
+                      const [el] = next.splice(elIdx, 1);
+                      next.push(el);
+                      saveStateToHistory(next);
+                      return next;
+                    });
+                  }
+                }}
+                className="bg-white hover:bg-gray-100 py-0.5 border border-gray-400 rounded text-[7px] font-bold uppercase"
+              >
+                Front
+              </button>
+              <button 
+                onClick={() => {
+                  if (selectedId) {
+                    setElements(prev => {
+                      const elIdx = prev.findIndex(item => item.id === selectedId);
+                      if (elIdx === -1) return prev;
+                      const next = [...prev];
+                      const [el] = next.splice(elIdx, 1);
+                      next.unshift(el);
+                      saveStateToHistory(next);
+                      return next;
+                    });
+                  }
+                }}
+                className="bg-white hover:bg-gray-100 py-0.5 border border-gray-400 rounded text-[7px] font-bold uppercase"
+              >
+                Back
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Outer Scrollable Frame with Rulers */}
+        <div className="flex-1 flex flex-col overflow-hidden relative" onClick={() => activeMenu && setActiveMenu(null)}>
+          {/* Top Horizontal Ruler */}
+          {showRulers && (
+            <div className="h-6 bg-[#ebebeb] border-b border-gray-400 flex relative shrink-0 overflow-hidden select-none">
+              {Array.from({ length: 30 }).map((_, i) => {
+                const pos = i * 50;
+                return (
+                  <div key={i} className="absolute bottom-0 flex flex-col items-center" style={{ left: `${pos}px`, width: '1px' }}>
+                    <span className="text-[7px] font-mono text-gray-600 mb-0.5">{pos}</span>
+                    <div className="h-2 w-[1px] bg-gray-500" />
+                    <div className="absolute h-1 w-[1px] bg-gray-400" style={{ left: '-10px', bottom: 0 }} />
+                    <div className="absolute h-1.5 w-[1px] bg-gray-400" style={{ left: '-20px', bottom: 0 }} />
+                    <div className="absolute h-1 w-[1px] bg-gray-400" style={{ left: '-30px', bottom: 0 }} />
+                    <div className="absolute h-1 w-[1px] bg-gray-400" style={{ left: '-40px', bottom: 0 }} />
+                  </div>
+                );
+              })}
+              {/* Horizontal mouse tracker */}
+              <div className="absolute bottom-0 w-[1px] h-3 bg-red-500 pointer-events-none" style={{ left: `${mousePos.x * scale}px` }} />
+            </div>
+          )}
+
+          {/* Core Scroll Area */}
+          <div className="flex-1 flex relative overflow-hidden">
+            {/* Left Vertical Ruler */}
+            {showRulers && (
+              <div className="w-6 bg-[#ebebeb] border-r border-gray-400 flex flex-col relative shrink-0 overflow-hidden select-none">
+                {Array.from({ length: 30 }).map((_, i) => {
+                  const pos = i * 50;
+                  return (
+                    <div key={i} className="absolute right-0 flex items-center pr-1" style={{ top: `${pos}px`, height: '1px' }}>
+                      <span className="text-[7px] font-mono text-gray-600 mr-1">{pos}</span>
+                      <div className="w-2 h-[1px] bg-gray-500" />
+                      <div className="absolute w-1 h-[1px] bg-gray-400" style={{ top: '-10px' }} />
+                      <div className="absolute w-1.5 h-[1px] bg-gray-400" style={{ top: '-20px' }} />
+                      <div className="absolute w-1 h-[1px] bg-gray-400" style={{ top: '-30px' }} />
+                      <div className="absolute w-1 h-[1px] bg-gray-400" style={{ top: '-40px' }} />
+                    </div>
+                  );
+                })}
+                {/* Vertical mouse tracker */}
+                <div className="absolute right-0 h-[1px] w-3 bg-red-500 pointer-events-none" style={{ top: `${mousePos.y * scale}px` }} />
+              </div>
+            )}
+
+            {/* Scrollable Canvas container */}
+            <div className="flex-1 overflow-auto bg-[#888888] p-8 flex items-start justify-start relative">
+              <div 
+                className={cn("relative bg-white shadow-[4px_4px_16px_rgba(0,0,0,0.4)] border border-gray-600 shrink-0", gridVisible && "pattern-dots")}
+                style={{ width: `${canvasWidth}px`, height: `${canvasHeight}px`, transform: `scale(${scale})`, transformOrigin: 'top left' }}
+              >
+                <svg
+                  id="draw-canvas"
+                  className="w-full h-full absolute inset-0 cursor-crosshair"
+                  onMouseDown={handleMouseDown}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                  onDoubleClick={handleDoubleClick}
+                >
+                  <defs>
+                    <marker id="arrow-start" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                      <path d="M 10 0 L 0 5 L 10 10 z" fill="currentColor" />
+                    </marker>
+                    <marker id="arrow-end" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
+                    </marker>
+
+                    {/* Dynamic customizable currentcolor vector patterns */}
+                    <pattern id="pat-checker" width="16" height="16" patternUnits="userSpaceOnUse">
+                      <rect width="8" height="8" fill="currentColor" opacity="0.3" />
+                      <rect x="8" y="8" width="8" height="8" fill="currentColor" opacity="0.3" />
+                    </pattern>
+                    <pattern id="pat-dots" width="12" height="12" patternUnits="userSpaceOnUse">
+                      <circle cx="6" cy="6" r="2" fill="currentColor" />
+                    </pattern>
+                    <pattern id="pat-diagonal" width="12" height="12" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+                      <line x1="0" y1="0" x2="0" y2="12" stroke="currentColor" strokeWidth="3" />
+                    </pattern>
+                    <pattern id="pat-stripes" width="10" height="10" patternUnits="userSpaceOnUse">
+                      <rect width="4" height="10" fill="currentColor" />
+                    </pattern>
+                    <pattern id="pat-grid" width="16" height="16" patternUnits="userSpaceOnUse">
+                      <rect width="16" height="16" fill="transparent" stroke="currentColor" strokeWidth="1" />
+                    </pattern>
+                  </defs>
+
+                  {bgImage && <image href={bgImage} x="0" y="0" width="100%" height="100%" opacity="0.3" />}
+
+                  {/* Render Elements list */}
+                  {elements.map(el => {
+                    const centerX = el.type === 'rect' || el.type === 'roundrect' ? el.x + (el.width || 0) / 2 : (el.type === 'circle' || el.type === 'oval' ? el.x : (el.type === 'line' ? (el.x + el.x2) / 2 : el.x));
+                    const centerY = el.type === 'rect' || el.type === 'roundrect' ? el.y + (el.height || 0) / 2 : (el.type === 'circle' || el.type === 'oval' ? el.y : (el.type === 'line' ? (el.y + el.y2) / 2 : el.y));
+                    
+                    const rotateStr = el.rotate ? `rotate(${el.rotate} ${centerX} ${centerY})` : '';
+                    const scaleStr = (el.scaleX && el.scaleX !== 1) || (el.scaleY && el.scaleY !== 1) 
+                      ? `translate(${centerX} ${centerY}) scale(${el.scaleX || 1} ${el.scaleY || 1}) translate(${-centerX} ${-centerY})` 
+                      : '';
+                    const transform = `${rotateStr} ${scaleStr}`.trim() || undefined;
+
+                    return (
+                      <g key={el.id} transform={transform}>
+                        {el.type === 'rect' && (
+                          <rect 
+                            x={el.x} y={el.y} width={el.width} height={el.height} 
+                            fill={el.pattern && el.pattern !== 'solid' ? `url(#pat-${el.pattern})` : (el.pattern === 'none' ? 'none' : el.fill)}
+                            color={el.fill}
+                            stroke={el.stroke} strokeWidth={el.strokeWidth}
+                            fillOpacity={el.opacity || 1}
+                            data-id={el.id}
+                            className={cn("transition-all", selectedId === el.id && "stroke-blue-500 stroke-2")}
+                          />
+                        )}
+                        {el.type === 'roundrect' && (
+                          <rect 
+                            x={el.x} y={el.y} width={el.width} height={el.height} rx="8" ry="8"
+                            fill={el.pattern && el.pattern !== 'solid' ? `url(#pat-${el.pattern})` : (el.pattern === 'none' ? 'none' : el.fill)}
+                            color={el.fill}
+                            stroke={el.stroke} strokeWidth={el.strokeWidth}
+                            fillOpacity={el.opacity || 1}
+                            data-id={el.id}
+                            className={cn("transition-all", selectedId === el.id && "stroke-blue-500 stroke-2")}
+                          />
+                        )}
+                        {el.type === 'circle' && (
+                          <circle 
+                            cx={el.x} cy={el.y} r={el.radius} 
+                            fill={el.pattern && el.pattern !== 'solid' ? `url(#pat-${el.pattern})` : (el.pattern === 'none' ? 'none' : el.fill)}
+                            color={el.fill}
+                            stroke={el.stroke} strokeWidth={el.strokeWidth}
+                            fillOpacity={el.opacity || 1}
+                            data-id={el.id}
+                            className={cn("transition-all", selectedId === el.id && "stroke-blue-500 stroke-2")}
+                          />
+                        )}
+                        {el.type === 'oval' && (
+                          <ellipse 
+                            cx={el.x + el.rx} cy={el.y + el.ry} rx={el.rx} ry={el.ry}
+                            fill={el.pattern && el.pattern !== 'solid' ? `url(#pat-${el.pattern})` : (el.pattern === 'none' ? 'none' : el.fill)}
+                            color={el.fill}
+                            stroke={el.stroke} strokeWidth={el.strokeWidth}
+                            fillOpacity={el.opacity || 1}
+                            data-id={el.id}
+                            className={cn("transition-all", selectedId === el.id && "stroke-blue-500 stroke-2")}
+                          />
+                        )}
+                        {el.type === 'line' && (
+                          <line 
+                            x1={el.x} y1={el.y} x2={el.x2} y2={el.y2}
+                            stroke={el.stroke} strokeWidth={el.strokeWidth}
+                            strokeOpacity={el.opacity || 1}
+                            markerStart={el.arrowStart ? "url(#arrow-start)" : undefined}
+                            markerEnd={el.arrowEnd ? "url(#arrow-end)" : undefined}
+                            color={el.stroke}
+                            data-id={el.id}
+                            className={cn("transition-all", selectedId === el.id && "stroke-blue-500 stroke-2")}
+                          />
+                        )}
+                        {el.type === 'arc' && (
+                          <path 
+                            d={`M ${el.x} ${el.y} Q ${el.xc} ${el.yc} ${el.x2} ${el.y2}`}
+                            fill="none"
+                            stroke={el.stroke} strokeWidth={el.strokeWidth}
+                            strokeOpacity={el.opacity || 1}
+                            data-id={el.id}
+                            className={cn("transition-all", selectedId === el.id && "stroke-blue-500 stroke-2")}
+                          />
+                        )}
+                        {el.type === 'pencil' && (
+                          <path 
+                            d={`M ${(el.points || []).map((p: any) => `${p.x} ${p.y}`).join(' L ')}`}
+                            fill="none"
+                            stroke={el.stroke} strokeWidth={el.strokeWidth}
+                            strokeLinecap="round" strokeLinejoin="round"
+                            strokeOpacity={el.opacity || 1}
+                            data-id={el.id}
+                            className={cn("transition-all", selectedId === el.id && "stroke-blue-500 stroke-2")}
+                          />
+                        )}
+                        {el.type === 'polygon' && (
+                          <polygon 
+                            points={(el.points || []).map((p: any) => `${p.x},${p.y}`).join(' ')}
+                            fill={el.pattern && el.pattern !== 'solid' ? `url(#pat-${el.pattern})` : (el.pattern === 'none' ? 'none' : el.fill)}
+                            color={el.fill}
+                            stroke={el.stroke} strokeWidth={el.strokeWidth}
+                            fillOpacity={el.opacity || 1}
+                            data-id={el.id}
+                            className={cn("transition-all", selectedId === el.id && "stroke-blue-500 stroke-2")}
+                          />
+                        )}
+                        {el.type === 'text' && (
+                          <text
+                            x={el.x} y={el.y}
+                            fontFamily={el.fontFamily || 'Chicago'}
+                            fontSize={el.fontSize || 12}
+                            fontWeight={el.fontWeight || 'normal'}
+                            fontStyle={el.fontStyle || 'normal'}
+                            textDecoration={el.textDecoration || 'none'}
+                            fill={el.fill}
+                            fillOpacity={el.opacity || 1}
+                            data-id={el.id}
+                            className={cn("select-none cursor-pointer leading-none", selectedId === el.id && "paint-outline")}
+                          >
+                            {el.text}
+                          </text>
+                        )}
+                      </g>
+                    );
+                  })}
+
+                  {/* Polyline preview while drawing polygon */}
+                  {polygonPoints.length > 0 && (
+                    <g>
+                      <polyline
+                        points={polygonPoints.map(p => `${p.x},${p.y}`).join(' ')}
+                        fill="none"
+                        stroke={strokeColor}
+                        strokeWidth={strokeWidth}
+                        strokeDasharray="4 4"
+                      />
+                      <line
+                        x1={polygonPoints[polygonPoints.length - 1].x}
+                        y1={polygonPoints[polygonPoints.length - 1].y}
+                        x2={mousePos.x}
+                        y2={mousePos.y}
+                        stroke={strokeColor}
+                        strokeWidth={strokeWidth}
+                        strokeDasharray="4 4"
+                      />
+                      {/* Highlight start point */}
+                      <circle cx={polygonPoints[0].x} cy={polygonPoints[0].y} r={5} fill="#22c55e" stroke="#fff" strokeWidth={1.5} />
+                    </g>
+                  )}
+
+                  {/* Draw bounds + handles on selected element */}
+                  {(() => {
+                    const bounds = getElementBounds(elements.find(el => el.id === selectedId));
+                    if (!bounds) return null;
+                    const padding = 4;
+                    return (
+                      <g className="pointer-events-none">
+                        <rect
+                          x={bounds.x - padding}
+                          y={bounds.y - padding}
+                          width={bounds.width + padding * 2}
+                          height={bounds.height + padding * 2}
+                          fill="none"
+                          stroke="#3b82f6"
+                          strokeWidth="1"
+                          strokeDasharray="3 3"
+                        />
+                        {[
+                          { x: bounds.x - padding, y: bounds.y - padding },
+                          { x: bounds.x + bounds.width + padding, y: bounds.y - padding },
+                          { x: bounds.x - padding, y: bounds.y + bounds.height + padding },
+                          { x: bounds.x + bounds.width + padding, y: bounds.y + bounds.height + padding }
+                        ].map((pt, idx) => (
+                          <rect
+                            key={idx}
+                            x={pt.x - 3}
+                            y={pt.y - 3}
+                            width="6"
+                            height="6"
+                            fill="#ffffff"
+                            stroke="#3b82f6"
+                            strokeWidth="1.5"
+                          />
+                        ))}
+                      </g>
+                    );
+                  })()}
+                </svg>
+
+                {/* Absolutely overlayed text input box during active editing */}
+                {editingTextId && (
+                  <input
+                    type="text"
+                    autoFocus
+                    value={textInputValue}
+                    onChange={e => {
+                      setTextInputValue(e.target.value);
+                      setElements(prev => prev.map(el => el.id === editingTextId ? { ...el, text: e.target.value } : el));
+                    }}
+                    onBlur={() => {
+                      setEditingTextId(null);
+                      saveStateToHistory(elements);
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        setEditingTextId(null);
+                        saveStateToHistory(elements);
+                      }
+                    }}
+                    className="absolute bg-white border border-blue-500 rounded px-1 outline-none text-black z-50 shadow-md font-medium"
+                    style={{
+                      left: `${textInputPos.x}px`,
+                      top: `${textInputPos.y - 12}px`,
+                      fontFamily: activeFont,
+                      fontSize: `${activeFontSize}px`,
+                    }}
                   />
                 )}
-                {el.type === 'circle' && (
-                  <circle 
-                    cx={el.x} cy={el.y} r={el.radius} 
-                    fill={el.fill} stroke={el.stroke} strokeWidth={el.strokeWidth}
-                    fillOpacity={el.opacity || 0.8}
-                    style={{ filter: el.blur > 0 ? `blur(${el.blur}px)` : undefined }}
-                    data-id={el.id}
-                    className={cn("transition-all", selectedId === el.id && "stroke-blue-400 stroke-2")}
-                  />
-                )}
-                {el.type === 'line' && (
-                  <line 
-                    x1={el.x} y1={el.y} x2={el.x2} y2={el.y2}
-                    stroke={el.stroke} strokeWidth={el.strokeWidth}
-                    strokeOpacity={el.opacity || 1}
-                    style={{ filter: el.blur > 0 ? `blur(${el.blur}px)` : undefined }}
-                    data-id={el.id}
-                    className={cn("transition-all", selectedId === el.id && "stroke-blue-400 stroke-2")}
-                  />
-                )}
-                {el.type === 'pencil' && (
-                  <path 
-                    d={`M ${(el.points || []).map((p: any) => `${p.x} ${p.y}`).join(' L ')}`}
-                    fill="transparent"
-                    stroke={el.stroke}
-                    strokeWidth={el.strokeWidth}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeOpacity={el.opacity || 1}
-                    style={{ filter: el.blur > 0 ? `blur(${el.blur}px)` : undefined }}
-                    data-id={el.id}
-                    className={cn("transition-all", selectedId === el.id && "stroke-blue-400 stroke-2")}
-                  />
-                )}
-              </React.Fragment>
-            ))}
-          </g>
-        </svg>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
+      {/* Retro Macintosh Modals */}
       <AnimatePresence>
+        {showAboutModal && (
+          <div className="absolute inset-0 z-[200] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-[#ebebeb] p-6 rounded-lg w-full max-w-xs border-2 border-black shadow-[4px_4px_0px_#000000] text-black">
+              <div className="text-center">
+                <h3 className="text-lg font-bold font-sans">glass Draw v3.5.1</h3>
+                <p className="text-xs text-gray-600 mt-1">2024-25</p>
+                
+                <div className="border-t border-gray-400 my-4" />
+                
+                <p className="text-[10px] font-mono text-gray-500">glassOS v2.0.0</p>
+              </div>
+              <button onClick={() => setShowAboutModal(false)} className="w-full mt-5 py-1.5 border border-black hover:bg-black hover:text-white rounded text-xs font-bold transition-all">Close</button>
+            </motion.div>
+          </div>
+        )}
+
+        {showPrefsModal && (
+          <div className="absolute inset-0 z-[200] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-[#ebebeb] p-5 rounded-lg w-full max-w-xs border-2 border-black shadow-[4px_4px_0px_#000000] text-black">
+              <h3 className="text-sm font-bold mb-3 border-b border-gray-400 pb-1 uppercase">Draw Preferences</h3>
+              <div className="space-y-3 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium">Snap Grid size</span>
+                  <select className="border border-black bg-white rounded px-1 py-0.5 font-mono text-[11px]" value={snapToGrid ? '16' : '0'} onChange={e => setSnapToGrid(e.target.value !== '0')}>
+                    <option value="0">No Snapping</option>
+                    <option value="16">16px (Normal)</option>
+                    <option value="32">32px (Wide)</option>
+                  </select>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="font-medium">Show Grid Dots</span>
+                  <input type="checkbox" checked={gridVisible} onChange={e => setGridVisible(e.target.checked)} className="w-4 h-4 accent-black" />
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="font-medium">Show Rulers</span>
+                  <input type="checkbox" checked={showRulers} onChange={e => setShowRulers(e.target.checked)} className="w-4 h-4 accent-black" />
+                </div>
+              </div>
+              <button onClick={() => setShowPrefsModal(false)} className="w-full mt-5 py-1 border border-black hover:bg-black hover:text-white rounded text-xs font-bold transition-all">Apply Settings</button>
+            </motion.div>
+          </div>
+        )}
+
         {showSaveDialog && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-dark p-6 rounded-2xl w-full max-w-xs border border-white/10 shadow-2xl">
-              <h3 className="text-sm font-bold mb-4">Save Drawing</h3>
-              <input 
-                type="text" 
-                value={saveName} 
-                onChange={e => setSaveName(e.target.value)}
-                className="w-full glass-input mb-4 text-xs" 
-              />
-              <div className="flex gap-2">
-                <button onClick={() => setShowSaveDialog(false)} className="flex-1 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs">Cancel</button>
-                <button onClick={handleSave} className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white">Save</button>
+          <div className="absolute inset-0 z-[200] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              className="bg-[#ebebeb] p-5 rounded-lg w-full max-w-sm border-2 border-black shadow-[4px_4px_0px_#000000] text-black flex flex-col gap-3"
+            >
+              <div className="flex justify-between items-center border-b border-gray-400 pb-1.5">
+                <h3 className="text-xs font-bold uppercase tracking-wide flex items-center gap-1.5">
+                  💾 Save Vector File
+                </h3>
+                <span className="text-[10px] font-mono text-gray-500 bg-white/50 border border-gray-300 px-1 rounded">
+                  /Documents/Drawings
+                </span>
+              </div>
+
+              {/* List of existing files in the directory so user can overwrite or see names */}
+              <div className="space-y-1">
+                <p className="text-[10px] font-semibold text-gray-600">Existing files in folder:</p>
+                <div className="border border-gray-400 bg-white rounded p-1.5 max-h-24 overflow-y-auto space-y-1 font-mono text-xs">
+                  {remoteFiles.filter(f => f.name.endsWith('.gdraw')).length === 0 ? (
+                    <div className="text-[10px] text-gray-400 italic py-1 px-1">No other drawings yet</div>
+                  ) : (
+                    remoteFiles.filter(f => f.name.endsWith('.gdraw')).map(file => (
+                      <button 
+                        key={file.name}
+                        onClick={() => setSaveName(file.name)}
+                        className={cn(
+                          "w-full text-left px-1.5 py-0.5 rounded hover:bg-black hover:text-white transition-all flex justify-between items-center",
+                          saveName === file.name && "bg-black/10"
+                        )}
+                      >
+                        <span className="truncate">📐 {file.name}</span>
+                        <span className="text-[8px] opacity-50">{(file.size || 0)} B</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-1 mt-1">
+                <label className="text-[10px] font-semibold text-gray-600">Save as:</label>
+                <input 
+                  type="text" 
+                  value={saveName} 
+                  onChange={e => setSaveName(e.target.value)}
+                  placeholder="untitled.gdraw"
+                  className="w-full border border-black px-2 py-1.5 rounded text-xs outline-none font-mono bg-white" 
+                />
+              </div>
+
+              <div className="flex gap-2 mt-2">
+                <button 
+                  onClick={() => setShowSaveDialog(false)} 
+                  className="flex-1 py-1.5 rounded border border-gray-400 hover:bg-gray-200 text-xs font-bold transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleSave} 
+                  className="flex-1 py-1.5 rounded border border-black bg-black text-white text-xs font-bold hover:opacity-90 transition-all shadow-[1px_1px_0px_#000000]"
+                >
+                  Save File
+                </button>
               </div>
             </motion.div>
           </div>
         )}
+
         {showOpenDialog && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="glass-dark p-4 rounded-2xl w-full max-w-md border border-white/10 shadow-2xl flex flex-col h-[60%]">
-              <div className="flex justify-between items-center mb-4">
-                 <h3 className="text-sm font-bold">Open Drawing</h3>
-                 <button onClick={() => setShowOpenDialog(false)}><X size={16} /></button>
+          <div className="absolute inset-0 z-[200] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-[#ebebeb] p-4 rounded-lg w-full max-w-sm border-2 border-black shadow-[4px_4px_0px_#000000] text-black flex flex-col h-[60%]">
+              <div className="flex justify-between items-center mb-3 border-b border-gray-400 pb-1">
+                 <h3 className="text-sm font-bold uppercase">Open Drawing / Reference</h3>
+                 <button onClick={() => setShowOpenDialog(false)} className="font-bold border border-transparent hover:border-black rounded px-1 text-xs">✖</button>
               </div>
-              <div className="flex-1 overflow-y-auto space-y-2">
-                {remoteFiles.length === 0 && <div className="text-center text-white/20 text-xs p-8 italic">No drawings or paintings found</div>}
+              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+                {remoteFiles.length === 0 && <div className="text-center text-gray-400 text-xs py-8 italic">No drawings or paintings found in Documents</div>}
                 {remoteFiles.map(file => (
                   <button 
                     key={file.name} 
                     onClick={() => handleOpenFile(file)}
-                    className="w-full p-3 bg-white/5 hover:bg-white/10 rounded-lg flex items-center gap-3 text-left group"
+                    className="w-full p-2 bg-white hover:bg-black hover:text-white border border-gray-300 rounded flex items-center gap-2 text-left transition-all"
                   >
-                    {file.name.endsWith('.gdraw') ? <BoxIcon size={16} className="text-blue-400" /> : <Palette size={16} className="text-pink-400" />}
+                    <span className="text-lg">{file.name.endsWith('.gdraw') ? '📐' : '🎨'}</span>
                     <div className="flex-1 overflow-hidden">
                       <div className="text-xs font-bold truncate">{file.name}</div>
-                      <div className="text-[9px] text-white/40 uppercase font-bold tracking-tighter">
+                      <div className="text-[8px] opacity-70 uppercase font-semibold">
                         {file.name.endsWith('.gdraw') ? 'Vector Graphics' : 'Raster Image'}
                       </div>
                     </div>
@@ -8107,6 +9492,15 @@ function SystemMonitorApp(props: any) {
   const fsLib = useMemo(() => new FileSystemLib(fs, setFs), [fs, setFs]);
   const [hwInfo, setHwInfo] = useState<SystemInfo | null>(null);
 
+  useEffect(() => {
+    if (props.systemMonitorActiveTab) {
+      setActiveTab(props.systemMonitorActiveTab);
+      if (props.setSystemMonitorActiveTab) {
+        props.setSystemMonitorActiveTab(null);
+      }
+    }
+  }, [props.systemMonitorActiveTab, props.setSystemMonitorActiveTab]);
+
   // Firewall states
   const [firewallActive, setFirewallActive] = useState<boolean>(true);
   const [portFilters, setPortFilters] = useState<Record<number, { name: string; enabled: boolean; description: string }>>({
@@ -8659,6 +10053,10 @@ function SystemMonitorApp(props: any) {
               addNotification={addNotification}
               cpuUsage={cpuUsage}
               ramUsage={ramUsage}
+              protocolsSelectedFile={props.protocolsSelectedFile}
+              setProtocolsSelectedFile={props.setProtocolsSelectedFile}
+              protocolsCompressSelectedFile={props.protocolsCompressSelectedFile}
+              setProtocolsCompressSelectedFile={props.setProtocolsCompressSelectedFile}
             />
           )}
 

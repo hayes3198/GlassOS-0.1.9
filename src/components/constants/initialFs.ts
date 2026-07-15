@@ -9,6 +9,53 @@ export const DEFAULT_PERMISSIONS: Permissions = {
 export const INITIAL_FS: FileSystemItem[] = [
   { name: '.bashrc', type: 'file', content: 'alias ll="ls -l"\nalias la="ls -a"\nexport PATH=/sys/bin:$PATH', size: 68, dateModified: '2026-04-20T10:00:00Z', permissions: DEFAULT_PERMISSIONS },
   {
+    name: 'Documents',
+    type: 'folder',
+    category: 'local',
+    size: 0,
+    dateModified: '2026-07-15T08:00:00Z',
+    permissions: DEFAULT_PERMISSIONS,
+    children: [
+      {
+        name: 'Drawings',
+        type: 'folder',
+        permissions: DEFAULT_PERMISSIONS,
+        children: [
+          {
+            name: 'glass_logo.gdraw',
+            type: 'file',
+            content: '[{"id":"shape1","type":"roundrect","x":50,"y":50,"width":220,"height":150,"rx":12,"ry":12,"fill":"#3b82f6","stroke":"#ffffff","strokeWidth":3,"opacity":0.85,"pattern":"solid","rotate":0,"scaleX":1,"scaleY":1},{"id":"shape2","type":"circle","x":160,"y":100,"radius":35,"fill":"#f59e0b","stroke":"#ffffff","strokeWidth":2,"opacity":0.9,"pattern":"solid","rotate":0,"scaleX":1,"scaleY":1},{"id":"shape3","type":"line","x":60,"y":140,"x2":260,"y2":140,"fill":"#000000","stroke":"#ffffff","strokeWidth":2,"opacity":1,"pattern":"solid","rotate":0,"scaleX":1,"scaleY":1},{"id":"shape4","type":"text","x":70,"y":180,"text":"glassOS Vector","fontFamily":"Chicago","fontSize":16,"fontWeight":"bold","fontStyle":"normal","textDecoration":"none","fill":"#ffffff","opacity":1,"rotate":0,"scaleX":1,"scaleY":1}]',
+            size: 618,
+            dateCreated: '2026-07-15T08:00:00Z',
+            dateModified: '2026-07-15T08:00:00Z',
+            permissions: DEFAULT_PERMISSIONS
+          },
+          {
+            name: 'vintage_art.gdraw',
+            type: 'file',
+            content: '[{"id":"star1","type":"oval","x":80,"y":60,"rx":60,"ry":40,"fill":"#ef4444","stroke":"#000000","strokeWidth":2,"opacity":0.9,"pattern":"solid","rotate":0,"scaleX":1,"scaleY":1},{"id":"star2","type":"rect","x":120,"y":100,"width":100,"height":100,"fill":"#10b981","stroke":"#000000","strokeWidth":2,"opacity":0.8,"pattern":"solid","rotate":0,"scaleX":1,"scaleY":1},{"id":"star3","type":"text","x":95,"y":150,"text":"MacDraw 1984","fontFamily":"Chicago","fontSize":14,"fontWeight":"bold","fontStyle":"italic","textDecoration":"none","fill":"#000000","opacity":1,"rotate":0,"scaleX":1,"scaleY":1}]',
+            size: 485,
+            dateCreated: '2026-07-15T08:00:00Z',
+            dateModified: '2026-07-15T08:00:00Z',
+            permissions: DEFAULT_PERMISSIONS
+          }
+        ]
+      },
+      {
+        name: 'Paintings',
+        type: 'folder',
+        permissions: DEFAULT_PERMISSIONS,
+        children: []
+      },
+      {
+        name: 'Photos',
+        type: 'folder',
+        permissions: DEFAULT_PERMISSIONS,
+        children: []
+      }
+    ]
+  },
+  {
     name: 'sys',
     type: 'folder',
     category: 'local',
