@@ -30,6 +30,8 @@ import {
   Lock,
   Star,
   Shield,
+  FolderArchive,
+  FileArchive,
   Play, 
   Pause, 
   SkipBack, 
@@ -212,6 +214,7 @@ import { INITIAL_FS, DEFAULT_PERMISSIONS } from './components/constants/initialF
 import { FilePicker } from './components/FilePicker';
 import { GlassTCP } from './components/GlassTCP';
 import { GlassKernel } from './components/GlassKernel';
+import { ProtocolsDashboard } from './components/ProtocolsDashboard';
 import { Network } from 'lucide-react';
 import { nativeBridge, SystemInfo } from './lib/NativeBridge.lib';
 import { 
@@ -8100,7 +8103,8 @@ function SystemMonitorApp(props: any) {
     setNetworkNodes, setNetworkTraffic, openWindow
   } = props;
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'traffic' | 'glasstcp' | 'kernel' | 'security' | 'hardware'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'traffic' | 'glasstcp' | 'kernel' | 'security' | 'protocols' | 'hardware'>('overview');
+  const fsLib = useMemo(() => new FileSystemLib(fs, setFs), [fs, setFs]);
   const [hwInfo, setHwInfo] = useState<SystemInfo | null>(null);
 
   // Firewall states
@@ -8436,6 +8440,13 @@ function SystemMonitorApp(props: any) {
           <Shield size={22} />
         </button>
         <button 
+          onClick={() => setActiveTab('protocols')}
+          className={cn("p-3 rounded-2xl transition-all", activeTab === 'protocols' ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "text-white/40 hover:text-white hover:bg-white/5")}
+          title="Protocols & Compression"
+        >
+          <FolderArchive size={22} />
+        </button>
+        <button 
           onClick={() => setActiveTab('hardware')}
           className={cn("p-3 rounded-2xl transition-all", activeTab === 'hardware' ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "text-white/40 hover:text-white hover:bg-white/5")}
           title="Hardware"
@@ -8636,6 +8647,18 @@ function SystemMonitorApp(props: any) {
               addNotification={addNotification}
               kernelCalls={kernelCalls}
               setKernelCalls={setKernelCalls}
+              fsLib={fsLib}
+            />
+          )}
+
+          {activeTab === 'protocols' && (
+            <ProtocolsDashboard
+              fs={fs}
+              setFs={setFs}
+              fsLib={fsLib}
+              addNotification={addNotification}
+              cpuUsage={cpuUsage}
+              ramUsage={ramUsage}
             />
           )}
 

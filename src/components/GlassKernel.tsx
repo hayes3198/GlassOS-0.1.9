@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Cpu, Shield, Zap, Play, Pause, Terminal, Activity, X, Check, 
   AlertCircle, Sliders, RefreshCw, Eye, EyeOff, Lock, Unlock, Database, Layers, ArrowLeftRight,
-  HardDrive, Code2, Wrench, MousePointer
+  HardDrive, Code2, Wrench, MousePointer, ShieldAlert, ShieldCheck, Bug, Trash2, Scan, Search, AlertTriangle
 } from 'lucide-react';
 
 interface GlassKernelProps {
@@ -12,6 +12,7 @@ interface GlassKernelProps {
   addNotification: (app: string, message: string, type: 'success' | 'info' | 'warning' | 'error') => void;
   kernelCalls: any[];
   setKernelCalls: React.Dispatch<React.SetStateAction<any[]>>;
+  fsLib?: any;
 }
 
 interface Process {
@@ -44,12 +45,22 @@ interface Driver {
   transactionsCount: number;
 }
 
+interface VirusSignature {
+  name: string;
+  hash: string;
+  severity: 'critical' | 'high' | 'medium';
+  target: 'MMU' | 'IPC' | 'SADF' | 'FS';
+  description: string;
+  status: 'active' | 'quarantined' | 'neutralized' | 'not_detected';
+}
+
 export function GlassKernel({
   cpuUsage,
   ramUsage,
   addNotification,
   kernelCalls,
-  setKernelCalls
+  setKernelCalls,
+  fsLib
 }: GlassKernelProps) {
   // Silicon-Agnostic Driver Framework (SADF) States
   const [drivers, setDrivers] = useState<Driver[]>([
@@ -267,6 +278,177 @@ void hid_pointer_handler() {
     };
     setKernelCalls(prev => [newCall, ...prev].slice(0, 50));
   }, [setKernelCalls]);
+
+  // Antivirus Protection Protocol (AVPP) States & Functions
+  const [viruses, setViruses] = useState<VirusSignature[]>([
+    { name: 'StuxOS-X', hash: '0x8F3D11A290FF', severity: 'critical', target: 'SADF', description: 'Injects dummy instructions into hotplug compiled drivers to overflow IRQ vector table.', status: 'not_detected' },
+    { name: 'SADF-Overflower', hash: '0x2C4B7E9A102D', severity: 'high', target: 'SADF', description: 'Bypasses pointer sandboxing to rewrite driver base addresses in live kernel space.', status: 'not_detected' },
+    { name: 'HoloCrypt-Ransomware', hash: '0x7E1D88FF330A', severity: 'critical', target: 'MMU', description: 'Attempts to intercept Ring-0 secure enclaves and encrypt AuthService segment keys.', status: 'not_detected' },
+    { name: 'ZeroCopy-Snooper', hash: '0x5C921AA0E87F', severity: 'medium', target: 'IPC', description: 'Monitors the memory bus during zero-copy page flips to leak active transaction buffers.', status: 'not_detected' },
+    { name: 'IRQ-Flooder', hash: '0x9A3B5C7D2E1F', severity: 'high', target: 'IPC', description: 'Triggers hardware interrupts sequentially at high frequencies, crashing the central scheduler.', status: 'not_detected' }
+  ]);
+
+  const [avScanStatus, setAvScanStatus] = useState<'idle' | 'scanning' | 'clean' | 'threat_detected'>('idle');
+  const [scanProgress, setScanProgress] = useState<number>(0);
+  const [currentScanningItem, setCurrentScanningItem] = useState<string>('');
+  const [heuristicsEnabled, setHeuristicsEnabled] = useState<boolean>(true);
+  const [activeShieldActive, setActiveShieldActive] = useState<boolean>(true);
+
+  const scanTargets = [
+    '/sys/kernel/core_scheduler.bin',
+    '/sys/kernel/mmu_translator.bin',
+    '/sys/drivers/net0_controller.sadf',
+    '/sys/drivers/store0_storage.sadf',
+    '/sys/drivers/gpu0_holographic.sadf',
+    '/sys/enclave/holocrypt_keys.secure',
+    '/sys/bus/zerocopy_ipc_pipeline',
+    '/sys/bin/auth_service',
+    '/sys/ram/frame_table_0x03',
+    '/sys/ram/frame_table_0x14',
+    '/sys/devices/pointer_hid'
+  ];
+
+  const handleStartAvScan = () => {
+    if (avScanStatus === 'scanning') return;
+    setAvScanStatus('scanning');
+    setScanProgress(0);
+    addKernelLog('info', 'AVPP', 'Initiating full-system Ring-0 signature scan...');
+    
+    let index = 0;
+    const interval = setInterval(() => {
+      if (index < scanTargets.length) {
+        setCurrentScanningItem(scanTargets[index]);
+        setScanProgress(Math.floor(((index + 1) / scanTargets.length) * 100));
+        index++;
+      } else {
+        clearInterval(interval);
+        setCurrentScanningItem('');
+        setScanProgress(100);
+        
+        // Determine scan result
+        const activeThreats = viruses.filter(v => v.status === 'active');
+        if (activeThreats.length > 0) {
+          setAvScanStatus('threat_detected');
+          addKernelLog('error', 'AVPP', `SCAN COMPLETED: Found ${activeThreats.length} active kernel threats! Immediate action required.`);
+          addNotification('AVPP Core', `Detected ${activeThreats.length} severe kernel threats! Check AV dashboard.`, 'error');
+        } else {
+          setAvScanStatus('clean');
+          addKernelLog('success', 'AVPP', 'SCAN COMPLETED: System fully verified. 0 threats detected. Memory segments aligned.');
+          addNotification('AVPP Core', 'System integrity scan complete. 0 threats found.', 'success');
+        }
+
+        // Generate scan log in the logs folder
+        if (fsLib) {
+          try {
+            const logsPath = 'home/Administrator/logs';
+            if (!fsLib.exists(logsPath)) {
+              fsLib.mkdir(logsPath);
+            }
+            
+            const now = new Date();
+            const formattedDate = now.toLocaleString();
+            const fileSafeTimestamp = now.toISOString().replace(/[:.]/g, '-');
+            const filename = `scan_report_kernel_${fileSafeTimestamp}.log`;
+            const filePath = `${logsPath}/${filename}`;
+            
+            let logContent = `==================================================\n`;
+            logContent += `GLASSOS KERNEL INTEGRITY & AVPP SCAN REPORT (KERNEL TAB)\n`;
+            logContent += `==================================================\n`;
+            logContent += `Timestamp: ${formattedDate}\n`;
+            logContent += `Scan Status: ${activeThreats.length > 0 ? 'WARNING (Threats Found)' : 'NOMINAL (System Clean)'}\n`;
+            logContent += `Total Files Scanned: ${scanTargets.length}\n`;
+            logContent += `--------------------------------------------------\n`;
+            logContent += `SCAN TARGETS VERIFIED:\n`;
+            scanTargets.forEach(target => {
+              logContent += `  [OK] ${target}\n`;
+            });
+            logContent += `--------------------------------------------------\n`;
+            logContent += `THREAT DETECTION DETAILS:\n`;
+            
+            if (activeThreats.length === 0) {
+              logContent += `  No active virus signatures detected.\n`;
+              logContent += `  All Ring-0 driver enclaves fully validated and clean.\n`;
+            } else {
+              logContent += `  ⚠️ Detected ${activeThreats.length} severe active system threat(s):\n\n`;
+              activeThreats.forEach((threat, i) => {
+                logContent += `  [THREAT #${i+1}]\n`;
+                logContent += `    Name: ${threat.name}\n`;
+                logContent += `    Signature Hash: ${threat.hash}\n`;
+                logContent += `    Severity: ${threat.severity.toUpperCase()}\n`;
+                logContent += `    Target Layer: ${threat.target}\n`;
+                logContent += `    Description: ${threat.description}\n`;
+                logContent += `    Status: ${threat.status.toUpperCase()}\n\n`;
+              });
+            }
+            
+            logContent += `==================================================\n`;
+            logContent += `Log produced by GlassOS AVPP Security Daemon.\n`;
+            logContent += `==================================================\n`;
+            
+            fsLib.write(filePath, logContent);
+            addKernelLog('success', 'AVPP', `Scan report generated: ${filename} saved to ${logsPath}`);
+          } catch (e) {
+            console.error('Failed to write scan log in GlassKernel', e);
+          }
+        }
+      }
+    }, 250);
+  };
+
+  const handleSimulateInfection = (virusName: string) => {
+    // Check if Active Shield / Heuristics is active
+    if (activeShieldActive) {
+      addKernelLog('warning', 'AVPP', `ALERT: Intrusive signature [${virusName}] intercepted in real-time by Heuristics Active Shield.`);
+      addKernelLog('success', 'AVPP', `Shield successfully quarantined signature hash inside Ring-0 enclave buffer. Threat neutralized.`);
+      addNotification('Heuristics Active Shield', `Intercepted and quarantined ${virusName} intrusion!`, 'success');
+      
+      setViruses(prev => prev.map(v => v.name === virusName ? { ...v, status: 'quarantined' } : v));
+      return;
+    }
+    
+    // Otherwise, infect the system!
+    setViruses(prev => prev.map(v => v.name === virusName ? { ...v, status: 'active' } : v));
+    addKernelLog('error', 'KERNEL_BREACH', `CRITICAL: Known virus signature [${virusName}] has injected itself into live kernel space!`);
+    addNotification('Kernel Warning', `Kernel space infected with ${virusName}! Run system scan immediately.`, 'error');
+    
+    // Visually alter some states
+    if (virusName === 'HoloCrypt-Ransomware') {
+      setHoloCryptEnclaveActive(false);
+    } else if (virusName === 'SADF-Overflower') {
+      setStrictIsolation(false);
+    }
+  };
+
+  const handleNeutralizeThreat = (virusName: string) => {
+    setViruses(prev => prev.map(v => v.name === virusName ? { ...v, status: 'neutralized' } : v));
+    addKernelLog('success', 'AVPP', `Remediation successful: Purged signature payload for ${virusName}. Restoring segment hashes...`);
+    addNotification('AVPP Core', `Threat neutralized: ${virusName} has been purged.`, 'success');
+    
+    // Recover state
+    if (virusName === 'HoloCrypt-Ransomware') {
+      setHoloCryptEnclaveActive(true);
+    } else if (virusName === 'SADF-Overflower') {
+      setStrictIsolation(true);
+    }
+    
+    // Check if any active threats remain
+    setTimeout(() => {
+      setViruses(prev => {
+        const remaining = prev.filter(v => v.status === 'active');
+        if (remaining.length === 0) {
+          setAvScanStatus('idle');
+        }
+        return prev;
+      });
+    }, 100);
+  };
+
+  const handleResetAv = () => {
+    setViruses(prev => prev.map(v => ({ ...v, status: 'not_detected' })));
+    setAvScanStatus('idle');
+    setScanProgress(0);
+    addKernelLog('info', 'AVPP', 'Antivirus Protection Protocol database and scan state cleared.');
+  };
 
   // Synchronize driver agnostic code when selected driver changes
   useEffect(() => {
@@ -964,6 +1146,259 @@ void hid_pointer_handler() {
               >
                 {exploitStatus === 'running' ? 'Scanning memory address space...' : 'Trigger Memory Leak Exploit'}
               </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Antivirus Protection Protocol (AVPP) */}
+      <div className="bg-[#161b22] border border-white/5 rounded-3xl p-6 flex flex-col gap-6 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-48 h-48 bg-blue-500/2 rounded-full blur-3xl pointer-events-none" />
+        
+        {/* Section Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/5 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shadow-lg shadow-blue-500/5">
+              <ShieldAlert size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-white">Antivirus Protection Protocol (AVPP)</h3>
+                <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[8px] font-bold uppercase tracking-wider">
+                  SEC-LEVEL 4
+                </span>
+              </div>
+              <p className="text-xs text-white/40">Real-time heuristic signature scanning and memory quarantine isolation systems</p>
+            </div>
+          </div>
+
+          {/* AV Switches */}
+          <div className="flex items-center gap-4 flex-wrap text-xs">
+            <div className="flex items-center gap-2 bg-[#0d1117] px-3 py-1.5 rounded-xl border border-white/5">
+              <ShieldCheck size={14} className={activeShieldActive ? "text-emerald-400" : "text-white/20"} />
+              <span className="text-[11px] text-white/60 font-semibold">Active Shield:</span>
+              <button
+                onClick={() => {
+                  setActiveShieldActive(!activeShieldActive);
+                  addKernelLog(
+                    !activeShieldActive ? 'success' : 'warning',
+                    'AVPP',
+                    `Real-time signature monitoring active shield ${!activeShieldActive ? 'ENABLED' : 'DISABLED'}.`
+                  );
+                }}
+                className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase transition-all ${
+                  activeShieldActive 
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                    : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/10'
+                }`}
+              >
+                {activeShieldActive ? 'ON' : 'OFF'}
+              </button>
+            </div>
+
+            <button
+              onClick={handleResetAv}
+              className="text-white/30 hover:text-white/60 transition-colors text-[10px] font-bold uppercase flex items-center gap-1.5"
+            >
+              <RefreshCw size={10} /> Reset AV DB
+            </button>
+          </div>
+        </div>
+
+        {/* Outer Split Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Left Side: Scan Dashboard & Intrusion Simulator (5 cols) */}
+          <div className="lg:col-span-5 flex flex-col gap-6">
+            {/* Live Scanner Screen */}
+            <div className="bg-[#0d1117] p-5 rounded-2xl border border-white/5 flex flex-col gap-4 relative min-h-[170px] justify-between overflow-hidden">
+              <div className="absolute top-2 left-3 text-[9px] font-bold text-white/20 uppercase tracking-wider flex items-center gap-1.5">
+                <Scan size={10} className={avScanStatus === 'scanning' ? 'animate-pulse text-blue-400' : ''} />
+                Heuristic Scan Terminal
+              </div>
+
+              {/* Status Header */}
+              <div className="flex justify-between items-start mt-4">
+                <div className="flex flex-col">
+                  <span className="text-[10px] text-white/30 uppercase">System Integrity</span>
+                  <span className={`text-sm font-bold uppercase tracking-tight flex items-center gap-1.5 ${
+                    avScanStatus === 'scanning' ? 'text-blue-400 animate-pulse' :
+                    avScanStatus === 'threat_detected' ? 'text-rose-500' :
+                    avScanStatus === 'clean' ? 'text-emerald-400' :
+                    viruses.some(v => v.status === 'active') ? 'text-rose-500 animate-pulse' : 'text-white/60'
+                  }`}>
+                    {avScanStatus === 'scanning' && 'SCANNING KERNEL MEMORY...'}
+                    {avScanStatus === 'threat_detected' && '⚠️ THREATS FOUND!'}
+                    {avScanStatus === 'clean' && '✓ CORE NOMINAL'}
+                    {avScanStatus === 'idle' && (viruses.some(v => v.status === 'active') ? '⚠️ THREATS DETECTED' : 'AWAITING SCAN')}
+                  </span>
+                </div>
+                {avScanStatus === 'scanning' && (
+                  <span className="text-xs font-mono font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">
+                    {scanProgress}%
+                  </span>
+                )}
+              </div>
+
+              {/* Scan Info or Scan Progress */}
+              {avScanStatus === 'scanning' ? (
+                <div className="flex flex-col gap-2 my-2">
+                  <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                    <motion.div 
+                      className="h-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" 
+                      style={{ width: `${scanProgress}%` }}
+                    />
+                  </div>
+                  <span className="text-[9px] font-mono text-white/40 truncate">
+                    READ: {currentScanningItem}
+                  </span>
+                </div>
+              ) : avScanStatus === 'threat_detected' ? (
+                <div className="my-2 p-2.5 rounded-xl bg-rose-500/5 border border-rose-500/20 text-[11px] text-rose-400/90 leading-relaxed flex items-center gap-2">
+                  <AlertTriangle size={14} className="shrink-0 text-rose-400 animate-bounce" />
+                  <span>
+                    Signature matches found inside driver compiler allocations. Deploy purging vectors immediately.
+                  </span>
+                </div>
+              ) : avScanStatus === 'clean' ? (
+                <div className="my-2 p-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/20 text-[11px] text-emerald-400/90 leading-relaxed flex items-center gap-2">
+                  <ShieldCheck size={14} className="shrink-0 text-emerald-400" />
+                  <span>
+                    Core system files fully verified against hash registry. All pages aligned cleanly.
+                  </span>
+                </div>
+              ) : (
+                <div className="text-white/30 text-[10px] italic leading-normal">
+                  Press the execution button below to run a high-priority, zero-copy, hash-matching signature scan across all Ring-0 buffers.
+                </div>
+              )}
+
+              {/* Scan Controls */}
+              <button
+                onClick={handleStartAvScan}
+                disabled={avScanStatus === 'scanning'}
+                className={`w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                  avScanStatus === 'scanning'
+                    ? 'bg-blue-500/10 text-blue-400/40 border border-blue-500/10 cursor-wait'
+                    : 'bg-blue-500 text-white hover:bg-blue-600 hover:scale-[1.01] shadow-lg shadow-blue-500/10'
+                }`}
+              >
+                <Search size={14} />
+                {avScanStatus === 'scanning' ? 'Scanning Signature Hashes...' : 'Start Deep System Scan'}
+              </button>
+            </div>
+
+            {/* Intrusion Simulator Panel */}
+            <div className="bg-[#0d1117] p-5 rounded-2xl border border-white/5 flex flex-col gap-3">
+              <span className="text-[10px] text-white/30 uppercase font-bold tracking-wider flex items-center gap-1">
+                <Bug size={11} className="text-rose-400" />
+                Vulnerability Intrusion Simulator
+              </span>
+              <p className="text-[11px] text-white/50 leading-relaxed">
+                Inject signature payloads into live RAM to verify the AV scan, heuristic protection traps, and quarantine protocols.
+              </p>
+
+              {/* Virus Injection Select List */}
+              <div className="flex flex-col gap-2 mt-1">
+                {viruses.filter(v => v.status === 'not_detected').length === 0 ? (
+                  <div className="text-center text-[10px] text-white/30 py-2">
+                    All signatures are currently active, quarantined, or neutralized.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    {viruses.map(virus => {
+                      if (virus.status !== 'not_detected') return null;
+                      return (
+                        <button
+                          key={virus.name}
+                          onClick={() => handleSimulateInfection(virus.name)}
+                          disabled={avScanStatus === 'scanning'}
+                          className="py-1.5 px-2.5 rounded-xl bg-rose-500/5 hover:bg-rose-500/10 border border-rose-500/10 hover:border-rose-500/30 text-rose-400 text-[10px] font-bold text-left transition-all truncate"
+                          title={`Infect with ${virus.name}`}
+                        >
+                          + {virus.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right Side: Active Virus Database & Quarantines (7 cols) */}
+          <div className="lg:col-span-7 flex flex-col gap-4">
+            <span className="text-[10px] text-white/30 uppercase font-bold tracking-wider">Known Virus Signatures Registry</span>
+            
+            <div className="flex flex-col gap-2 max-h-[360px] overflow-y-auto no-scrollbar pr-1">
+              {viruses.map(virus => {
+                let statusColor = 'bg-white/5 text-white/40 border border-white/5';
+                let statusLabel = 'Nominal';
+                
+                if (virus.status === 'active') {
+                  statusColor = 'bg-rose-500/10 text-rose-400 border border-rose-500/30 animate-pulse font-extrabold';
+                  statusLabel = 'INFECTED';
+                } else if (virus.status === 'quarantined') {
+                  statusColor = 'bg-amber-500/10 text-amber-400 border border-amber-500/30 font-bold';
+                  statusLabel = 'QUARANTINED';
+                } else if (virus.status === 'neutralized') {
+                  statusColor = 'bg-blue-500/10 text-blue-400 border border-blue-500/30 font-bold';
+                  statusLabel = 'NEUTRALIZED';
+                }
+
+                return (
+                  <div 
+                    key={virus.name} 
+                    className={`p-3.5 rounded-2xl border bg-[#0d1117]/60 flex flex-col gap-2.5 transition-all ${
+                      virus.status === 'active' 
+                        ? 'border-rose-500/30 shadow-[0_0_12px_rgba(244,63,94,0.1)] bg-rose-950/5' 
+                        : 'border-white/5 hover:border-white/10'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${
+                          virus.status === 'active' ? 'bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.8)]' :
+                          virus.status === 'quarantined' ? 'bg-amber-400' :
+                          virus.status === 'neutralized' ? 'bg-blue-400' : 'bg-white/10'
+                        }`} />
+                        <div className="flex flex-col">
+                          <span className="text-xs font-bold text-white/90">{virus.name}</span>
+                          <span className="text-[9px] text-white/30 font-mono">SIGNATURE: {virus.hash} • Target: {virus.target}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase tracking-wider ${
+                          virus.severity === 'critical' ? 'bg-red-500/15 text-red-400 border border-red-500/20' :
+                          virus.severity === 'high' ? 'bg-orange-500/15 text-orange-400 border border-orange-500/20' :
+                          'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                        }`}>
+                          {virus.severity}
+                        </span>
+
+                        <span className={`px-1.5 py-0.5 rounded text-[8px] tracking-wider uppercase ${statusColor}`}>
+                          {statusLabel}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start justify-between gap-4 border-t border-white/2 pt-2 text-[11px] text-white/50 leading-relaxed">
+                      <span className="flex-1">{virus.description}</span>
+                      
+                      {/* Action buttons based on status */}
+                      {(virus.status === 'active' || virus.status === 'quarantined') && (
+                        <button
+                          onClick={() => handleNeutralizeThreat(virus.name)}
+                          className="px-2.5 py-1 rounded-lg bg-blue-500 text-white hover:bg-blue-600 text-[10px] font-extrabold border border-blue-500/30 flex items-center gap-1 self-center shadow-lg shadow-blue-500/5 shrink-0 transition-all hover:scale-[1.02]"
+                        >
+                          <ShieldCheck size={11} />
+                          Neutralize
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
