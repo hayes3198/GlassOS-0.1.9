@@ -21,6 +21,7 @@ import {
   Wifi, 
   Battery, 
   Clock, 
+  Hourglass,
   User, 
   Mail,
   Database,
@@ -215,6 +216,9 @@ import { FilePicker } from './components/FilePicker';
 import { GlassTCP } from './components/GlassTCP';
 import { GlassKernel } from './components/GlassKernel';
 import { ProtocolsDashboard } from './components/ProtocolsDashboard';
+import ClockApp from './components/ClockApp';
+import TimerApp from './components/TimerApp';
+import CalculatorApp from './components/CalculatorApp';
 import { Network } from 'lucide-react';
 import { nativeBridge, SystemInfo } from './lib/NativeBridge.lib';
 import { 
@@ -396,6 +400,19 @@ export default function App() {
   ]);
   const [authorizedTokens, setAuthorizedTokens] = useState<OAuthToken[]>([]);
   const [kernelCalls, setKernelCalls] = useState<KernelCall[]>([]);
+
+  const logRealKernelCall = useCallback((service: string, method: string, status: 'success' | 'warning' | 'error' = 'success', latency?: number) => {
+    const newCall: KernelCall = {
+      id: Math.random().toString(36).substring(2, 11),
+      service,
+      method,
+      status,
+      timestamp: new Date().toLocaleTimeString(),
+      latency: latency || Math.floor(Math.random() * 8) + 1
+    };
+    setKernelCalls(prev => [newCall, ...prev].slice(0, 50));
+  }, []);
+
   const [networkTraffic, setNetworkTraffic] = useState<TrafficEvent[]>([]);
   const [networkStatus, setNetworkStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connected');
   const [connectedNetwork, setConnectedNetwork] = useState('GlassFiber_5G');
@@ -918,6 +935,8 @@ export default function App() {
     const existing = windows.find(w => w.id === id);
     const maxZ = Math.max(0, ...windows.map(w => w.zIndex));
 
+    logRealKernelCall('ProcessScheduler', `sys_spawn_process::${id}`, 'success');
+
     if (existing) {
       setWindows(prev => prev.map(w => w.id === id ? { ...w, isMinimized: false, zIndex: maxZ + 1 } : w));
       setActiveWindow(id);
@@ -955,6 +974,7 @@ export default function App() {
   const closeWindow = (id: AppId) => {
     const win = windows.find(w => w.id === id);
     setWindows(prev => prev.filter(w => w.id !== id));
+    logRealKernelCall('ProcessScheduler', `sys_kill_process::${id}`, 'success');
     if (activeWindow === id) setActiveWindow(null);
     if (win) addNotification('System', `Closed ${win.title}`, 'info');
   };
@@ -1222,6 +1242,9 @@ export default function App() {
               <DesktopIcon icon={<Palette className="text-pink-400" />} label="GlassPaint" onClick={() => openWindow('glasspaint', 'Glass Paint Raster')} />
               <DesktopIcon icon={<ImageIcon className="text-purple-400" />} label="GlassPhoto" onClick={() => openWindow('glassphoto', 'Glass Photo Editor')} />
               <DesktopIcon icon={<SettingsIcon />} label="Settings" onClick={() => openWindow('settings', 'Settings')} />
+              <DesktopIcon icon={<Clock className="text-emerald-400" />} label="Clock" onClick={() => openWindow('clock', 'Clock')} />
+              <DesktopIcon icon={<Hourglass className="text-blue-400" />} label="Timer" onClick={() => openWindow('timer', 'Timer')} />
+              <DesktopIcon icon={<Plus className="text-purple-400" />} label="Calculator" onClick={() => openWindow('calculator', 'Calculator')} />
             </div>
 
             {/* Windows */}
@@ -1426,6 +1449,9 @@ export default function App() {
                           { id: 'glasspaint', label: 'GlassPaint', color: 'bg-pink-500/20 text-pink-400' },
                           { id: 'glassphoto', label: 'GlassPhoto', color: 'bg-purple-500/20 text-purple-400' },
                           { id: 'clipboard', label: 'Clipboard', color: 'bg-indigo-500/20 text-indigo-400' },
+                          { id: 'clock', label: 'Clock', color: 'bg-emerald-500/20 text-emerald-400' },
+                          { id: 'timer', label: 'Timer', color: 'bg-blue-500/20 text-blue-400' },
+                          { id: 'calculator', label: 'Calculator', color: 'bg-purple-500/20 text-purple-400' },
                         ].map(app => (
                           <button 
                             key={app.id}
@@ -2566,6 +2592,9 @@ function getAppIcon(id: AppId, size: number, color?: string) {
     case 'glassdraw': return <BoxIcon size={size} className="text-orange-400" />;
     case 'glasspaint': return <Palette size={size} className="text-pink-400" />;
     case 'glassphoto': return <ImageIcon size={size} className="text-purple-400" />;
+    case 'clock': return <Clock size={size} className="text-emerald-400" />;
+    case 'timer': return <Hourglass size={size} className="text-blue-400" />;
+    case 'calculator': return <Plus size={size} className="text-purple-400" />;
     default: return <Box size={size} />;
   }
 }
@@ -9262,6 +9291,9 @@ function renderApp(id: AppId, props: any) {
     case 'glassdraw': return <GlassDrawApp {...props} selectedFile={props.glassDrawSelectedFile} />;
     case 'glasspaint': return <GlassPaintApp {...props} />;
     case 'glassphoto': return <GlassPhotoApp {...props} />;
+    case 'clock': return <ClockApp {...props} />;
+    case 'timer': return <TimerApp {...props} />;
+    case 'calculator': return <CalculatorApp {...props} />;
     default: return <div className="p-4">App not found</div>;
   }
 }
@@ -9485,7 +9517,8 @@ function SystemMonitorApp(props: any) {
     cpuUsage, ramUsage, kernelCalls, setKernelCalls, networkTraffic, 
     networkNodes, authorizedTokens, networkConfig,
     socket, fs, setFs, addNotification, currentUser,
-    setNetworkNodes, setNetworkTraffic, openWindow
+    setNetworkNodes, setNetworkTraffic, openWindow,
+    windows, closeWindow
   } = props;
 
   const [activeTab, setActiveTab] = useState<'overview' | 'traffic' | 'glasstcp' | 'kernel' | 'security' | 'protocols' | 'hardware'>('overview');
@@ -10042,6 +10075,8 @@ function SystemMonitorApp(props: any) {
               kernelCalls={kernelCalls}
               setKernelCalls={setKernelCalls}
               fsLib={fsLib}
+              windows={windows}
+              closeWindow={closeWindow}
             />
           )}
 
@@ -10692,7 +10727,8 @@ function TerminalApp({
   setGlassWordContent, setActiveFileInGlassWord,
   setSheetData, setActiveFileInSheets,
   networkNodes, setNetworkNodes, runGlassScript,
-  windows, setWindows, tasks, setTasks, closeWindow
+  windows, setWindows, tasks, setTasks, closeWindow,
+  runBrainscript
 }: any) {
   interface TerminalSession {
     id: string;
@@ -11371,8 +11407,17 @@ function TerminalApp({
 
             updateActiveSession({ history: [...newHistory, `Executing ${pkgName}...`] });
             addNotification('Packet Manager', `Running ${pkgName}`, 'info');
-            runGlassScript(scriptContent);
-            updateActiveSession({ history: [...activeSession.history, `[${pkgName}] Execution finished.`] });
+
+            if (scriptContent.includes('Brainscript') || scriptContent.includes('REM') || scriptContent.includes('@@') || scriptContent.includes('Start')) {
+              runBrainscript(scriptContent, (msg: string) => {
+                setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, history: [...s.history, `[${pkgName}] ${msg}`] } : s));
+              }).then(() => {
+                setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, history: [...s.history, `[${pkgName}] Execution finished.`] } : s));
+              });
+            } else {
+              runGlassScript(scriptContent);
+              updateActiveSession({ history: [...activeSession.history, `[${pkgName}] Execution finished.`] });
+            }
             break;
           }
           default:
@@ -20758,7 +20803,7 @@ function CodeStudioApp({
   const [targetArch, setTargetArch] = useState('x64 (64-bit Windows/Linux)');
   const [optimizationLevel, setOptimizationLevel] = useState('O2 (Balanced)');
   const [isCompiling, setIsCompiling] = useState(false);
-  const [activeDialog, setActiveDialog] = useState<'new' | 'open' | 'send' | 'about' | null>(null);
+  const [activeDialog, setActiveDialog] = useState<'new' | 'open' | 'saveAs' | 'send' | 'about' | 'pkgRules' | null>(null);
   const [currentTheme, setCurrentTheme] = useState<keyof typeof THEMES>('glass');
   const [syntaxErrors, setSyntaxErrors] = useState<{line: number, message: string}[]>([]);
   const [bitConflicts, setBitConflicts] = useState<{line: number, message: string, severity: 'warning'}[]>([]);
@@ -21229,6 +21274,99 @@ function CodeStudioApp({
     }, 2000);
   };
 
+  const handleBuildPkg = () => {
+    // Check if the current code has meta tags
+    const hasMetaStart = code.includes('#PACKET_METADATA_START');
+    const hasMetaEnd = code.includes('#PACKET_METADATA_END');
+    const isBrainscript = activeFile.endsWith('.b');
+
+    // Default package template logic
+    let metadataComment = '';
+    const commentPrefix = isBrainscript ? 'REM ' : '-- ';
+    const baseName = activeFile.replace(/\.[a-zA-Z0-9]+$/, '');
+    const pkgName = `${baseName}.pkg`;
+
+    if (!hasMetaStart || !hasMetaEnd) {
+      metadataComment = 
+        `${commentPrefix}#PACKET_METADATA_START\n` +
+        `${commentPrefix}#PACKET_ID: app.${baseName.toLowerCase()}\n` +
+        `${commentPrefix}#PACKET_NAME: ${baseName}\n` +
+        `${commentPrefix}#PACKET_VERSION: 1.0.0\n` +
+        `${commentPrefix}#PACKET_AUTHOR: Administrator\n` +
+        `${commentPrefix}#PACKET_DESCRIPTION: Compiled GlassOS package.\n` +
+        `${commentPrefix}#PACKET_LANGUAGE: ${isBrainscript ? 'Brainscript' : 'GlassScript'}\n` +
+        `${commentPrefix}#PACKET_METADATA_END\n\n`;
+    }
+
+    setIsCompiling(true);
+    const startLogs = [
+      `[${new Date().toLocaleTimeString()}] Parsing package structure...`,
+      `[${new Date().toLocaleTimeString()}] Checking packet rules & meta tags...`,
+      !hasMetaStart ? `[${new Date().toLocaleTimeString()}] Notice: No package metadata found. Generating default meta tags.` : `[${new Date().toLocaleTimeString()}] Package metadata verified successfully.`,
+      `[${new Date().toLocaleTimeString()}] Packaging script to ${pkgName}...`,
+      `[${new Date().toLocaleTimeString()}] Compiling to /sys/pkgs ready binary...`
+    ];
+    
+    setOutputLogs(prev => [...prev, ...startLogs]);
+    setIsOutputVisible(true);
+
+    setTimeout(() => {
+      // Build the final pkg content (prepend default metadata if missing)
+      const finalPkgContent = metadataComment + code;
+
+      // Write to CodeStudio build folder
+      const buildPkgPath = `${projectsPath}/build/${pkgName}`;
+      // Also write directly to /home/Administrator/Scripts so terminal's `pkg list` and `pkg install` can see it immediately!
+      const scriptsPkgPath = `/home/Administrator/Scripts/${pkgName}`;
+
+      try {
+        if (!fsLib.exists(`${projectsPath}/build`)) {
+          fsLib.mkdir(`${projectsPath}/build`);
+        }
+        // Write to project's build dir
+        fsLib.write(buildPkgPath, finalPkgContent);
+        
+        // Ensure scripts dir exists and write there
+        if (!fsLib.exists('/home/Administrator/Scripts')) {
+          fsLib.mkdir('/home/Administrator/Scripts');
+        }
+        fsLib.write(scriptsPkgPath, finalPkgContent);
+
+        // Add a new build record for visualization
+        const newBuild: BrainscriptBuild = {
+          id: Math.random().toString(36).substr(2, 9),
+          status: 'success',
+          opt: optimizationLevel,
+          name: pkgName,
+          arch: 'universal (GlassOS Packet)',
+          timestamp: new Date().toLocaleTimeString(),
+          size: (finalPkgContent.length / 1024 + 2).toFixed(1) + ' KB',
+          type: '32-bit'
+        };
+        setBuilds((prev: BrainscriptBuild[]) => [newBuild, ...prev]);
+
+        addNotification('Packet Manager', `Built packet: ${pkgName}. Available in Terminal scripts!`, 'success');
+        setOutputLogs(prev => [
+          ...prev, 
+          `[${new Date().toLocaleTimeString()}] Package metadata written:`,
+          `  - PACKET_ID: app.${baseName.toLowerCase()}`,
+          `  - PACKET_NAME: ${baseName}`,
+          `  - LANGUAGE: ${isBrainscript ? 'Brainscript' : 'GlassScript'}`,
+          `[${new Date().toLocaleTimeString()}] Output successfully written to:`,
+          `  - ${buildPkgPath}`,
+          `  - ${scriptsPkgPath}`,
+          `[${new Date().toLocaleTimeString()}] Compilation SUCCESS. Ready to install with: pkg install ${pkgName}`
+        ]);
+      } catch (err: any) {
+        const errMsg = err.message || String(err);
+        setOutputLogs(prev => [...prev, `[FATAL] Compilation failed: ${errMsg}`]);
+        addNotification('Packet Manager', `Build failed: ${errMsg}`, 'error');
+      } finally {
+        setIsCompiling(false);
+      }
+    }, 2000);
+  };
+
   return (
     <div className="h-full flex flex-col font-sans" onClick={() => setActiveMenu(null)}>
       {/* Toolbar */}
@@ -21277,6 +21415,15 @@ function CodeStudioApp({
                       <span className="text-[9px] text-white/20 group-hover:text-white/40">Ctrl+S</span>
                     </button>
                     <button 
+                      onClick={() => { setActiveDialog('saveAs'); setActiveMenu(null); }}
+                      className="w-full text-left px-4 py-2 hover:bg-white/10 flex items-center justify-between group"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Save size={14} className="text-violet-400" />
+                        <span>Save File As .pkg / Any...</span>
+                      </div>
+                    </button>
+                    <button 
                       onClick={() => { alert('Printing...'); setActiveMenu(null); }}
                       className="w-full text-left px-4 py-2 hover:bg-white/10 flex items-center gap-2"
                     >
@@ -21290,6 +21437,13 @@ function CodeStudioApp({
                     >
                       <Send size={14} />
                       <span>Send To...</span>
+                    </button>
+                    <button 
+                      onClick={() => { setActiveDialog('pkgRules'); setActiveMenu(null); }}
+                      className="w-full text-left px-4 py-2 hover:bg-white/10 flex items-center gap-2 text-violet-400"
+                    >
+                      <Info size={14} />
+                      <span>Package Rules & Meta Tags</span>
                     </button>
                     <button 
                       onClick={() => { setActiveDialog('about'); setActiveMenu(null); }}
@@ -21422,6 +21576,13 @@ function CodeStudioApp({
                     >
                       <Package size={14} />
                       <span>Compile Project</span>
+                    </button>
+                    <button 
+                      onClick={() => { handleBuildPkg(); setActiveMenu(null); }}
+                      className="w-full text-left px-4 py-2 hover:bg-violet-500/20 text-violet-400 flex items-center gap-2 font-bold"
+                    >
+                      <Box size={14} />
+                      <span>Build Package (.pkg)</span>
                     </button>
                     <div className="h-[1px] bg-white/10 my-1" />
                     
@@ -22012,12 +22173,32 @@ function CodeStudioApp({
             fsLib={fsLib}
             mode="save"
             initialFileName="untitled.b"
-            allowedExtensions={['b', 'scr', 'json', 'txt']}
+            allowedExtensions={['b', 'scr', 'json', 'txt', 'pkg']}
             accentColor={accentColor}
             onCancel={() => setActiveDialog(null)}
             onSelect={(path) => {
               try {
-                fsLib.write(path, `\nREM New ${path.split('.').pop()} file created\nStart\n  TIMESTAMP\nEnd`);
+                const ext = path.split('.').pop() || '';
+                let initialContent = '';
+                if (ext === 'pkg') {
+                  initialContent = 
+                    `-- #PACKET_METADATA_START\n` +
+                    `-- #PACKET_ID: app.custom_app\n` +
+                    `-- #PACKET_NAME: Custom App\n` +
+                    `-- #PACKET_VERSION: 1.0.0\n` +
+                    `-- #PACKET_AUTHOR: Administrator\n` +
+                    `-- #PACKET_DESCRIPTION: A compiled GlassOS executable packet.\n` +
+                    `-- #PACKET_LANGUAGE: GlassScript\n` +
+                    `-- #PACKET_METADATA_END\n\n` +
+                    `tell app "Finder": start\n` +
+                    `  notify "Package application is running successfully!"\n` +
+                    `end\n`;
+                } else if (ext === 'b') {
+                  initialContent = `@@Main\nStart\n  PRINT 'Hello World'\nEnd`;
+                } else {
+                  initialContent = `\nREM New ${ext} file created\nStart\n  TIMESTAMP\nEnd`;
+                }
+                fsLib.write(path, initialContent);
                 const parts = path.split('/');
                 const fileName = parts.pop() || '';
                 setActiveFile(fileName);
@@ -22036,7 +22217,7 @@ function CodeStudioApp({
             fs={fs}
             fsLib={fsLib}
             mode="open"
-            allowedExtensions={['b', 'scr', 'json', 'txt']}
+            allowedExtensions={['b', 'scr', 'json', 'txt', 'pkg']}
             accentColor={accentColor}
             onCancel={() => setActiveDialog(null)}
             onSelect={(path, item) => {
@@ -22046,6 +22227,114 @@ function CodeStudioApp({
               addNotification('Code Studio', `Loaded ${item.name}`, 'info');
             }}
           />
+        )}
+
+        {activeDialog === 'saveAs' && (
+          <FilePicker 
+            title="Save Project File As"
+            fs={fs}
+            fsLib={fsLib}
+            mode="save"
+            initialFileName={activeFile}
+            allowedExtensions={['b', 'scr', 'json', 'txt', 'pkg']}
+            accentColor={accentColor}
+            onCancel={() => setActiveDialog(null)}
+            onSelect={(path) => {
+              try {
+                fsLib.write(path, code);
+                const parts = path.split('/');
+                const fileName = parts.pop() || '';
+                setActiveFile(fileName);
+                setActiveDialog(null);
+                setIsDirty(false);
+                addNotification('Code Studio', `Saved file as ${fileName}`, 'success');
+                setOutputLogs((prev: string[]) => [...prev, `[IDE] File saved as ${fileName} successfully.`]);
+              } catch (e) {
+                addNotification('Code Studio', 'Error saving file', 'error');
+              }
+            }}
+          />
+        )}
+
+        {activeDialog === 'pkgRules' && (
+          <div className="fixed inset-0 flex items-center justify-center z-[4000] bg-black/40 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-[500px] max-h-[85vh] overflow-y-auto glass-dark border border-white/20 rounded-2xl p-6 shadow-2xl text-left"
+            >
+              <div className="flex items-center justify-between mb-4 border-b border-white/10 pb-2">
+                <h3 className="text-lg font-bold flex items-center gap-2 text-violet-400">
+                  <Info size={18} />
+                  <span>Package Rules & Meta Tags</span>
+                </h3>
+                <button 
+                  onClick={() => setActiveDialog(null)}
+                  className="p-1 hover:bg-white/10 rounded-full transition-colors text-white/40 hover:text-white"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="space-y-4 text-xs leading-relaxed text-white/80">
+                <div>
+                  <h4 className="font-bold text-white mb-1 uppercase tracking-wider text-[10px] text-violet-300">Overview</h4>
+                  <p>
+                    GlassOS package files (<strong className="text-violet-400 font-mono">.pkg</strong>) are self-contained, distributable applications that can be registered, installed, and executed via the OS Terminal Packet Manager (<strong className="font-mono text-emerald-400">pkg</strong>).
+                  </p>
+                </div>
+
+                <div>
+                  <h4 className="font-bold text-white mb-1 uppercase tracking-wider text-[10px] text-violet-300">Rules for Packages</h4>
+                  <ul className="list-disc pl-4 space-y-1">
+                    <li>Packages must contain valid metadata blocks enclosed by <code className="font-mono bg-white/5 px-1 rounded text-pink-400">#PACKET_METADATA_START</code> and <code className="font-mono bg-white/5 px-1 rounded text-pink-400">#PACKET_METADATA_END</code>.</li>
+                    <li>Comments should be prefixed with <code className="font-mono bg-white/5 px-1">--</code> for GlassScript or <code className="font-mono bg-white/5 px-1">REM</code> for Brainscript.</li>
+                    <li>Packages must be placed in the scripts path (<code className="font-mono bg-white/5 px-1 text-blue-300">/home/Administrator/Scripts</code>) to be discovered by the manager.</li>
+                    <li>Install them using: <code className="font-mono bg-white/5 px-1.5 py-0.5 rounded text-yellow-300">pkg install [name].pkg</code></li>
+                    <li>Run installed packages using: <code className="font-mono bg-white/5 px-1.5 py-0.5 rounded text-emerald-300">pkg run [name].pkg</code></li>
+                  </ul>
+                </div>
+
+                <div>
+                  <h4 className="font-bold text-white mb-1 uppercase tracking-wider text-[10px] text-violet-300">Required Meta Tags</h4>
+                  <div className="bg-black/40 border border-white/10 rounded-lg p-3 font-mono text-[10px] space-y-1 text-white/90">
+                    <div><span className="text-indigo-400">#PACKET_ID</span>: A unique dot-separated identifier (e.g., <span className="text-amber-300">"app.text_editor"</span>).</div>
+                    <div><span className="text-indigo-400">#PACKET_NAME</span>: Human-readable title of the application.</div>
+                    <div><span className="text-indigo-400">#PACKET_VERSION</span>: Semantic version (e.g., <span className="text-amber-300">"1.0.0"</span>).</div>
+                    <div><span className="text-indigo-400">#PACKET_AUTHOR</span>: Developer/creator name or handle.</div>
+                    <div><span className="text-indigo-400">#PACKET_DESCRIPTION</span>: Description of what the package does.</div>
+                    <div><span className="text-indigo-400">#PACKET_LANGUAGE</span>: Target interpreter: <span className="text-emerald-400">"GlassScript"</span> or <span className="text-emerald-400">"Brainscript"</span>.</div>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-bold text-white mb-1 uppercase tracking-wider text-[10px] text-violet-300">Metadata Template</h4>
+                  <pre className="bg-black/60 border border-white/5 rounded-lg p-3 font-mono text-[10px] overflow-x-auto text-emerald-400 select-all">
+{`-- #PACKET_METADATA_START
+-- #PACKET_ID: app.hello_world
+-- #PACKET_NAME: Hello World
+-- #PACKET_VERSION: 1.0.0
+-- #PACKET_AUTHOR: Administrator
+-- #PACKET_DESCRIPTION: Prints hello to the user
+-- #PACKET_LANGUAGE: GlassScript
+-- #PACKET_METADATA_END
+
+tell app "Finder": start
+  notify "Hello from the custom package!"
+end`}
+                  </pre>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setActiveDialog(null)}
+                className="w-full mt-6 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-sm font-bold transition-all text-white shadow-lg shadow-violet-950/20"
+              >
+                Understood
+              </button>
+            </motion.div>
+          </div>
         )}
 
         {activeDialog === 'send' && (

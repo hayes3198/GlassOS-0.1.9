@@ -13,6 +13,8 @@ interface GlassKernelProps {
   kernelCalls: any[];
   setKernelCalls: React.Dispatch<React.SetStateAction<any[]>>;
   fsLib?: any;
+  windows?: any[];
+  closeWindow?: (id: any) => void;
 }
 
 interface Process {
@@ -831,8 +833,81 @@ export function GlassKernel({
   addNotification,
   kernelCalls,
   setKernelCalls,
-  fsLib
+  fsLib,
+  windows,
+  closeWindow
 }: GlassKernelProps) {
+  const getPidFromAppId = (id: string): number => {
+    switch (id) {
+      case 'files': return 208;
+      case 'terminal': return 412;
+      case 'browser': return 515;
+      case 'notepad': return 451;
+      case 'codestudio': return 610;
+      case 'settings': return 820;
+      case 'systemmonitor': return 888;
+      case 'glassword': return 320;
+      case 'spreadsheet': return 330;
+      case 'glassmail': return 710;
+      case 'glassdatabase': return 720;
+      case 'glassmessaging': return 730;
+      case 'glasspaint': return 204;
+      case 'glassdraw': return 205;
+      case 'glassphoto': return 206;
+      case 'printers': return 210;
+      case 'calendar': return 220;
+      case 'taskscheduler': return 230;
+      default: return 900;
+    }
+  };
+
+  const getAppIdFromPid = (pid: number): string | null => {
+    switch (pid) {
+      case 208: return 'files';
+      case 412: return 'terminal';
+      case 515: return 'browser';
+      case 451: return 'notepad';
+      case 610: return 'codestudio';
+      case 820: return 'settings';
+      case 888: return 'systemmonitor';
+      case 320: return 'glassword';
+      case 330: return 'spreadsheet';
+      case 710: return 'glassmail';
+      case 720: return 'glassdatabase';
+      case 730: return 'glassmessaging';
+      case 204: return 'glasspaint';
+      case 205: return 'glassdraw';
+      case 206: return 'glassphoto';
+      case 210: return 'printers';
+      case 220: return 'calendar';
+      case 230: return 'taskscheduler';
+      default: return null;
+    }
+  };
+
+  const getAppColor = (id: string): string => {
+    switch (id) {
+      case 'terminal': return 'text-green-400 bg-green-500/10 border-green-500/20';
+      case 'files': return 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20';
+      case 'browser': return 'text-blue-400 bg-blue-500/10 border-blue-500/20';
+      case 'notepad': return 'text-slate-400 bg-slate-500/10 border-slate-500/20';
+      case 'settings': return 'text-amber-400 bg-amber-500/10 border-amber-500/20';
+      case 'glassword': return 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20';
+      case 'spreadsheet': return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+      default: return 'text-purple-400 bg-purple-500/10 border-purple-500/20';
+    }
+  };
+
+  const handleKillProcess = (proc: Process) => {
+    const windowAppId = getAppIdFromPid(proc.id);
+    if (windowAppId && closeWindow) {
+      closeWindow(windowAppId);
+      addNotification('Kernel', `Force terminated application window: ${proc.name}`, 'warning');
+    } else {
+      setProcesses(prev => prev.map(p => p.id === proc.id ? { ...p, status: 'terminated' } : p));
+      addNotification('Kernel', `Terminated process: ${proc.name}`, 'warning');
+    }
+  };
   // Silicon-Agnostic Driver Framework (SADF) States
   const [drivers, setDrivers] = useState<Driver[]>([
     {
@@ -1008,6 +1083,64 @@ void hid_pointer_handler() {
     ram[24] = 512; ram[25] = 512; // Untrusted
     return ram;
   });
+
+  // Dynamic window synchronizer
+  useEffect(() => {
+    if (!windows) return;
+    setProcesses(prev => {
+      const systemProcesses = prev.filter(p => p.type === 'system' || p.id === 512);
+      const userProcesses: Process[] = windows.map((w) => {
+        const pid = getPidFromAppId(w.id);
+        const existing = prev.find(p => p.id === pid);
+        if (existing) {
+          return {
+            ...existing,
+            name: w.title,
+            status: w.isMinimized ? 'blocked' : 'running'
+          };
+        }
+        const virtualPages = [
+          `0x0${pid.toString(16).toUpperCase()}0`,
+          `0x0${pid.toString(16).toUpperCase()}1`,
+          `0x0${pid.toString(16).toUpperCase()}2`
+        ];
+        const physicalPages = [
+          (pid % 12) + 12,
+          ((pid + 1) % 12) + 12,
+          ((pid + 2) % 12) + 12
+        ];
+        return {
+          id: pid,
+          name: w.title,
+          type: 'user',
+          color: getAppColor(w.id),
+          virtualPages,
+          physicalPages,
+          status: w.isMinimized ? 'blocked' : 'running'
+        };
+      });
+      return [...systemProcesses, ...userProcesses];
+    });
+  }, [windows]);
+
+  // RAM allocator sync
+  useEffect(() => {
+    setPhysicalRAM(prev => {
+      const ram = Array(32).fill(-1);
+      ram[0] = 0;
+      ram[1] = 0;
+      processes.forEach(proc => {
+        if (proc.status !== 'terminated') {
+          proc.physicalPages.forEach(pageIdx => {
+            if (pageIdx >= 0 && pageIdx < 32) {
+              ram[pageIdx] = proc.id;
+            }
+          });
+        }
+      });
+      return ram;
+    });
+  }, [processes]);
 
   const [kernelLogs, setKernelLogs] = useState<KernelLog[]>([
     { id: '1', timestamp: new Date().toLocaleTimeString(), type: 'info', source: 'BOOT', message: 'GlassOS kernel loading active protection layer...' },
@@ -2143,6 +2276,16 @@ void hid_pointer_handler() {
                     }`}>
                       {proc.status}
                     </div>
+
+                    {proc.type === 'user' && proc.status !== 'terminated' && (
+                      <button
+                        onClick={() => handleKillProcess(proc)}
+                        className="p-1.5 rounded-lg bg-rose-500/20 text-rose-400 hover:bg-rose-500 hover:text-white transition-all shadow-md shadow-rose-950/20"
+                        title="End Task"
+                      >
+                        <X size={10} />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
