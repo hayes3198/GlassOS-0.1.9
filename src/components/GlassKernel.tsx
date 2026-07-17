@@ -685,6 +685,146 @@ const SYSTEM_CALLS: VirtualSyscall[] = [
   }
 ];
 
+interface VirtualIRQ {
+  irq: number;
+  vector: number;
+  device: string;
+  desc: string;
+  isrMsg: string;
+  category: 'System' | 'Input' | 'Serial/Ports' | 'Storage/Media' | 'Network' | 'Reserved';
+}
+
+const SYSTEM_IRQS: VirtualIRQ[] = [
+  {
+    irq: 0,
+    vector: 32,
+    device: 'System Timer (PIT/HPET)',
+    desc: 'High frequency periodic scheduler quantum ticks',
+    isrMsg: 'ISR-0 (Timer Tick) updating scheduler quantum queues and process context arrays.',
+    category: 'System'
+  },
+  {
+    irq: 1,
+    vector: 33,
+    device: 'Keyboard PS/2',
+    desc: 'Fires asynchronously on physical key entry scans',
+    isrMsg: 'ISR-1 retrieved keydown scan code 0x1E (Key "A") from raw PS/2 serial register.',
+    category: 'Input'
+  },
+  {
+    irq: 2,
+    vector: 34,
+    device: 'Cascade/Slave PIC',
+    desc: 'Bypasses slave PIC interrupt signals to master PIC',
+    isrMsg: 'ISR-2 synchronized slave PIC cascade interrupt line with master controller.',
+    category: 'System'
+  },
+  {
+    irq: 3,
+    vector: 35,
+    device: 'COM2/Serial Port',
+    desc: 'Secondary serial communication interface line',
+    isrMsg: 'ISR-3 processed incoming byte segment on secondary serial COM2 register.',
+    category: 'Serial/Ports'
+  },
+  {
+    irq: 4,
+    vector: 36,
+    device: 'COM1/Serial Port',
+    desc: 'Primary serial communication interface line',
+    isrMsg: 'ISR-4 processed incoming byte segment on primary serial COM1 register.',
+    category: 'Serial/Ports'
+  },
+  {
+    irq: 5,
+    vector: 37,
+    device: 'LPT2/Parallel Port',
+    desc: 'Secondary parallel printer and legacy hardware line',
+    isrMsg: 'ISR-5 cleared parallel status flags on LPT2 legacy bus driver.',
+    category: 'Serial/Ports'
+  },
+  {
+    irq: 6,
+    vector: 38,
+    device: 'Floppy Disk',
+    desc: 'Fires when legacy magnetic disk controllers finish tracks',
+    isrMsg: 'ISR-6 read physical sector index from legacy floppy disk controller.',
+    category: 'Storage/Media'
+  },
+  {
+    irq: 7,
+    vector: 39,
+    device: 'LPT1/Parallel Port',
+    desc: 'Primary parallel printer communication line',
+    isrMsg: 'ISR-7 cleared parallel status flags on LPT1 primary printer bus.',
+    category: 'Serial/Ports'
+  },
+  {
+    irq: 8,
+    vector: 40,
+    device: 'CMOS Real-Time Clock',
+    desc: 'Fires periodic hardware real-time clock tick updates',
+    isrMsg: 'ISR-8 updated hardware real-time clock CMOS register: timestamp synchronized.',
+    category: 'System'
+  },
+  {
+    irq: 9,
+    vector: 41,
+    device: 'SADF Ethernet',
+    desc: 'Triggers on incoming packet segment frames over network',
+    isrMsg: 'ISR-41 (IRQ 9) loaded physical Ethernet frames into DMA shared memory boundaries.',
+    category: 'Network'
+  },
+  {
+    irq: 10,
+    vector: 42,
+    device: 'Reserved/Available',
+    desc: 'General purpose system interrupt vector',
+    isrMsg: 'ISR-10 invoked for custom user-registered secondary driver logic.',
+    category: 'Reserved'
+  },
+  {
+    irq: 11,
+    vector: 43,
+    device: 'Reserved/Available',
+    desc: 'General purpose system interrupt vector',
+    isrMsg: 'ISR-11 invoked for custom user-registered secondary driver logic.',
+    category: 'Reserved'
+  },
+  {
+    irq: 12,
+    vector: 44,
+    device: 'Mouse PS/2',
+    desc: 'Asserts serial mouse coordinates coordinate shifts',
+    isrMsg: 'ISR-12 parsed PS/2 mouse movement bytes (dx: +12, dy: -4, buttons: 0x00).',
+    category: 'Input'
+  },
+  {
+    irq: 13,
+    vector: 45,
+    device: 'Coprocessor (FPU)',
+    desc: 'Dispatched when floating point arithmetic unit triggers',
+    isrMsg: 'ISR-13 processed floating-point division precision flags under modern x87 FPU context.',
+    category: 'System'
+  },
+  {
+    irq: 14,
+    vector: 46,
+    device: 'SADF Storage (IDE/SATA)',
+    desc: 'Dispatched when disk partition block read operations finish',
+    isrMsg: 'ISR-14 completed disk read sector queue for /sys/kernel/core_scheduler.bin.',
+    category: 'Storage/Media'
+  },
+  {
+    irq: 15,
+    vector: 47,
+    device: 'Secondary IDE',
+    desc: 'Secondary storage medium communication channel',
+    isrMsg: 'ISR-15 finalized parallel secondary disk controller buffer writes.',
+    category: 'Storage/Media'
+  }
+];
+
 export function GlassKernel({
   cpuUsage,
   ramUsage,
@@ -956,6 +1096,8 @@ void hid_pointer_handler() {
   ]);
   const [syscallFilter, setSyscallFilter] = useState<string>('');
   const [syscallCategory, setSyscallCategory] = useState<string>('All');
+  const [irqFilter, setIrqFilter] = useState<string>('');
+  const [irqCategory, setIrqCategory] = useState<string>('All');
 
   const addSyscallLog = useCallback((type: 'info' | 'success' | 'error' | 'warning', msg: string) => {
     setSyscallLogs(prev => [
@@ -1168,35 +1310,13 @@ void hid_pointer_handler() {
   const handleTriggerHardwareIRQ = (irqNum: number) => {
     if (transitioningRing || kernelPanic) return;
 
+    const matchedIrq = SYSTEM_IRQS.find(item => item.irq === irqNum);
+    const deviceName = matchedIrq ? `${matchedIrq.device} (IRQ ${irqNum})` : `Generic Device (IRQ ${irqNum})`;
+    const isrMsg = matchedIrq ? matchedIrq.isrMsg : `ISR-${irqNum} processed generic hardware interrupt signal.`;
+
     setTransitioningRing(true);
     setRingTarget('kernel');
     setIdtActiveVector(32 + irqNum); // Hardware interrupts mapped at Vector 32+
-
-    let deviceName = '';
-    let isrMsg = '';
-    
-    switch (irqNum) {
-      case 0:
-        deviceName = 'System High-Precision HPET Timer (IRQ 0)';
-        isrMsg = 'ISR-0 (Timer Tick) updating scheduler quantum queues and process context arrays.';
-        break;
-      case 1:
-        deviceName = 'Keyboard Controller (IRQ 1)';
-        isrMsg = 'ISR-1 retrieved keydown scan code 0x1E (Key "A") from raw PS/2 serial register.';
-        break;
-      case 12:
-        deviceName = 'Mouse HID Controller (IRQ 12)';
-        isrMsg = 'ISR-12 parsed PS/2 mouse movement bytes (dx: +12, dy: -4, buttons: 0x00).';
-        break;
-      case 9:
-        deviceName = 'SADF Ethernet Controller (IRQ 9)';
-        isrMsg = 'ISR-9 loaded physical Ethernet frames into DMA shared memory boundaries.';
-        break;
-      case 14:
-        deviceName = 'SADF Storage Controller (IRQ 14)';
-        isrMsg = 'ISR-14 completed disk read sector queue for /sys/kernel/core_scheduler.bin.';
-        break;
-    }
 
     addSyscallLog('warning', `[APIC] Hardware Interrupt ${irqNum} raised! Routing via CPU local APIC line...`);
     addSyscallLog('info', `[CPU] Asynchronously pausing user thread. Swapping CPU registers.`);
@@ -2903,19 +3023,23 @@ void hid_pointer_handler() {
                   #PF 14
                 </div>
                 <div className={`p-1 text-center rounded border ${
-                  idtActiveVector === 32 ? 'bg-amber-500/30 border-amber-500 text-amber-300 font-bold' : 'bg-[#161b22] border-white/5 text-white/40'
+                  idtActiveVector === 32 ? 'bg-amber-500/30 border-amber-500 text-amber-300 font-bold animate-pulse' : 'bg-[#161b22] border-white/5 text-white/40'
                 }`} title="Vector 32: System Timer IRQ 0">
                   IRQ 00
                 </div>
                 <div className={`p-1 text-center rounded border ${
-                  idtActiveVector === 33 ? 'bg-amber-500/30 border-amber-500 text-amber-300 font-bold' : 'bg-[#161b22] border-white/5 text-white/40'
+                  idtActiveVector === 33 ? 'bg-amber-500/30 border-amber-500 text-amber-300 font-bold animate-pulse' : 'bg-[#161b22] border-white/5 text-white/40'
                 }`} title="Vector 33: Keyboard IRQ 1">
                   IRQ 01
                 </div>
-                <div className={`p-1 text-center rounded border ${
-                  idtActiveVector === 44 ? 'bg-amber-500/30 border-amber-500 text-amber-300 font-bold' : 'bg-[#161b22] border-white/5 text-white/40'
-                }`} title="Vector 44: Mouse IRQ 12">
-                  IRQ 12
+                <div className={`p-1 text-center rounded border truncate ${
+                  (idtActiveVector !== null && idtActiveVector >= 34 && idtActiveVector <= 47) 
+                    ? 'bg-amber-500/30 border-amber-500 text-amber-300 font-bold animate-pulse' 
+                    : 'bg-[#161b22] border-white/5 text-white/40'
+                }`} title={(idtActiveVector !== null && idtActiveVector >= 34 && idtActiveVector <= 47) ? `Vector ${idtActiveVector}: IRQ ${idtActiveVector - 32} active` : "Other IRQ Line (IRQ 2-15)"}>
+                  {(idtActiveVector !== null && idtActiveVector >= 34 && idtActiveVector <= 47) 
+                    ? `IRQ ${(idtActiveVector - 32).toString().padStart(2, '0')}` 
+                    : 'IRQ HW'}
                 </div>
                 <div className={`p-1 text-center rounded border ${
                   idtActiveVector === 128 ? 'bg-purple-500/30 border-purple-500 text-purple-300 font-bold' : 'bg-[#161b22] border-white/5 text-white/40'
@@ -3109,47 +3233,119 @@ void hid_pointer_handler() {
             )}
 
             {/* SUBTAB CONTENT: Hardware Interrupts */}
-            {activeCtrlTab === 'irq' && (
-              <div className="space-y-4 flex-1 flex flex-col justify-between">
-                <div className="space-y-2.5">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-white/80">
-                    <Zap size={12} className="text-amber-400" />
-                    <span>Assert Hardware Interrupt line</span>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    {[
-                      { name: 'IRQ 0 - System PIT Timer', val: 0, desc: 'High frequency periodic scheduler quantum ticks' },
-                      { name: 'IRQ 1 - Keyboard Controller', val: 1, desc: 'Fires asynchronously on physical key entry scans' },
-                      { name: 'IRQ 12 - Mouse HID Pointer', val: 12, desc: 'Asserts serial mouse coordinates coordinate shifts' },
-                      { name: 'IRQ 9 - SADF Network Controller', val: 9, desc: 'Triggers on incoming packet segment frames' },
-                      { name: 'IRQ 14 - SADF Storage NVMe', val: 14, desc: 'Dispatched when disk partition block read operations finish' }
-                    ].map(irq => (
-                      <button
-                        key={irq.val}
-                        onClick={() => setSelectedIrq(irq.val)}
-                        className={`p-2 rounded-xl text-left border text-[11px] font-mono transition-all flex flex-col ${
-                          selectedIrq === irq.val
-                            ? 'bg-amber-500/10 border-amber-500/40 text-white'
-                            : 'bg-black/30 border-white/5 text-white/60 hover:bg-black/50'
-                        }`}
-                      >
-                        <span className="font-bold">{irq.name}</span>
-                        <span className="text-[8.5px] opacity-60 font-sans mt-0.5 leading-none">{irq.desc}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
+            {/* SUBTAB CONTENT: Hardware Interrupts */}
+            {activeCtrlTab === 'irq' && (() => {
+              // Filter IRQs
+              const filteredIrqs = SYSTEM_IRQS.filter(item => {
+                const matchesCategory = irqCategory === 'All' || item.category === irqCategory;
+                const matchesFilter = item.device.toLowerCase().includes(irqFilter.toLowerCase()) || 
+                                      item.desc.toLowerCase().includes(irqFilter.toLowerCase()) ||
+                                      `irq ${item.irq}`.toLowerCase().includes(irqFilter.toLowerCase()) ||
+                                      `vector ${item.vector}`.toLowerCase().includes(irqFilter.toLowerCase());
+                return matchesCategory && matchesFilter;
+              });
 
-                <button
-                  onClick={() => handleTriggerHardwareIRQ(selectedIrq)}
-                  disabled={transitioningRing}
-                  className="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-lg shadow-amber-500/10 disabled:opacity-50"
-                >
-                  <Layers size={14} />
-                  Assert IRQ Interrupt
-                </button>
-              </div>
-            )}
+              const categories: ('All' | 'System' | 'Input' | 'Serial/Ports' | 'Storage/Media' | 'Network' | 'Reserved')[] = [
+                'All', 'System', 'Input', 'Serial/Ports', 'Storage/Media', 'Network', 'Reserved'
+              ];
+
+              return (
+                <div className="space-y-3 flex-1 flex flex-col justify-between overflow-hidden">
+                  <div className="space-y-2 flex-1 flex flex-col min-h-0">
+                    <div className="flex items-center justify-between text-xs font-bold text-white/80">
+                      <div className="flex items-center gap-1.5">
+                        <Zap size={12} className="text-amber-400" />
+                        <span>Assert Hardware Interrupt line</span>
+                      </div>
+                      <span className="text-[10px] text-amber-400 font-mono bg-amber-500/10 px-1.5 py-0.5 rounded-md">
+                        {filteredIrqs.length} / {SYSTEM_IRQS.length} IRQs
+                      </span>
+                    </div>
+
+                    {/* Category Filter Pills (Horizontal scrollable) */}
+                    <div className="flex gap-1 overflow-x-auto pb-1 select-none scrollbar-none">
+                      {categories.map(cat => (
+                        <button
+                          key={cat}
+                          onClick={() => setIrqCategory(cat)}
+                          className={`px-2.5 py-0.5 rounded-full text-[9px] font-medium whitespace-nowrap transition-all cursor-pointer ${
+                            irqCategory === cat
+                              ? 'bg-amber-600 text-white font-bold'
+                              : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Search Input */}
+                    <div className="relative">
+                      <Search size={11} className="absolute left-2.5 top-2.5 text-white/40" />
+                      <input
+                        type="text"
+                        placeholder="Search IRQ, device, vector, desc..."
+                        value={irqFilter}
+                        onChange={(e) => setIrqFilter(e.target.value)}
+                        className="w-full bg-black/40 border border-white/5 pl-7 pr-3 py-1.5 rounded-xl text-[10px] font-mono text-white placeholder-white/30 focus:outline-none focus:border-amber-500/40 transition-colors"
+                      />
+                      {irqFilter && (
+                        <button 
+                          onClick={() => setIrqFilter('')}
+                          className="absolute right-2 top-1.5 text-[9px] text-white/40 hover:text-white font-sans bg-white/5 px-1.5 py-0.5 rounded"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Scrollable list container */}
+                    <div className="flex-1 overflow-y-auto pr-1 space-y-1.5 max-h-[190px] min-h-[100px] scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                      {filteredIrqs.length > 0 ? (
+                        filteredIrqs.map(item => (
+                          <button
+                            key={item.irq}
+                            onClick={() => setSelectedIrq(item.irq)}
+                            className={`w-full p-2 rounded-xl text-left border text-[11px] font-mono transition-all flex flex-col cursor-pointer ${
+                              selectedIrq === item.irq
+                                ? 'bg-amber-500/10 border-amber-500/40 text-white'
+                                : 'bg-black/30 border-white/5 text-white/60 hover:bg-black/50'
+                            }`}
+                          >
+                            <div className="flex justify-between items-center w-full">
+                              <span className="font-bold text-amber-300">IRQ {item.irq}</span>
+                              <span className="text-[9px] text-white/40 bg-white/5 px-1 py-0.5 rounded font-mono">
+                                Vector {item.vector} (0x{item.vector.toString(16).toUpperCase()})
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-sans font-semibold text-white/95 mt-0.5">{item.device}</span>
+                            <span className="text-[9px] opacity-65 font-sans mt-0.5 leading-tight">{item.desc}</span>
+                            <span className="text-[8px] opacity-40 font-mono mt-1 text-amber-400">
+                              Category: {item.category}
+                            </span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="h-full flex flex-col items-center justify-center text-center p-4 border border-white/5 border-dashed rounded-xl bg-black/20">
+                          <Zap size={24} className="text-white/20 mb-2 animate-pulse" />
+                          <span className="text-[10px] text-white/40 font-medium">No hardware interrupts found</span>
+                          <span className="text-[8px] text-white/30 mt-0.5">Adjust filter keywords or category selection</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => handleTriggerHardwareIRQ(selectedIrq)}
+                    disabled={transitioningRing}
+                    className="w-full py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-lg shadow-amber-500/10 disabled:opacity-50 mt-1 cursor-pointer"
+                  >
+                    <Layers size={14} />
+                    Assert IRQ {selectedIrq} (Vector {32 + selectedIrq})
+                  </button>
+                </div>
+              );
+            })()}
 
           </div>
 
