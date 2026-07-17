@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Delete, HelpCircle, History, Sparkles, Ruler, Scale, Thermometer, ArrowUpDown, Copy } from 'lucide-react';
+import { Delete, HelpCircle, History, Sparkles } from 'lucide-react';
 
 interface CalculatorAppProps {
   addNotification?: (title: string, message: string, type: 'info' | 'success' | 'warning' | 'error') => void;
@@ -14,129 +14,7 @@ export default function CalculatorApp({ addNotification }: CalculatorAppProps) {
   const [history, setHistory] = useState<{ expr: string; res: string }[]>([]);
   const [showHistory, setShowHistory] = useState<boolean>(false);
   
-  const [activeMode, setActiveMode] = useState<'standard' | 'scientific' | 'converter'>('scientific');
-
-  // Unit Converter States
-  const [converterCategory, setConverterCategory] = useState<'length' | 'weight' | 'temperature'>('length');
-  const [converterInputValue, setConverterInputValue] = useState<string>('1');
-  const [converterFromUnit, setConverterFromUnit] = useState<string>('m');
-  const [converterToUnit, setConverterToUnit] = useState<string>('cm');
-
-  const CONVERSION_CATEGORIES = {
-    length: {
-      label: 'Length',
-      icon: Ruler,
-      units: {
-        mm: { label: 'Millimeters (mm)', factor: 0.001 },
-        cm: { label: 'Centimeters (cm)', factor: 0.01 },
-        m: { label: 'Meters (m)', factor: 1.0 },
-        km: { label: 'Kilometers (km)', factor: 1000.0 },
-        in: { label: 'Inches (in)', factor: 0.0254 },
-        ft: { label: 'Feet (ft)', factor: 0.3048 },
-        yd: { label: 'Yards (yd)', factor: 0.9144 },
-        mi: { label: 'Miles (mi)', factor: 1609.344 },
-      },
-    },
-    weight: {
-      label: 'Weight',
-      icon: Scale,
-      units: {
-        mg: { label: 'Milligrams (mg)', factor: 0.001 },
-        g: { label: 'Grams (g)', factor: 1.0 },
-        kg: { label: 'Kilograms (kg)', factor: 1000.0 },
-        oz: { label: 'Ounces (oz)', factor: 28.349523125 },
-        lb: { label: 'Pounds (lb)', factor: 453.59237 },
-      },
-    },
-    temperature: {
-      label: 'Temperature',
-      icon: Thermometer,
-      units: {
-        C: { label: 'Celsius (°C)' },
-        F: { label: 'Fahrenheit (°F)' },
-        K: { label: 'Kelvin (K)' },
-      },
-    },
-  };
-
-  const performConversion = (valStr: string, cat: 'length' | 'weight' | 'temperature', from: string, to: string): string => {
-    const val = parseFloat(valStr);
-    if (isNaN(val)) return '0';
-
-    if (from === to) return val.toString();
-
-    if (cat === 'temperature') {
-      let tempInC = val;
-      if (from === 'F') {
-        tempInC = (val - 32) * (5 / 9);
-      } else if (from === 'K') {
-        tempInC = val - 273.15;
-      }
-
-      let targetVal = tempInC;
-      if (to === 'F') {
-        targetVal = tempInC * (9 / 5) + 32;
-      } else if (to === 'K') {
-        targetVal = tempInC + 273.15;
-      }
-
-      return Number(targetVal.toFixed(6)).toString();
-    } else {
-      const catData = CONVERSION_CATEGORIES[cat];
-      const fromFactor = (catData.units as any)[from]?.factor || 1;
-      const toFactor = (catData.units as any)[to]?.factor || 1;
-
-      const valInBase = val * fromFactor;
-      const targetVal = valInBase / toFactor;
-
-      return Number(targetVal.toFixed(8)).toString();
-    }
-  };
-
-  const handleCategoryChange = (category: 'length' | 'weight' | 'temperature') => {
-    setConverterCategory(category);
-    if (category === 'length') {
-      setConverterFromUnit('m');
-      setConverterToUnit('cm');
-    } else if (category === 'weight') {
-      setConverterFromUnit('kg');
-      setConverterToUnit('g');
-    } else if (category === 'temperature') {
-      setConverterFromUnit('C');
-      setConverterToUnit('F');
-    }
-  };
-
-  const handleConverterKeyPress = (key: string) => {
-    if (key === 'AC') {
-      setConverterInputValue('0');
-    } else if (key === 'C') {
-      setConverterInputValue(prev => {
-        if (prev.length <= 1) return '0';
-        return prev.slice(0, -1);
-      });
-    } else if (key === '.') {
-      setConverterInputValue(prev => {
-        if (prev.includes('.')) return prev;
-        return prev + '.';
-      });
-    } else if (key === '±') {
-      setConverterInputValue(prev => {
-        if (prev.startsWith('-')) return prev.slice(1);
-        if (prev === '0') return prev;
-        return '-' + prev;
-      });
-    } else if (/^[0-9]$/.test(key)) {
-      setConverterInputValue(prev => {
-        if (prev === '0') return key;
-        return prev + key;
-      });
-    } else if (key === 'swap') {
-      const temp = converterFromUnit;
-      setConverterFromUnit(converterToUnit);
-      setConverterToUnit(temp);
-    }
-  };
+  const [activeMode, setActiveMode] = useState<'standard' | 'scientific'>('scientific');
 
   // Safe Tokenizer and Recursive Descent Parser
   const evaluate = (exprString: string): number => {
@@ -420,8 +298,7 @@ export default function CalculatorApp({ addNotification }: CalculatorAppProps) {
           <div className="flex bg-white/5 p-0.5 rounded-lg border border-white/10 gap-0.5">
             {([
               { id: 'standard', label: 'Standard' },
-              { id: 'scientific', label: 'Scientific' },
-              { id: 'converter', label: 'Converter' }
+              { id: 'scientific', label: 'Scientific' }
             ] as const).map(mode => (
               <button
                 key={mode.id}
@@ -443,277 +320,123 @@ export default function CalculatorApp({ addNotification }: CalculatorAppProps) {
       <div className="flex-1 flex overflow-hidden">
         {/* Calculator Keyboard & Screen */}
         <div className="flex-1 flex flex-col p-4 bg-slate-900/10 justify-between">
-          {activeMode === 'converter' ? (
-            /* Unit Converter Display Panel */
-            <div className="bg-black/40 border border-white/10 rounded-2xl p-4 flex flex-col gap-4 min-h-[150px] mb-4 shadow-inner">
-              {/* Category Selector Tabs */}
-              <div className="flex bg-white/5 p-1 rounded-xl border border-white/5 gap-1">
-                {(['length', 'weight', 'temperature'] as const).map(cat => {
-                  const CatData = CONVERSION_CATEGORIES[cat];
-                  const Icon = CatData.icon;
+          {/* Screen Display */}
+          <div className="bg-black/40 border border-white/10 rounded-2xl p-4 flex flex-col items-end justify-between min-h-[100px] mb-4 text-right shadow-inner">
+            {/* Top Display: Full Expression */}
+            <div className="text-slate-400 text-sm font-mono truncate w-full tracking-wide">
+              {expression || '\u00A0'}
+            </div>
+            
+            {/* Bottom Display: Calculation Result */}
+            <div className="text-3xl font-mono font-extrabold text-slate-100 truncate w-full tracking-widest tabular-nums filter drop-shadow-[0_0_8px_rgba(255,255,255,0.05)]">
+              {result}
+            </div>
+          </div>
+
+          {/* Quick Memory Keys */}
+          <div className="grid grid-cols-5 gap-1.5 mb-2">
+            {['MC', 'MR', 'M+', 'M-', 'MS'].map(mem => (
+              <button
+                key={mem}
+                onClick={() => handleMemory(mem)}
+                className="py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 text-[10px] font-bold tracking-wider text-slate-400 hover:text-slate-200 transition-all"
+              >
+                {mem}
+              </button>
+            ))}
+          </div>
+
+          {/* Keyboard Grid */}
+          <div className="flex-1 grid grid-cols-4 gap-1.5 min-h-[260px]">
+            {/* Scientific Section on Left or Grid Placement */}
+            {activeMode === 'scientific' && (
+              <div className="col-span-4 grid grid-cols-6 gap-1.5 pb-1.5 border-b border-white/10 mb-1.5">
+                {/* Angle toggle */}
+                <button
+                  onClick={() => setIsDegreeMode(!isDegreeMode)}
+                  className={`text-[10px] font-bold rounded-xl border transition-all ${
+                    isDegreeMode 
+                      ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' 
+                      : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                  }`}
+                >
+                  {isDegreeMode ? 'DEG' : 'RAD'}
+                </button>
+                {/* Functions */}
+                {['sin(', 'cos(', 'tan(', 'ln(', 'log(', 'sqrt('].map(fn => (
+                  <button
+                    key={fn}
+                    onClick={() => handleKeyPress(fn)}
+                    className="py-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs font-semibold text-purple-300 hover:bg-purple-500/20 transition-all"
+                  >
+                    {fn.replace('(', '')}
+                  </button>
+                ))}
+                {['asin(', 'acos(', 'atan(', 'abs(', 'π', 'e'].map(fn => (
+                  <button
+                    key={fn}
+                    onClick={() => handleKeyPress(fn)}
+                    className="py-2 rounded-xl bg-purple-950/20 border border-white/5 text-xs font-semibold text-purple-400 hover:bg-purple-500/10 transition-all"
+                  >
+                    {fn === 'abs(' ? 'abs' : fn.replace('(', '')}
+                  </button>
+                ))}
+                {/* Single key operations */}
+                {['x^2', 'x^3', '1/x', '10^x', 'e^x', 'factorial'].map(op => {
+                  let lbl = op;
+                  if (op === 'factorial') lbl = 'x!';
+                  if (op === '1/x') lbl = '1/x';
                   return (
                     <button
-                      key={cat}
-                      onClick={() => handleCategoryChange(cat)}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold tracking-wider uppercase transition-all ${
-                        converterCategory === cat
-                          ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30 shadow-md shadow-purple-950/20'
-                          : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'
-                      }`}
+                      key={op}
+                      onClick={() => handleScientificInstant(op)}
+                      className="py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs font-semibold text-indigo-300 hover:bg-indigo-500/20 transition-all"
                     >
-                      <Icon className="w-3.5 h-3.5" />
-                      {CatData.label}
+                      {lbl}
                     </button>
                   );
                 })}
               </div>
+            )}
 
-              {/* From & To inputs */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center relative">
-                {/* From Unit Card */}
-                <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 flex flex-col gap-1">
-                  <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">From</span>
-                  <div className="flex items-center justify-between gap-2">
-                    <input
-                      type="text"
-                      value={converterInputValue}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (/^-?[0-9.]*$/.test(val)) {
-                          setConverterInputValue(val);
-                        }
-                      }}
-                      className="bg-transparent text-xl font-mono font-bold text-slate-100 w-full outline-none"
-                      placeholder="0"
-                    />
-                    <select
-                      value={converterFromUnit}
-                      onChange={(e) => setConverterFromUnit(e.target.value)}
-                      className="bg-slate-900 border border-white/10 rounded-lg px-2 py-1 text-xs text-slate-300 font-mono focus:border-purple-500/50 outline-none"
-                    >
-                      {Object.entries(CONVERSION_CATEGORIES[converterCategory].units).map(([uKey, uVal]) => (
-                        <option key={uKey} value={uKey} className="bg-slate-950">
-                          {uKey} ({(uVal as any).label.split('(')[0]})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+            {/* Main keypad row-by-row */}
+            {/* Row 1 */}
+            <button onClick={() => handleKeyPress('(')} className="rounded-xl bg-slate-900 border border-white/5 hover:bg-slate-800 text-sm font-semibold text-slate-300 transition-all">(</button>
+            <button onClick={() => handleKeyPress(')')} className="rounded-xl bg-slate-900 border border-white/5 hover:bg-slate-800 text-sm font-semibold text-slate-300 transition-all">)</button>
+            <button onClick={() => handleKeyPress('%')} className="rounded-xl bg-slate-900 border border-white/5 hover:bg-slate-800 text-sm font-semibold text-slate-300 transition-all">%</button>
+            <button onClick={() => handleKeyPress('AC')} className="rounded-xl bg-rose-500/20 border border-rose-500/30 hover:bg-rose-500/30 text-sm font-bold text-rose-400 transition-all">AC</button>
 
-                {/* Swap Button (Absolute / Centered on Desktop) */}
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 hidden sm:block">
-                  <button
-                    onClick={() => handleConverterKeyPress('swap')}
-                    className="p-1.5 rounded-full bg-slate-900 hover:bg-slate-800 border border-white/10 text-purple-400 hover:text-purple-300 transition-all shadow-md"
-                    title="Swap Units"
-                  >
-                    <ArrowUpDown className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+            {/* Row 2 */}
+            <button onClick={() => handleKeyPress('7')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">7</button>
+            <button onClick={() => handleKeyPress('8')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">8</button>
+            <button onClick={() => handleKeyPress('9')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">9</button>
+            <button onClick={() => handleKeyPress('÷')} className="rounded-xl bg-amber-500/20 border border-amber-500/30 hover:bg-amber-500/30 text-base font-bold text-amber-400 transition-all">÷</button>
 
-                {/* Mobile Swap Button */}
-                <div className="sm:hidden flex justify-center -my-1.5">
-                  <button
-                    onClick={() => handleConverterKeyPress('swap')}
-                    className="p-1 rounded-full bg-slate-900 hover:bg-slate-800 border border-white/10 text-purple-400 hover:text-purple-300 transition-all shadow-sm"
-                  >
-                    <ArrowUpDown className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+            {/* Row 3 */}
+            <button onClick={() => handleKeyPress('4')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">4</button>
+            <button onClick={() => handleKeyPress('5')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">5</button>
+            <button onClick={() => handleKeyPress('6')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">6</button>
+            <button onClick={() => handleKeyPress('×')} className="rounded-xl bg-amber-500/20 border border-amber-500/30 hover:bg-amber-500/30 text-base font-bold text-amber-400 transition-all">×</button>
 
-                {/* To Unit Card */}
-                <div className="bg-purple-950/5 border border-purple-500/10 rounded-xl p-3 flex flex-col gap-1 relative group">
-                  <span className="text-[9px] text-purple-400/60 font-bold uppercase tracking-wider">To</span>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-xl font-mono font-bold text-purple-300 truncate w-full">
-                      {performConversion(converterInputValue, converterCategory, converterFromUnit, converterToUnit)}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => {
-                          const res = performConversion(converterInputValue, converterCategory, converterFromUnit, converterToUnit);
-                          navigator.clipboard.writeText(res);
-                          if (addNotification) addNotification('Unit Converter', 'Result copied to clipboard!', 'success');
-                        }}
-                        className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-                        title="Copy Result"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                      </button>
-                      <select
-                        value={converterToUnit}
-                        onChange={(e) => setConverterToUnit(e.target.value)}
-                        className="bg-slate-900 border border-white/10 rounded-lg px-2 py-1 text-xs text-slate-300 font-mono focus:border-purple-500/50 outline-none"
-                      >
-                        {Object.entries(CONVERSION_CATEGORIES[converterCategory].units).map(([uKey, uVal]) => (
-                          <option key={uKey} value={uKey} className="bg-slate-950">
-                            {uKey} ({(uVal as any).label.split('(')[0]})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            /* Screen Display */
-            <div className="bg-black/40 border border-white/10 rounded-2xl p-4 flex flex-col items-end justify-between min-h-[100px] mb-4 text-right shadow-inner">
-              {/* Top Display: Full Expression */}
-              <div className="text-slate-400 text-sm font-mono truncate w-full tracking-wide">
-                {expression || '\u00A0'}
-              </div>
-              
-              {/* Bottom Display: Calculation Result */}
-              <div className="text-3xl font-mono font-extrabold text-slate-100 truncate w-full tracking-widest tabular-nums filter drop-shadow-[0_0_8px_rgba(255,255,255,0.05)]">
-                {result}
-              </div>
-            </div>
-          )}
+            {/* Row 4 */}
+            <button onClick={() => handleKeyPress('1')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">1</button>
+            <button onClick={() => handleKeyPress('2')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">2</button>
+            <button onClick={() => handleKeyPress('3')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">3</button>
+            <button onClick={() => handleKeyPress('-')} className="rounded-xl bg-amber-500/20 border border-amber-500/30 hover:bg-amber-500/30 text-base font-bold text-amber-400 transition-all">-</button>
 
-          {/* Quick Memory Keys - Hide in Converter mode */}
-          {activeMode !== 'converter' && (
-            <div className="grid grid-cols-5 gap-1.5 mb-2">
-              {['MC', 'MR', 'M+', 'M-', 'MS'].map(mem => (
-                <button
-                  key={mem}
-                  onClick={() => handleMemory(mem)}
-                  className="py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 text-[10px] font-bold tracking-wider text-slate-400 hover:text-slate-200 transition-all"
-                >
-                  {mem}
-                </button>
-              ))}
-            </div>
-          )}
+            {/* Row 5 */}
+            <button onClick={() => handleKeyPress('0')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">0</button>
+            <button onClick={() => handleKeyPress('.')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">.</button>
+            <button onClick={() => handleKeyPress('C')} className="rounded-xl bg-slate-900 border border-white/5 hover:bg-slate-800 text-sm font-semibold text-slate-300 transition-all flex items-center justify-center">
+              <Delete className="w-4 h-4" />
+            </button>
+            <button onClick={() => handleKeyPress('+')} className="rounded-xl bg-amber-500/20 border border-amber-500/30 hover:bg-amber-500/30 text-base font-bold text-amber-400 transition-all">+</button>
 
-          {/* Keyboard Grid */}
-          {activeMode === 'converter' ? (
-            <div className="flex-1 grid grid-cols-4 gap-1.5 min-h-[260px]">
-              <button onClick={() => handleConverterKeyPress('7')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">7</button>
-              <button onClick={() => handleConverterKeyPress('8')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">8</button>
-              <button onClick={() => handleConverterKeyPress('9')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">9</button>
-              <button onClick={() => handleConverterKeyPress('C')} className="rounded-xl bg-slate-900 border border-white/5 hover:bg-slate-800 text-sm font-semibold text-slate-300 transition-all flex items-center justify-center">
-                <Delete className="w-4 h-4" />
-              </button>
-
-              <button onClick={() => handleConverterKeyPress('4')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">4</button>
-              <button onClick={() => handleConverterKeyPress('5')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">5</button>
-              <button onClick={() => handleConverterKeyPress('6')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">6</button>
-              <button onClick={() => handleConverterKeyPress('AC')} className="rounded-xl bg-rose-500/20 border border-rose-500/30 hover:bg-rose-500/30 text-sm font-bold text-rose-400 transition-all">AC</button>
-
-              <button onClick={() => handleConverterKeyPress('1')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">1</button>
-              <button onClick={() => handleConverterKeyPress('2')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">2</button>
-              <button onClick={() => handleConverterKeyPress('3')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">3</button>
-              <button onClick={() => handleConverterKeyPress('swap')} className="rounded-xl bg-amber-500/20 border border-amber-500/30 hover:bg-amber-500/30 text-xs font-bold text-amber-400 transition-all flex items-center justify-center gap-1">
-                <ArrowUpDown className="w-3.5 h-3.5" /> Swap
-              </button>
-
-              <button onClick={() => handleConverterKeyPress('±')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">±</button>
-              <button onClick={() => handleConverterKeyPress('0')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">0</button>
-              <button onClick={() => handleConverterKeyPress('.')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">.</button>
-              <button 
-                onClick={() => {
-                  const res = performConversion(converterInputValue, converterCategory, converterFromUnit, converterToUnit);
-                  navigator.clipboard.writeText(res);
-                  if (addNotification) addNotification('Unit Converter', 'Result copied!', 'success');
-                }} 
-                className="rounded-xl bg-emerald-500 hover:bg-emerald-600 text-xs font-bold text-slate-950 transition-all flex items-center justify-center gap-1 shadow-lg shadow-emerald-950/20"
-              >
-                <Copy className="w-3.5 h-3.5" /> Copy
-              </button>
-            </div>
-          ) : (
-            <div className="flex-1 grid grid-cols-4 gap-1.5 min-h-[260px]">
-              {/* Scientific Section on Left or Grid Placement */}
-              {activeMode === 'scientific' && (
-                <div className="col-span-4 grid grid-cols-6 gap-1.5 pb-1.5 border-b border-white/10 mb-1.5">
-                  {/* Angle toggle */}
-                  <button
-                    onClick={() => setIsDegreeMode(!isDegreeMode)}
-                    className={`text-[10px] font-bold rounded-xl border transition-all ${
-                      isDegreeMode 
-                        ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' 
-                        : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                    }`}
-                  >
-                    {isDegreeMode ? 'DEG' : 'RAD'}
-                  </button>
-                  {/* Functions */}
-                  {['sin(', 'cos(', 'tan(', 'ln(', 'log(', 'sqrt('].map(fn => (
-                    <button
-                      key={fn}
-                      onClick={() => handleKeyPress(fn)}
-                      className="py-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs font-semibold text-purple-300 hover:bg-purple-500/20 transition-all"
-                    >
-                      {fn.replace('(', '')}
-                    </button>
-                  ))}
-                  {['asin(', 'acos(', 'atan(', 'abs(', 'π', 'e'].map(fn => (
-                    <button
-                      key={fn}
-                      onClick={() => handleKeyPress(fn)}
-                      className="py-2 rounded-xl bg-purple-950/20 border border-white/5 text-xs font-semibold text-purple-400 hover:bg-purple-500/10 transition-all"
-                    >
-                      {fn === 'abs(' ? 'abs' : fn.replace('(', '')}
-                    </button>
-                  ))}
-                  {/* Single key operations */}
-                  {['x^2', 'x^3', '1/x', '10^x', 'e^x', 'factorial'].map(op => {
-                    let lbl = op;
-                    if (op === 'factorial') lbl = 'x!';
-                    if (op === '1/x') lbl = '1/x';
-                    return (
-                      <button
-                        key={op}
-                        onClick={() => handleScientificInstant(op)}
-                        className="py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs font-semibold text-indigo-300 hover:bg-indigo-500/20 transition-all"
-                      >
-                        {lbl}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Main keypad row-by-row */}
-              {/* Row 1 */}
-              <button onClick={() => handleKeyPress('(')} className="rounded-xl bg-slate-900 border border-white/5 hover:bg-slate-800 text-sm font-semibold text-slate-300 transition-all">(</button>
-              <button onClick={() => handleKeyPress(')')} className="rounded-xl bg-slate-900 border border-white/5 hover:bg-slate-800 text-sm font-semibold text-slate-300 transition-all">)</button>
-              <button onClick={() => handleKeyPress('%')} className="rounded-xl bg-slate-900 border border-white/5 hover:bg-slate-800 text-sm font-semibold text-slate-300 transition-all">%</button>
-              <button onClick={() => handleKeyPress('AC')} className="rounded-xl bg-rose-500/20 border border-rose-500/30 hover:bg-rose-500/30 text-sm font-bold text-rose-400 transition-all">AC</button>
-
-              {/* Row 2 */}
-              <button onClick={() => handleKeyPress('7')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">7</button>
-              <button onClick={() => handleKeyPress('8')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">8</button>
-              <button onClick={() => handleKeyPress('9')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">9</button>
-              <button onClick={() => handleKeyPress('÷')} className="rounded-xl bg-amber-500/20 border border-amber-500/30 hover:bg-amber-500/30 text-base font-bold text-amber-400 transition-all">÷</button>
-
-              {/* Row 3 */}
-              <button onClick={() => handleKeyPress('4')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">4</button>
-              <button onClick={() => handleKeyPress('5')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">5</button>
-              <button onClick={() => handleKeyPress('6')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">6</button>
-              <button onClick={() => handleKeyPress('×')} className="rounded-xl bg-amber-500/20 border border-amber-500/30 hover:bg-amber-500/30 text-base font-bold text-amber-400 transition-all">×</button>
-
-              {/* Row 4 */}
-              <button onClick={() => handleKeyPress('1')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">1</button>
-              <button onClick={() => handleKeyPress('2')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">2</button>
-              <button onClick={() => handleKeyPress('3')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">3</button>
-              <button onClick={() => handleKeyPress('-')} className="rounded-xl bg-amber-500/20 border border-amber-500/30 hover:bg-amber-500/30 text-base font-bold text-amber-400 transition-all">-</button>
-
-              {/* Row 5 */}
-              <button onClick={() => handleKeyPress('0')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">0</button>
-              <button onClick={() => handleKeyPress('.')} className="rounded-xl bg-slate-800 border border-white/5 hover:bg-slate-700 text-base font-bold text-slate-100 transition-all">.</button>
-              <button onClick={() => handleKeyPress('C')} className="rounded-xl bg-slate-900 border border-white/5 hover:bg-slate-800 text-sm font-semibold text-slate-300 transition-all flex items-center justify-center">
-                <Delete className="w-4 h-4" />
-              </button>
-              <button onClick={() => handleKeyPress('+')} className="rounded-xl bg-amber-500/20 border border-amber-500/30 hover:bg-amber-500/30 text-base font-bold text-amber-400 transition-all">+</button>
-
-              {/* Row 6 */}
-              <button onClick={() => handleKeyPress('Ans')} className="col-span-2 rounded-xl bg-slate-900 border border-white/5 hover:bg-slate-800 text-xs font-bold text-slate-400 transition-all tracking-wider">Ans</button>
-              <button onClick={() => handleKeyPress('^')} className="rounded-xl bg-slate-900 border border-white/5 hover:bg-slate-800 text-sm font-semibold text-slate-300 transition-all">x^y</button>
-              <button onClick={() => handleKeyPress('=')} className="rounded-xl bg-emerald-500 hover:bg-emerald-600 text-base font-bold text-slate-950 transition-all shadow-lg shadow-emerald-950/20">=</button>
-            </div>
-          )}
+            {/* Row 6 */}
+            <button onClick={() => handleKeyPress('Ans')} className="col-span-2 rounded-xl bg-slate-900 border border-white/5 hover:bg-slate-800 text-xs font-bold text-slate-400 transition-all tracking-wider">Ans</button>
+            <button onClick={() => handleKeyPress('^')} className="rounded-xl bg-slate-900 border border-white/5 hover:bg-slate-800 text-sm font-semibold text-slate-300 transition-all">x^y</button>
+            <button onClick={() => handleKeyPress('=')} className="rounded-xl bg-emerald-500 hover:bg-emerald-600 text-base font-bold text-slate-950 transition-all shadow-lg shadow-emerald-950/20">=</button>
+          </div>
         </div>
 
         {/* History Sidebar Panel */}

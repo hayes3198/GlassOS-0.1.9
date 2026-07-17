@@ -113,9 +113,13 @@ export function FilesApp({
   protocolsSelectedFile,
   setProtocolsSelectedFile,
   protocolsCompressSelectedFile,
-  setProtocolsCompressSelectedFile
-}: FilesAppProps) {
-  const [currentPath, setCurrentPath] = useState<string[]>(['Documents']);
+  setProtocolsCompressSelectedFile,
+  explorerPath,
+  setExplorerPath
+}: FilesAppProps & { explorerPath?: string[]; setExplorerPath?: React.Dispatch<React.SetStateAction<string[]>> }) {
+  const [localPath, setLocalPath] = useState<string[]>(['Documents']);
+  const currentPath = explorerPath !== undefined ? explorerPath : localPath;
+  const setCurrentPath = setExplorerPath !== undefined ? setExplorerPath : setLocalPath;
   const [selectedItemNames, setSelectedItemNames] = useState<string[]>([]);
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
   const [editingItem, setEditingItem] = useState<{ path: string[], name: string } | null>(null);

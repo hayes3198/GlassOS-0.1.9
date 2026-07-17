@@ -46,6 +46,7 @@ import {
   RefreshCw,
   RefreshCcw,
   Plus,
+  Ruler,
   Trash2,
   Circle,
   FileCode,
@@ -54,7 +55,10 @@ import {
   Undo,
   Redo,
   Paintbrush,
+  Hand,
+  Pipette,
   Send,
+  Terminal,
   Upload,
   Paperclip,
   Download,
@@ -172,6 +176,7 @@ import {
   PhoneOff,
   Disc,
   Sliders,
+  SlidersHorizontal,
   VolumeX,
 } from 'lucide-react';
 import { motion, AnimatePresence, useDragControls } from 'motion/react';
@@ -221,6 +226,7 @@ import { ProtocolsDashboard } from './components/ProtocolsDashboard';
 import ClockApp from './components/ClockApp';
 import TimerApp from './components/TimerApp';
 import CalculatorApp from './components/CalculatorApp';
+import UnitConverterApp from './components/UnitConverterApp';
 import { Network } from 'lucide-react';
 import { nativeBridge, SystemInfo } from './lib/NativeBridge.lib';
 import { 
@@ -418,14 +424,30 @@ export default function App() {
   const [networkTraffic, setNetworkTraffic] = useState<TrafficEvent[]>([]);
   const [networkStatus, setNetworkStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connected');
   const [connectedNetwork, setConnectedNetwork] = useState('GlassFiber_5G');
-  const [installedApps, setInstalledApps] = useState<AppId[]>(['terminal', 'settings', 'notepad', 'browser', 'photos', 'music', 'appfolder', 'codestudio', 'files', 'systemmonitor', 'glassword', 'glassdraw', 'glasspaint', 'glassphoto', 'spreadsheet', 'calendar', 'glassmail', 'glassdatabase', 'glassmessaging', 'printers', 'taskscheduler']);
+  const [installedApps, setInstalledApps] = useState<AppId[]>(['terminal', 'settings', 'notepad', 'browser', 'photos', 'music', 'appfolder', 'codestudio', 'files', 'systemmonitor', 'glassword', 'glassdraw', 'glasspaint', 'glassphoto', 'spreadsheet', 'calendar', 'glassmail', 'glassdatabase', 'glassmessaging', 'printers', 'taskscheduler', 'clock', 'timer', 'calculator', 'unitconverter']);
+  
+  // Advanced Search and Sync States
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'main' | 'personalization' | 'network' | 'control-panel' | 'extensions' | 'accounts' | 'hardware'>('main');
+  const [explorerPath, setExplorerPath] = useState<string[]>(['Documents']);
+  const [searchScope, setSearchScope] = useState({
+    apps: true,
+    files: true,
+    settings: true
+  });
+  const [searchSettings, setSearchSettings] = useState({
+    caseSensitive: false,
+    recursive: true,
+    fileType: 'all', // 'all', 'text', 'image', 'vector', 'spreadsheet'
+  });
+  const [isSearchConfigOpen, setIsSearchConfigOpen] = useState(false);
+
   const [notepadContent, setNotepadContent] = useState('');
   const [glassWordContent, setGlassWordContent] = useState(DEFAULT_GLASSWORD_CONTENT);
   const [activeFileInGlassWord, setActiveFileInGlassWord] = useState<{name: string, path: string[]} | null>(null);
   const [activeFileInSheets, setActiveFileInSheets] = useState<{name: string, path: string[]} | null>(null);
   const [photosAppSelectedFile, setPhotosAppSelectedFile] = useState<any>(null);
   const [glassDrawSelectedFile, setGlassDrawSelectedFile] = useState<any>(null);
-  const [systemMonitorActiveTab, setSystemMonitorActiveTab] = useState<'overview' | 'traffic' | 'glasstcp' | 'kernel' | 'security' | 'protocols' | 'hardware' | null>(null);
+  const [systemMonitorActiveTab, setSystemMonitorActiveTab] = useState<'overview' | 'traffic' | 'glasstcp' | 'kernel' | 'security' | 'protocols' | 'hardware' | 'printers' | null>(null);
   const [protocolsSelectedFile, setProtocolsSelectedFile] = useState<string>('');
   const [protocolsCompressSelectedFile, setProtocolsCompressSelectedFile] = useState<string>('');
   const [notepadStyle, setNotepadStyle] = useState<any>({ fontSize: '14px', fontWeight: 'normal', textAlign: 'left' });
@@ -534,6 +556,208 @@ export default function App() {
   const [isQuickSettingsOpen, setIsQuickSettingsOpen] = useState(false);
   const desktopRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<Socket | null>(null);
+
+  // Advanced Search Engine Helpers & Computations
+  const getAppDetails = (id: string) => {
+    switch (id) {
+      case 'terminal': return { label: 'Terminal', desc: 'Command line terminal interface' };
+      case 'settings': return { label: 'Settings', desc: 'System configuration and preferences' };
+      case 'notepad': return { label: 'Notepad', desc: 'Simple text file editor' };
+      case 'browser': return { label: 'Web Browser', desc: 'Surfing the web and online portals' };
+      case 'photos': return { label: 'Photos', desc: 'Photo viewer and image library' };
+      case 'music': return { label: 'Music', desc: 'Audio and music media player' };
+      case 'appfolder': return { label: 'App Folder', desc: 'View folder of installed system utilities' };
+      case 'codestudio': return { label: 'CodeStudio', desc: 'Integrated code development environment' };
+      case 'files': return { label: 'File Explorer', desc: 'Manage system directories and files' };
+      case 'systemmonitor': return { label: 'System Monitor', desc: 'Check CPU, RAM, and protocol streams' };
+      case 'glassword': return { label: 'GlassWord', desc: 'Professional rich text processor' };
+      case 'glassdraw': return { label: 'GlassDraw', desc: 'Vector graphics drawing tool' };
+      case 'glasspaint': return { label: 'GlassPaint', desc: 'Raster drawing and paint utility' };
+      case 'glassphoto': return { label: 'GlassPhoto', desc: 'Photo styling and capture' };
+      case 'spreadsheet': return { label: 'Glass Sheets', desc: 'Grid sheet calculations and formulas' };
+      case 'calendar': return { label: 'Calendar', desc: 'Daily schedule and calendar organizer' };
+      case 'glassmail': return { label: 'GlassMail', desc: 'Secure local client and server inbox' };
+      case 'glassdatabase': return { label: 'GlassDatabase', desc: 'Database engine database query client' };
+      case 'glassmessaging': return { label: 'Comms Chat', desc: 'Unified chat and messaging shard' };
+      case 'printers': return { label: 'Printer Queue', desc: 'Monitor virtual and network paper printouts' };
+      case 'taskscheduler': return { label: 'Task Scheduler', desc: 'Automate system scripts and tasks' };
+      case 'clock': return { label: 'Clock', desc: 'World clocks and time alarms' };
+      case 'timer': return { label: 'Timer', desc: 'Countdown times and stopwatches' };
+      case 'calculator': return { label: 'Calculator', desc: 'Perform math, statistics, and scientific equations' };
+      case 'unitconverter': return { label: 'Unit Converter', desc: 'Length, weight, temperature conversions' };
+      default: return { label: id.charAt(0).toUpperCase() + id.slice(1), desc: 'System application' };
+    }
+  };
+
+  const searchResults = React.useMemo(() => {
+    if (!startSearch.trim()) return [];
+
+    let results: any[] = [];
+    const query = startSearch.trim();
+
+    // 1. Search Applications
+    if (searchScope.apps) {
+      const matchedApps = installedApps.filter(id => {
+        const details = getAppDetails(id);
+        const matchQuery = searchSettings.caseSensitive ? query : query.toLowerCase();
+        const matchLabel = searchSettings.caseSensitive ? details.label : details.label.toLowerCase();
+        const matchDesc = searchSettings.caseSensitive ? details.desc : details.desc.toLowerCase();
+        const matchId = searchSettings.caseSensitive ? id : id.toLowerCase();
+        return matchLabel.includes(matchQuery) || matchDesc.includes(matchQuery) || matchId.includes(matchQuery);
+      }).map(id => {
+        const details = getAppDetails(id);
+        return {
+          type: 'app' as const,
+          id,
+          name: details.label,
+          meta: `Application — ${details.desc}`,
+        };
+      });
+      results = [...results, ...matchedApps];
+    }
+
+    // 2. Search Settings
+    if (searchScope.settings) {
+      const SYSTEM_SETTINGS_ITEMS = [
+        { name: 'Personalization', description: 'Change wallpaper, accent color, and layout styles', tab: 'personalization' },
+        { name: 'Wallpaper & Theme', description: 'Modify background wall imagery and glass colors', tab: 'personalization' },
+        { name: 'System Font Settings', description: 'Adjust typography family, size, and weights', tab: 'personalization' },
+        { name: 'Network Connections', description: 'Manage Wi-Fi network nodes, adapters, and configs', tab: 'network' },
+        { name: 'Internet Protocol & Gateway', description: 'Edit IP, gateway, and DNS configurations', tab: 'network' },
+        { name: 'System Control Panel', description: 'View resource graphs, clean RAM/swap, and clear cache', tab: 'control-panel' },
+        { name: 'Memory & CPU Optimizer', description: 'Diagnostics, RAM cleaners, and SWAP settings', tab: 'control-panel' },
+        { name: 'System Extensions & Plugins', description: 'Manage installed software additions and tools', tab: 'extensions' },
+        { name: 'Admin Sudo Accounts', description: 'Manage user profiles, administrator privilege escalation', tab: 'accounts' },
+        { name: 'Hardware & Devices', description: 'Monitor physical storage, displays, and screen resolution', tab: 'hardware' },
+      ];
+
+      const matchedSettings = SYSTEM_SETTINGS_ITEMS.filter(s => {
+        const matchQuery = searchSettings.caseSensitive ? query : query.toLowerCase();
+        const matchName = searchSettings.caseSensitive ? s.name : s.name.toLowerCase();
+        const matchDesc = searchSettings.caseSensitive ? s.description : s.description.toLowerCase();
+        return matchName.includes(matchQuery) || matchDesc.includes(matchQuery);
+      }).map(s => ({
+        type: 'setting' as const,
+        id: `settings-${s.tab}`,
+        name: s.name,
+        meta: `System Setting — ${s.description}`,
+        targetTab: s.tab
+      }));
+      results = [...results, ...matchedSettings];
+    }
+
+    // 3. Search Files & Folders (Recursive sub-folders)
+    if (searchScope.files) {
+      const searchFileSystem = (
+        items: FileSystemItem[],
+        currentDir: string[]
+      ): any[] => {
+        let fileResults: any[] = [];
+
+        for (const item of items) {
+          const matchName = searchSettings.caseSensitive ? item.name : item.name.toLowerCase();
+          const matchQuery = searchSettings.caseSensitive ? query : query.toLowerCase();
+          
+          const isMatch = matchName.includes(matchQuery);
+
+          if (isMatch) {
+            let matchesTypeFilter = true;
+            if (item.type === 'file' && searchSettings.fileType !== 'all') {
+              const ext = item.name.split('.').pop()?.toLowerCase();
+              if (searchSettings.fileType === 'text' && !['txt', 'b', 'json', 'gdoc'].includes(ext || '')) matchesTypeFilter = false;
+              if (searchSettings.fileType === 'image' && !['jpg', 'jpeg', 'png', 'tiff', 'gpaint'].includes(ext || '')) matchesTypeFilter = false;
+              if (searchSettings.fileType === 'vector' && ext !== 'gdraw') matchesTypeFilter = false;
+              if (searchSettings.fileType === 'spreadsheet' && ext !== 'gsheet') matchesTypeFilter = false;
+            } else if (item.type === 'folder' && searchSettings.fileType !== 'all') {
+              matchesTypeFilter = false;
+            }
+
+            if (matchesTypeFilter) {
+              const itemPathString = '/' + currentDir.join('/');
+              fileResults.push({
+                type: item.type === 'folder' ? ('folder' as const) : ('file' as const),
+                id: [...currentDir, item.name].join('/'),
+                name: item.name,
+                path: currentDir,
+                meta: item.type === 'folder' ? `Folder — located in ${itemPathString}` : `File (.${item.name.split('.').pop()}) — located in ${itemPathString}`,
+                originalItem: item
+              });
+            }
+          }
+
+          if (item.type === 'folder' && item.children && searchSettings.recursive) {
+            fileResults = [
+              ...fileResults,
+              ...searchFileSystem(item.children, [...currentDir, item.name])
+            ];
+          }
+        }
+
+        return fileResults;
+      };
+
+      const matchedFiles = searchFileSystem(fs, []);
+      results = [...results, ...matchedFiles];
+    }
+
+    return results;
+  }, [startSearch, fs, searchScope, searchSettings, installedApps]);
+
+  const handleSearchResultClick = (result: any) => {
+    setIsStartMenuOpen(false);
+    setStartSearch('');
+
+    if (result.type === 'app') {
+      if (result.id === 'clipboard') {
+        setIsClipboardOpen(true);
+      } else {
+        openWindow(result.id as AppId, result.name);
+      }
+    } else if (result.type === 'setting') {
+      setActiveSettingsTab(result.targetTab);
+      openWindow('settings', 'Settings');
+    } else if (result.type === 'folder') {
+      setExplorerPath([...result.path, result.name]);
+      openWindow('files', 'File Explorer');
+    } else if (result.type === 'file') {
+      const file = result.originalItem;
+      const parentPath = result.path;
+      const ext = file.name.split('.').pop()?.toLowerCase();
+      
+      // Set explorer path so file explorer is in right folder
+      setExplorerPath(parentPath);
+
+      if (ext === 'txt' || ext === 'b' || ext === 'json') {
+        setNotepadContent(file.content || '');
+        setActiveFileInNotepad({ name: file.name, path: parentPath });
+        openWindow('notepad', 'Notepad');
+      } else if (['jpg', 'jpeg', 'png', 'tiff', 'gpaint'].includes(ext || '')) {
+        openWindow('photos', 'Photos');
+        setPhotosAppSelectedFile(file);
+      } else if (ext === 'gdoc') {
+        setGlassWordContent(file.content || '');
+        setActiveFileInGlassWord({ name: file.name, path: parentPath });
+        openWindow('glassword', 'GlassWord 2026');
+      } else if (ext === 'gdraw') {
+        openWindow('glassdraw', 'Glass Draw Vector');
+        setGlassDrawSelectedFile(file);
+      } else if (ext === 'gsheet') {
+        try {
+          const data = JSON.parse(file.content || '[]');
+          setSheetData(data);
+          setActiveFileInSheets({ name: file.name, path: parentPath });
+          openWindow('spreadsheet', 'Glass Sheets');
+        } catch (e) {
+          addNotification('Search', 'Failed to parse sheet data', 'error');
+        }
+      } else {
+        addNotification('Search', `Opening ${file.name} in Notepad.`, 'info');
+        setNotepadContent(file.content || '');
+        setActiveFileInNotepad({ name: file.name, path: parentPath });
+        openWindow('notepad', 'Notepad');
+      }
+    }
+  };
 
   const loadFromCloud = useCallback(async () => {
     try {
@@ -934,6 +1158,12 @@ export default function App() {
   }, []);
 
   const openWindow = (id: AppId, title: string) => {
+    if (id === 'printers') {
+      setSystemMonitorActiveTab('printers');
+      openWindow('systemmonitor', 'NOC Center');
+      return;
+    }
+
     const existing = windows.find(w => w.id === id);
     const maxZ = Math.max(0, ...windows.map(w => w.zIndex));
 
@@ -1247,6 +1477,7 @@ export default function App() {
               <DesktopIcon icon={<Clock className="text-emerald-400" />} label="Clock" onClick={() => openWindow('clock', 'Clock')} />
               <DesktopIcon icon={<Hourglass className="text-blue-400" />} label="Timer" onClick={() => openWindow('timer', 'Timer')} />
               <DesktopIcon icon={<Plus className="text-purple-400" />} label="Calculator" onClick={() => openWindow('calculator', 'Calculator')} />
+              <DesktopIcon icon={<Ruler className="text-indigo-400" />} label="Converter" onClick={() => openWindow('unitconverter', 'Unit Converter')} />
             </div>
 
             {/* Windows */}
@@ -1297,6 +1528,10 @@ export default function App() {
                     fs,
                     setFs,
                     fsLib,
+                    explorerPath,
+                    setExplorerPath,
+                    activeSettingsTab,
+                    setActiveSettingsTab,
                     tasks,
                     setTasks,
                     setActiveScreensaver,
@@ -1424,11 +1659,104 @@ export default function App() {
                     autoFocus
                     type="text"
                     placeholder="Search apps, files, and settings..."
-                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-sm outline-none focus:bg-white/10 focus:border-blue-500/50 transition-all placeholder:text-white/20"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 pr-12 text-sm outline-none focus:bg-white/10 focus:border-blue-500/50 transition-all placeholder:text-white/20"
                     value={startSearch}
                     onChange={(e) => setStartSearch(e.target.value)}
                   />
+                  <button
+                    onClick={() => setIsSearchConfigOpen(!isSearchConfigOpen)}
+                    className={`absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-all ${isSearchConfigOpen ? 'text-blue-400 bg-white/10' : ''}`}
+                    title="Advanced Search Options"
+                  >
+                    <SlidersHorizontal size={14} />
+                  </button>
                 </div>
+
+                {/* Advanced Search Panel */}
+                <AnimatePresence>
+                  {isSearchConfigOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden mt-3 p-3.5 rounded-xl bg-white/5 border border-white/10 space-y-3.5 text-xs text-white/70 shadow-inner"
+                    >
+                      {/* Search Scope */}
+                      <div>
+                        <div className="text-[10px] font-bold text-white/30 uppercase tracking-wider mb-2">Search Scope</div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                          <label className="flex items-center gap-2 cursor-pointer select-none hover:text-white transition-colors">
+                            <input 
+                              type="checkbox" 
+                              checked={searchScope.apps} 
+                              onChange={(e) => setSearchScope(prev => ({ ...prev, apps: e.target.checked }))}
+                              className="rounded border-white/20 bg-black/40 text-blue-500 focus:ring-0 focus:ring-offset-0"
+                            />
+                            <span>Applications</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer select-none hover:text-white transition-colors">
+                            <input 
+                              type="checkbox" 
+                              checked={searchScope.files} 
+                              onChange={(e) => setSearchScope(prev => ({ ...prev, files: e.target.checked }))}
+                              className="rounded border-white/20 bg-black/40 text-blue-500 focus:ring-0 focus:ring-offset-0"
+                            />
+                            <span>Files & Folders</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer select-none hover:text-white transition-colors">
+                            <input 
+                              type="checkbox" 
+                              checked={searchScope.settings} 
+                              onChange={(e) => setSearchScope(prev => ({ ...prev, settings: e.target.checked }))}
+                              className="rounded border-white/20 bg-black/40 text-blue-500 focus:ring-0 focus:ring-offset-0"
+                            />
+                            <span>System Settings</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Search Refinement & Filters */}
+                      <div className="pt-2 border-t border-white/5 grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <div className="text-[10px] font-bold text-white/30 uppercase tracking-wider">Refine Options</div>
+                          <label className="flex items-center gap-2 cursor-pointer select-none hover:text-white transition-colors">
+                            <input 
+                              type="checkbox" 
+                              checked={searchSettings.caseSensitive} 
+                              onChange={(e) => setSearchSettings(prev => ({ ...prev, caseSensitive: e.target.checked }))}
+                              className="rounded border-white/20 bg-black/40 text-blue-500 focus:ring-0 focus:ring-offset-0"
+                            />
+                            <span>Case Sensitive</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer select-none hover:text-white transition-colors">
+                            <input 
+                              type="checkbox" 
+                              checked={searchSettings.recursive} 
+                              onChange={(e) => setSearchSettings(prev => ({ ...prev, recursive: e.target.checked }))}
+                              className="rounded border-white/20 bg-black/40 text-blue-500 focus:ring-0 focus:ring-offset-0"
+                            />
+                            <span>Deep Sub-folders</span>
+                          </label>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="text-[10px] font-bold text-white/30 uppercase tracking-wider">File Type Filter</div>
+                          <select
+                            value={searchSettings.fileType}
+                            onChange={(e) => setSearchSettings(prev => ({ ...prev, fileType: e.target.value }))}
+                            className="w-full bg-black/40 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-white/80 focus:border-blue-500/50 outline-none cursor-pointer"
+                          >
+                            <option value="all" className="bg-slate-900 text-white">All Types</option>
+                            <option value="text" className="bg-slate-900 text-white">Text (.txt, .gdoc, .json)</option>
+                            <option value="image" className="bg-slate-900 text-white">Pictures (.png, .jpg)</option>
+                            <option value="vector" className="bg-slate-900 text-white">Vectors (.gdraw)</option>
+                            <option value="spreadsheet" className="bg-slate-900 text-white">Sheets (.gsheet)</option>
+                          </select>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               {/* Bento Grid */}
@@ -1454,6 +1782,7 @@ export default function App() {
                           { id: 'clock', label: 'Clock', color: 'bg-emerald-500/20 text-emerald-400' },
                           { id: 'timer', label: 'Timer', color: 'bg-blue-500/20 text-blue-400' },
                           { id: 'calculator', label: 'Calculator', color: 'bg-purple-500/20 text-purple-400' },
+                          { id: 'unitconverter', label: 'Converter', color: 'bg-indigo-500/20 text-indigo-400' },
                         ].map(app => (
                           <button 
                             key={app.id}
@@ -1533,25 +1862,49 @@ export default function App() {
 
                 {startSearch && (
                   <div className="space-y-2">
-                    <h3 className="text-[10px] font-bold text-white/30 uppercase tracking-wider mb-3 px-1">Search Results</h3>
-                    {installedApps.filter(id => id.includes(startSearch.toLowerCase())).map(id => (
+                    <div className="flex items-center justify-between mb-3 px-1">
+                      <h3 className="text-[10px] font-bold text-white/30 uppercase tracking-wider">Search Results</h3>
+                      <span className="text-[10px] text-white/40">{searchResults.length} {searchResults.length === 1 ? 'match' : 'matches'}</span>
+                    </div>
+                    {searchResults.map((result, idx) => (
                       <button 
-                        key={id}
-                        onClick={() => {
-                          openWindow(id, id.charAt(0).toUpperCase() + id.slice(1));
-                          setIsStartMenuOpen(false);
-                          setStartSearch('');
-                        }}
-                        className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/10 transition-all text-left"
+                        key={`${result.type}-${result.id}-${idx}`}
+                        onClick={() => handleSearchResultClick(result)}
+                        className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-white/10 transition-all text-left group"
                       >
-                        <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center text-blue-400">
-                          {getAppIcon(id, 20)}
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center text-blue-400 group-hover:bg-white/10 transition-colors shrink-0">
+                            {result.type === 'app' && getAppIcon(result.id, 20)}
+                            {result.type === 'setting' && <SettingsIcon size={20} className="text-blue-400" />}
+                            {result.type === 'folder' && <Folder size={20} className="text-yellow-400" />}
+                            {result.type === 'file' && (() => {
+                              const ext = result.name.split('.').pop()?.toLowerCase();
+                              if (['txt', 'b', 'json', 'gdoc'].includes(ext || '')) return <FileText size={20} className="text-slate-400" />;
+                              if (['jpg', 'jpeg', 'png', 'tiff', 'gpaint'].includes(ext || '')) return <ImageIcon size={20} className="text-pink-400" />;
+                              if (ext === 'gdraw') return <Ruler size={20} className="text-orange-400" />;
+                              if (ext === 'gsheet') return <TableIcon size={20} className="text-emerald-400" />;
+                              return <FileCode size={20} className="text-blue-400" />;
+                            })()}
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-sm font-medium text-white/95 capitalize truncate">{result.name}</span>
+                            <span className="text-[10px] text-white/30 truncate max-w-[280px]">{result.meta}</span>
+                          </div>
                         </div>
-                        <span className="text-sm text-white/80 capitalize">{id}</span>
+                        
+                        {/* Go Button Indicator */}
+                        <div className="text-white/20 group-hover:text-white/60 transition-colors pl-2 shrink-0">
+                          <svg className="w-4 h-4 fill-none stroke-current" viewBox="0 0 24 24" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="m9 18 6-6-6-6" />
+                          </svg>
+                        </div>
                       </button>
                     ))}
-                    {installedApps.filter(id => id.includes(startSearch.toLowerCase())).length === 0 && (
-                      <div className="py-12 text-center text-white/20 text-xs">No apps found matching "{startSearch}"</div>
+                    {searchResults.length === 0 && (
+                      <div className="py-12 text-center text-white/20 text-xs">
+                        No matches found for "{startSearch}"
+                        <div className="mt-2 text-[10px] text-white/10">Try expanding your search scope or filters above.</div>
+                      </div>
                     )}
                   </div>
                 )}
@@ -2597,6 +2950,7 @@ function getAppIcon(id: AppId, size: number, color?: string) {
     case 'clock': return <Clock size={size} className="text-emerald-400" />;
     case 'timer': return <Hourglass size={size} className="text-blue-400" />;
     case 'calculator': return <Plus size={size} className="text-purple-400" />;
+    case 'unitconverter': return <Ruler size={size} className="text-indigo-400" />;
     default: return <Box size={size} />;
   }
 }
@@ -6070,22 +6424,29 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
 function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow, fs, closeWindow }: any) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [brushColor, setBrushColor] = useState('#3b82f6');
-  const [brushSize, setBrushSize] = useState(5);
-  const [tool, setTool] = useState<'brush' | 'eraser'>('brush');
+  const [brushColor, setBrushColor] = useState('#000000');
+  const [secondaryColor, setSecondaryColor] = useState('#ffffff');
+  const [brushSize, setBrushSize] = useState(4);
+  const [tool, setTool] = useState<'marquee' | 'lasso' | 'hand' | 'zoom' | 'eyedropper' | 'eraser' | 'brush' | 'pencil' | 'paintbucket' | 'line' | 'text' | 'gradient'>('brush');
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showOpenDialog, setShowOpenDialog] = useState(false);
+  const [showAboutDialog, setShowAboutDialog] = useState(false);
   const [remoteFiles, setRemoteFiles] = useState<FileSystemItem[]>([]);
   const [saveName, setSaveName] = useState('sketch.gpaint');
-  
-  // Dropdown states
-  const [activeMenu, setActiveMenu] = useState<'file' | 'edit' | 'tools' | null>(null);
+  const [textInput, setTextInput] = useState('PHOTOSHOP');
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [activeMenu, setActiveMenu] = useState<'file' | 'edit' | 'mode' | 'image' | 'filter' | 'window' | null>(null);
+  const [showRulers, setShowRulers] = useState(true);
 
-  // Undo & Redo state engine
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [dragCurrent, setDragCurrent] = useState<{ x: number; y: number } | null>(null);
+  const [lassoPoints, setLassoPoints] = useState<[number, number][]>([]);
+  const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
+
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [historyActions, setHistoryActions] = useState<string[]>([]);
 
-  // Synchronize history variables with references to safely bypass stale closures in listeners
   const historyRef = useRef<string[]>([]);
   const historyIndexRef = useRef<number>(-1);
 
@@ -6094,7 +6455,6 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
     historyIndexRef.current = historyIndex;
   }, [history, historyIndex]);
 
-  // Fetch files from local virtual FS
   useEffect(() => {
     const fetchFiles = () => {
       const drawings = fsLib.list('Documents/Drawings') || [];
@@ -6104,7 +6464,6 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
     fetchFiles();
   }, [fs]);
 
-  // Clear Canvas to solid white
   const clearCanvasSilent = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -6116,53 +6475,47 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
 
   const clearCanvas = () => {
     clearCanvasSilent();
-    saveHistory();
+    saveHistory('Clear Canvas');
     addNotification('GlassPaint', 'Canvas cleared', 'info');
   };
 
-  // Setup initial white canvas background & linecap configs on mount
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    
     clearCanvasSilent();
-    
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    
-    // Save initial history frame
     const initialFrame = canvas.toDataURL();
     setHistory([initialFrame]);
+    setHistoryActions(['New Canvas']);
     setHistoryIndex(0);
   }, []);
 
-  // Save current canvas frame to history stack
-  const saveHistory = () => {
+  const saveHistory = (actionName: string) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const dataUrl = canvas.toDataURL();
-    
-    // Slice off any redo history
-    const sliced = historyRef.current.slice(0, historyIndexRef.current + 1);
-    const updated = [...sliced, dataUrl];
-    
-    setHistory(updated);
-    setHistoryIndex(updated.length - 1);
+    const slicedHist = historyRef.current.slice(0, historyIndexRef.current + 1);
+    const slicedAct = historyActions.slice(0, historyIndexRef.current + 1);
+    const updatedHist = [...slicedHist, dataUrl];
+    const updatedAct = [...slicedAct, actionName];
+    setHistory(updatedHist);
+    setHistoryActions(updatedAct);
+    setHistoryIndex(updatedHist.length - 1);
   };
 
-  // Restore state helper
-  const restoreState = (dataUrl: string) => {
+  const restoreState = (dataUrl: string, idx: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    
     const img = new Image();
     img.onload = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0);
+      setHistoryIndex(idx);
     };
     img.src = dataUrl;
   };
@@ -6170,9 +6523,7 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
   const handleUndo = () => {
     const idx = historyIndexRef.current;
     if (idx > 0) {
-      const prevIdx = idx - 1;
-      setHistoryIndex(prevIdx);
-      restoreState(historyRef.current[prevIdx]);
+      restoreState(historyRef.current[idx - 1], idx - 1);
       addNotification('GlassPaint', 'Undo applied', 'info');
     } else {
       addNotification('GlassPaint', 'Nothing to undo', 'warning');
@@ -6183,45 +6534,22 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
     const idx = historyIndexRef.current;
     const stack = historyRef.current;
     if (idx < stack.length - 1) {
-      const nextIdx = idx + 1;
-      setHistoryIndex(nextIdx);
-      restoreState(stack[nextIdx]);
+      restoreState(stack[idx + 1], idx + 1);
       addNotification('GlassPaint', 'Redo applied', 'info');
     } else {
       addNotification('GlassPaint', 'Nothing to redo', 'warning');
     }
   };
 
-  // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
-      
-      if (e.ctrlKey && e.key === 'z') {
-        e.preventDefault();
-        handleUndo();
-      } else if (e.ctrlKey && e.key === 'y') {
-        e.preventDefault();
-        handleRedo();
-      }
+      if (e.ctrlKey && e.key === 'z') { e.preventDefault(); handleUndo(); }
+      else if (e.ctrlKey && e.key === 'y') { e.preventDefault(); handleRedo(); }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-
-  // Global window mouse listener to close dropdowns when clicking outside
-  useEffect(() => {
-    const handleClickOutside = () => {
-      setActiveMenu(null);
-    };
-    window.addEventListener('click', handleClickOutside);
-    return () => window.removeEventListener('click', handleClickOutside);
-  }, []);
-
-  const toggleMenu = (e: React.MouseEvent, menu: 'file' | 'edit' | 'tools') => {
-    e.stopPropagation();
-    setActiveMenu(prev => prev === menu ? null : menu);
-  };
 
   const handleOpenFile = (file: FileSystemItem) => {
     const canvas = canvasRef.current;
@@ -6234,113 +6562,13 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
       img.onload = () => {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0);
-        saveHistory();
+        saveHistory(`Open ${file.name}`);
       };
       img.src = file.content || '';
       setSaveName(file.name);
       addNotification('GlassPaint', `Opened ${file.name}`, 'info');
-    } else if (file.name.endsWith('.gdraw')) {
-      try {
-        const elements = JSON.parse(file.content || '[]');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        elements.forEach((el: any) => {
-          ctx.strokeStyle = el.stroke || '#000000';
-          ctx.fillStyle = el.fill || 'transparent';
-          ctx.lineWidth = el.strokeWidth || 1;
-          
-          if (el.type === 'rect') {
-            ctx.fillRect(el.x, el.y, el.width, el.height);
-            ctx.strokeRect(el.x, el.y, el.width, el.height);
-          } else if (el.type === 'circle') {
-            ctx.beginPath();
-            ctx.arc(el.x, el.y, el.radius, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-          } else if (el.type === 'line') {
-            ctx.beginPath();
-            ctx.moveTo(el.x, el.y);
-            ctx.lineTo(el.x2, el.y2);
-            ctx.stroke();
-          }
-        });
-        saveHistory();
-        setSaveName(file.name.replace('.gdraw', '.gpaint'));
-        addNotification('GlassPaint', `Imported vector ${file.name}`, 'info');
-      } catch (e) {
-        addNotification('GlassPaint', 'Failed to import vector mapping', 'error');
-      }
     }
     setShowOpenDialog(false);
-  };
-
-  const handleImportToWord = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const dataUri = canvas.toDataURL('image/png');
-    setGlassWordContent((prev: string) => prev + `<br/><br/><div style="text-align:center"><img src="${dataUri}" style="max-width: 80%; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.1);" alt="Painting Export" /></div><br/>`);
-    addNotification('GlassPaint', 'Imported to GlassWord Pro', 'success');
-    openWindow('glassword', 'GlassWord Professional');
-  };
-
-  const startDrawing = (e: React.MouseEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
-    
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    
-    // Draw a single dot directly on mouse down in case of simple clicks
-    ctx.strokeStyle = tool === 'eraser' ? '#ffffff' : brushColor;
-    ctx.fillStyle = tool === 'eraser' ? '#ffffff' : brushColor;
-    ctx.lineWidth = brushSize;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
-    ctx.fill();
-    
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    setIsDrawing(true);
-  };
-
-  const draw = (e: React.MouseEvent) => {
-    if (!isDrawing) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
-    
-    ctx.strokeStyle = tool === 'eraser' ? '#ffffff' : brushColor;
-    ctx.lineWidth = brushSize;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.lineTo(x, y);
-    ctx.stroke();
-  };
-
-  const stopDrawing = () => {
-    if (isDrawing) {
-      setIsDrawing(false);
-      saveHistory();
-    }
   };
 
   const handleSave = async () => {
@@ -6356,38 +6584,120 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
     }
   };
 
-  // Fill Canvas with color
-  const fillCanvas = () => {
+  const handleImportToWord = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.fillStyle = brushColor;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    saveHistory();
-    addNotification('GlassPaint', `Filled canvas with ${brushColor}`, 'success');
+    const dataUri = canvas.toDataURL('image/png');
+    setGlassWordContent((prev: string) => prev + `<br/><br/><div style="text-align:center"><img src="${dataUri}" style="max-width: 80%; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.1);" alt="Painting Export" /></div><br/>`);
+    addNotification('GlassPaint', 'Imported to GlassWord Pro', 'success');
+    openWindow('glassword', 'GlassWord Professional');
   };
 
-  // Pixel-level Filters
-  const invertColors = () => {
+  const runFloodFill = (startX: number, startY: number, fillHex: string) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    try {
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imgData.data;
-      for (let i = 0; i < data.length; i += 4) {
-        data[i] = 255 - data[i];       // R
-        data[i+1] = 255 - data[i+1];   // G
-        data[i+2] = 255 - data[i+2];   // B
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const startXInt = Math.floor(startX);
+    const startYInt = Math.floor(startY);
+    if (startXInt < 0 || startXInt >= width || startYInt < 0 || startYInt >= height) return;
+
+    const imgData = ctx.getImageData(0, 0, width, height);
+    const data = imgData.data;
+
+    const rFill = parseInt(fillHex.slice(1, 3), 16);
+    const gFill = parseInt(fillHex.slice(3, 5), 16);
+    const bFill = parseInt(fillHex.slice(5, 7), 16);
+
+    const startIdx = (startYInt * width + startXInt) * 4;
+    const rTarget = data[startIdx];
+    const gTarget = data[startIdx + 1];
+    const bTarget = data[startIdx + 2];
+    const aTarget = data[startIdx + 3];
+
+    if (rTarget === rFill && gTarget === gFill && bTarget === bFill && aTarget === 255) return;
+
+    const pixelStack: [number, number][] = [[startXInt, startYInt]];
+    const matchTarget = (idx: number) => {
+      return Math.abs(data[idx] - rTarget) < 20 &&
+             Math.abs(data[idx + 1] - gTarget) < 20 &&
+             Math.abs(data[idx + 2] - bTarget) < 20 &&
+             Math.abs(data[idx + 3] - aTarget) < 20;
+    };
+
+    let safety = 0;
+    const maxPix = width * height;
+
+    while (pixelStack.length > 0 && safety < maxPix) {
+      const pos = pixelStack.pop()!;
+      const x = pos[0];
+      let y = pos[1];
+
+      let pixelIdx = (y * width + x) * 4;
+      while (y >= 0 && matchTarget(pixelIdx)) {
+        y--;
+        pixelIdx -= width * 4;
       }
-      ctx.putImageData(imgData, 0, 0);
-      saveHistory();
-      addNotification('GlassPaint', 'Inverted canvas colors', 'info');
-    } catch (e) {
-      addNotification('GlassPaint', 'Filter failed due to cross-origin image data constraints', 'error');
+      pixelIdx += width * 4;
+      y++;
+
+      let reachLeft = false;
+      let reachRight = false;
+
+      while (y < height && matchTarget(pixelIdx)) {
+        data[pixelIdx] = rFill;
+        data[pixelIdx + 1] = gFill;
+        data[pixelIdx + 2] = bFill;
+        data[pixelIdx + 3] = 255;
+
+        if (x > 0) {
+          if (matchTarget(pixelIdx - 4)) {
+            if (!reachLeft) {
+              pixelStack.push([x - 1, y]);
+              reachLeft = true;
+            }
+          } else if (reachLeft) {
+            reachLeft = false;
+          }
+        }
+
+        if (x < width - 1) {
+          if (matchTarget(pixelIdx + 4)) {
+            if (!reachRight) {
+              pixelStack.push([x + 1, y]);
+              reachRight = true;
+            }
+          } else if (reachRight) {
+            reachRight = false;
+          }
+        }
+
+        y++;
+        pixelIdx += width * 4;
+        safety++;
+      }
     }
+    ctx.putImageData(imgData, 0, 0);
+  };
+
+  const applyInvert = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = imgData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      d[i] = 255 - d[i];
+      d[i + 1] = 255 - d[i + 1];
+      d[i + 2] = 255 - d[i + 2];
+    }
+    ctx.putImageData(imgData, 0, 0);
+    saveHistory('Invert Colors');
+    addNotification('GlassPaint', 'Inverted colors', 'info');
   };
 
   const applyGrayscale = () => {
@@ -6395,21 +6705,15 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    try {
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imgData.data;
-      for (let i = 0; i < data.length; i += 4) {
-        const avg = 0.3 * data[i] + 0.59 * data[i+1] + 0.11 * data[i+2];
-        data[i] = avg;
-        data[i+1] = avg;
-        data[i+2] = avg;
-      }
-      ctx.putImageData(imgData, 0, 0);
-      saveHistory();
-      addNotification('GlassPaint', 'Applied Slate Grayscale filter', 'info');
-    } catch (e) {
-      addNotification('GlassPaint', 'Filter failed due to cross-origin image data constraints', 'error');
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = imgData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const avg = 0.3 * d[i] + 0.59 * d[i + 1] + 0.11 * d[i + 2];
+      d[i] = avg; d[i + 1] = avg; d[i + 2] = avg;
     }
+    ctx.putImageData(imgData, 0, 0);
+    saveHistory('Grayscale Filter');
+    addNotification('GlassPaint', 'Applied Grayscale', 'info');
   };
 
   const applySepia = () => {
@@ -6417,449 +6721,786 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    try {
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imgData.data;
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i], g = data[i+1], b = data[i+2];
-        data[i] = Math.min(255, (r * 0.393) + (g * 0.769) + (b * 0.189));
-        data[i+1] = Math.min(255, (r * 0.349) + (g * 0.686) + (b * 0.168));
-        data[i+2] = Math.min(255, (r * 0.272) + (g * 0.534) + (b * 0.131));
-      }
-      ctx.putImageData(imgData, 0, 0);
-      saveHistory();
-      addNotification('GlassPaint', 'Applied Sepia filter', 'info');
-    } catch (e) {
-      addNotification('GlassPaint', 'Filter failed due to cross-origin image data constraints', 'error');
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = imgData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i], g = d[i+1], b = d[i+2];
+      d[i] = Math.min(255, (r * 0.393) + (g * 0.769) + (b * 0.189));
+      d[i+1] = Math.min(255, (r * 0.349) + (g * 0.686) + (b * 0.168));
+      d[i+2] = Math.min(255, (r * 0.272) + (g * 0.534) + (b * 0.131));
     }
+    ctx.putImageData(imgData, 0, 0);
+    saveHistory('Sepia Filter');
+    addNotification('GlassPaint', 'Applied Sepia', 'info');
   };
 
-  const mirrorCanvas = () => {
+  const flipCanvas = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    try {
-      const temp = document.createElement('canvas');
-      temp.width = canvas.width;
-      temp.height = canvas.height;
-      const tCtx = temp.getContext('2d');
-      if (!tCtx) return;
-      tCtx.drawImage(canvas, 0, 0);
+    const temp = document.createElement('canvas');
+    temp.width = canvas.width; temp.height = canvas.height;
+    const tCtx = temp.getContext('2d');
+    if (!tCtx) return;
+    tCtx.drawImage(canvas, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(temp, 0, 0);
+    ctx.restore();
+    saveHistory('Flip Horizontal');
+    addNotification('GlassPaint', 'Flipped Canvas', 'info');
+  };
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.save();
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
-      ctx.drawImage(temp, 0, 0);
-      ctx.restore();
+  const getCoords = (e: React.MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY
+    };
+  };
 
-      saveHistory();
-      addNotification('GlassPaint', 'Mirrored canvas horizontally', 'info');
-    } catch (e) {
-      addNotification('GlassPaint', 'Failed to mirror canvas', 'error');
+  const startDrawing = (e: React.MouseEvent) => {
+    const coords = getCoords(e);
+    if (!coords) return;
+    const { x, y } = coords;
+
+    if (tool === 'eyedropper') {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d');
+      if (ctx) {
+        const pixel = ctx.getImageData(x, y, 1, 1).data;
+        const hex = "#" + ("000000" + ((pixel[0] << 16) | (pixel[1] << 8) | pixel[2]).toString(16)).slice(-6);
+        setBrushColor(hex);
+        addNotification('GlassPaint', `Sampled Color: ${hex}`, 'info');
+      }
+      return;
+    }
+
+    if (tool === 'paintbucket') {
+      runFloodFill(x, y, brushColor);
+      saveHistory('Paint Bucket');
+      return;
+    }
+
+    if (tool === 'zoom') {
+      setZoomLevel(prev => e.shiftKey ? Math.max(0.5, prev / 2) : Math.min(4, prev * 2));
+      return;
+    }
+
+    if (tool === 'text') {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = brushColor;
+        ctx.font = `${brushSize * 2 + 10}px "Courier New", monospace`;
+        ctx.fillText(textInput, x, y);
+        saveHistory('Text stamp');
+      }
+      return;
+    }
+
+    setIsDrawing(true);
+    setDragStart({ x, y });
+    setDragCurrent({ x, y });
+    if (tool === 'lasso') setLassoPoints([[x, y]]);
+
+    if (tool === 'brush' || tool === 'eraser' || tool === 'pencil') {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d');
+      if (ctx) {
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.strokeStyle = tool === 'eraser' ? secondaryColor : brushColor;
+        ctx.lineWidth = tool === 'pencil' ? 1 : brushSize;
+        ctx.lineCap = tool === 'pencil' ? 'square' : 'round';
+        ctx.beginPath();
+        ctx.arc(x, y, (tool === 'pencil' ? 1 : brushSize) / 2, 0, Math.PI * 2);
+        ctx.fillStyle = tool === 'eraser' ? secondaryColor : brushColor;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+      }
     }
   };
 
-  const copyToClipboard = async () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    try {
-      canvas.toBlob(async (blob) => {
-        if (!blob) return;
-        try {
-          await navigator.clipboard.write([
-            new ClipboardItem({
-              'image/png': blob
-            })
-          ]);
-          addNotification('GlassPaint', 'Copied canvas to clipboard as image', 'success');
-        } catch (err) {
-          const dataUrl = canvas.toDataURL();
-          await navigator.clipboard.writeText(dataUrl);
-          addNotification('GlassPaint', 'Copied canvas as base64 URL', 'success');
-        }
-      });
-    } catch (e) {
-      addNotification('GlassPaint', 'Could not access clipboard buffer', 'error');
+  const draw = (e: React.MouseEvent) => {
+    const coords = getCoords(e);
+    if (!coords) return;
+    setMousePos({ x: Math.round(coords.x), y: Math.round(coords.y) });
+
+    if (!isDrawing) return;
+    const { x, y } = coords;
+    setDragCurrent({ x, y });
+
+    if (tool === 'lasso') {
+      setLassoPoints(prev => [...prev, [x, y]]);
     }
+
+    if (tool === 'brush' || tool === 'eraser' || tool === 'pencil') {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d');
+      if (ctx) {
+        ctx.lineTo(x, y);
+        ctx.strokeStyle = tool === 'eraser' ? secondaryColor : brushColor;
+        ctx.lineWidth = tool === 'pencil' ? 1 : brushSize;
+        ctx.stroke();
+      }
+    }
+  };
+
+  const stopDrawing = () => {
+    if (!isDrawing) return;
+    setIsDrawing(false);
+
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (ctx && dragStart && dragCurrent) {
+      if (tool === 'line') {
+        ctx.beginPath();
+        ctx.moveTo(dragStart.x, dragStart.y);
+        ctx.lineTo(dragCurrent.x, dragCurrent.y);
+        ctx.strokeStyle = brushColor;
+        ctx.lineWidth = brushSize;
+        ctx.stroke();
+        saveHistory('Line Tool');
+      } else if (tool === 'gradient') {
+        const grad = ctx.createLinearGradient(dragStart.x, dragStart.y, dragCurrent.x, dragCurrent.y);
+        grad.addColorStop(0, brushColor);
+        grad.addColorStop(1, secondaryColor);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        saveHistory('Gradient Tool');
+      } else if (tool === 'marquee') {
+        ctx.strokeStyle = brushColor;
+        ctx.lineWidth = brushSize;
+        ctx.strokeRect(
+          Math.min(dragStart.x, dragCurrent.x),
+          Math.min(dragStart.y, dragCurrent.y),
+          Math.abs(dragStart.x - dragCurrent.x),
+          Math.abs(dragStart.y - dragCurrent.y)
+        );
+        saveHistory('Marquee Rectangle');
+      } else if (tool === 'lasso' && lassoPoints.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(lassoPoints[0][0], lassoPoints[0][1]);
+        lassoPoints.forEach(([px, py]) => ctx.lineTo(px, py));
+        ctx.closePath();
+        ctx.strokeStyle = brushColor;
+        ctx.lineWidth = brushSize;
+        ctx.stroke();
+        saveHistory('Lasso Path');
+      } else if (tool === 'brush') {
+        saveHistory('Brush Tool');
+      } else if (tool === 'eraser') {
+        saveHistory('Eraser Tool');
+      } else if (tool === 'pencil') {
+        saveHistory('Pencil Tool');
+      }
+    }
+    setDragStart(null);
+    setDragCurrent(null);
+    setLassoPoints([]);
+  };
+
+  const swapColors = () => {
+    const temp = brushColor;
+    setBrushColor(secondaryColor);
+    setSecondaryColor(temp);
   };
 
   return (
-    <div className="h-full flex flex-col bg-[#121214] text-white overflow-hidden select-none">
+    <div className="h-full flex flex-col bg-[#ebebeb] text-black font-sans relative overflow-hidden select-none">
+      <style>{`
+        @font-face {
+          font-family: 'Chicago';
+          src: local('Impact'), local('HelveticaNeue-CondensedBold'), local('Arial-BoldMT');
+        }
+        .pattern-dots {
+          background-image: radial-gradient(#bbb 1.2px, transparent 1.2px);
+          background-size: 16px 16px;
+        }
+        .paint-outline {
+          filter: drop-shadow(0 0 1px #3b82f6) drop-shadow(0 0 1px #3b82f6);
+        }
+      `}</style>
       
-      {/* 1. Classic Desktop-Style Dropdown Menu Bar */}
-      <div className="h-8 bg-slate-950/90 border-b border-white/10 flex items-center px-4 gap-2 text-xs font-medium text-slate-300 relative z-30">
-        
-        {/* Transparent global backdrop click blocker to close active menus */}
-        {activeMenu && (
-          <div className="fixed inset-0 z-40" onClick={() => setActiveMenu(null)} />
-        )}
-
-        {/* File Menu Dropdown */}
-        <div className="relative z-50">
-          <button 
-            onClick={(e) => toggleMenu(e, 'file')}
-            className={cn(
-              "px-3 py-1 rounded transition-colors cursor-pointer", 
-              activeMenu === 'file' ? "bg-white/15 text-white font-semibold" : "hover:bg-white/5 text-slate-300"
-            )}
-          >
-            File
-          </button>
-          
-          <AnimatePresence>
+      {/* 1. Classic System 7 style Menu Bar */}
+      <div className="h-6 bg-[#ebebeb] border-b border-gray-400 flex items-center px-4 select-none relative z-[100] text-xs font-semibold gap-1 text-black">
+        <div className="flex items-center gap-1">
+          <div className="relative">
+            <button 
+              onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'file' ? null : 'file'); }}
+              onMouseEnter={() => activeMenu && setActiveMenu('file')}
+              className={cn("px-2.5 py-0.5 rounded hover:bg-black hover:text-white leading-none cursor-pointer", activeMenu === 'file' && "bg-black text-white")}
+            >
+              File
+            </button>
             {activeMenu === 'file' && (
-              <motion.div 
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 4 }}
-                transition={{ duration: 0.1 }}
-                className="absolute left-0 mt-1 w-52 bg-[#1a1a1e] border border-white/10 rounded-xl shadow-2xl p-1 flex flex-col gap-0.5"
-              >
+              <div className="absolute left-0 mt-0.5 w-48 bg-white border border-gray-400 shadow-lg py-1 text-black text-xs rounded z-50">
+                <button 
+                  onClick={() => { setShowAboutDialog(true); setActiveMenu(null); }}
+                  className="w-full text-left px-4 py-1 hover:bg-black hover:text-white flex items-center gap-2"
+                >
+                  <Info size={11} />
+                  <span>About GlassPaint...</span>
+                </button>
+                <div className="border-t border-gray-300 my-1" />
                 <button 
                   onClick={() => { clearCanvas(); setActiveMenu(null); }}
-                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
+                  className="w-full text-left px-4 py-1 hover:bg-black hover:text-white"
                 >
-                  <FilePlus size={13} className="text-emerald-400" />
-                  <span className="flex-1">New Canvas</span>
+                  <span>New Canvas</span>
                 </button>
-                
                 <button 
                   onClick={() => { setShowOpenDialog(true); setActiveMenu(null); }}
-                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
+                  className="w-full text-left px-4 py-1 hover:bg-black hover:text-white"
                 >
-                  <FolderOpen size={13} className="text-blue-400" />
-                  <span className="flex-1">Open File...</span>
+                  <span>Open Sketch...</span>
                 </button>
-
                 <button 
                   onClick={() => { setShowSaveDialog(true); setActiveMenu(null); }}
-                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
+                  className="w-full text-left px-4 py-1 hover:bg-black hover:text-white"
                 >
-                  <Save size={13} className="text-cyan-400" />
-                  <span className="flex-1">Save Sketch As...</span>
+                  <span>Save Copy As...</span>
                 </button>
-
-                <div className="h-px bg-white/5 my-1" />
-
+                <div className="border-t border-gray-300 my-1" />
                 <button 
                   onClick={() => { handleImportToWord(); setActiveMenu(null); }}
-                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs text-amber-300 hover:text-amber-200 transition-colors cursor-pointer"
+                  className="w-full text-left px-4 py-1 hover:bg-black hover:text-white"
                 >
-                  <FileText size={13} className="text-amber-400" />
-                  <span className="flex-1">Export to GlassWord</span>
+                  <span>Export to GlassWord</span>
                 </button>
-
-                {closeWindow && (
-                  <>
-                    <div className="h-px bg-white/5 my-1" />
-                    <button 
-                      onClick={() => { closeWindow('glasspaint'); setActiveMenu(null); }}
-                      className="w-full px-2.5 py-1.5 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
-                    >
-                      <X size={13} className="text-red-400" />
-                      <span className="flex-1">Close Paint App</span>
-                    </button>
-                  </>
-                )}
-              </motion.div>
+                <div className="border-t border-gray-300 my-1" />
+                <button 
+                  onClick={() => { closeWindow('glasspaint'); setActiveMenu(null); }}
+                  className="w-full text-left px-4 py-1 hover:bg-red-600 hover:text-white text-red-500"
+                >
+                  <span>Quit Paint App</span>
+                </button>
+              </div>
             )}
-          </AnimatePresence>
-        </div>
+          </div>
 
-        {/* Edit Menu Dropdown */}
-        <div className="relative z-50">
-          <button 
-            onClick={(e) => toggleMenu(e, 'edit')}
-            className={cn(
-              "px-3 py-1 rounded transition-colors cursor-pointer", 
-              activeMenu === 'edit' ? "bg-white/15 text-white font-semibold" : "hover:bg-white/5 text-slate-300"
-            )}
-          >
-            Edit
-          </button>
-          
-          <AnimatePresence>
+          {/* Edit Menu */}
+          <div className="relative">
+            <button 
+              onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'edit' ? null : 'edit'); }}
+              onMouseEnter={() => activeMenu && setActiveMenu('edit')}
+              className={cn("px-2.5 py-0.5 rounded hover:bg-black hover:text-white leading-none cursor-pointer", activeMenu === 'edit' && "bg-black text-white")}
+            >
+              Edit
+            </button>
             {activeMenu === 'edit' && (
-              <motion.div 
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 4 }}
-                transition={{ duration: 0.1 }}
-                className="absolute left-0 mt-1 w-56 bg-[#1a1a1e] border border-white/10 rounded-xl shadow-2xl p-1 flex flex-col gap-0.5"
-              >
+              <div className="absolute left-0 mt-0.5 w-44 bg-white border border-gray-400 shadow-lg py-1 text-black text-xs rounded z-50">
                 <button 
                   disabled={historyIndex <= 0}
                   onClick={() => { handleUndo(); setActiveMenu(null); }}
-                  className="w-full px-2.5 py-1.5 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-transparent rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
+                  className="w-full text-left px-4 py-1 hover:bg-black hover:text-white disabled:opacity-30 flex justify-between items-center"
                 >
-                  <Undo size={13} className="text-purple-400" />
-                  <span className="flex-1">Undo</span>
-                  <span className="text-[10px] text-slate-500 font-mono">Ctrl+Z</span>
+                  <span>Undo</span>
+                  <span className="opacity-50 text-[10px]">Ctrl+Z</span>
                 </button>
-
                 <button 
                   disabled={historyIndex >= history.length - 1}
                   onClick={() => { handleRedo(); setActiveMenu(null); }}
-                  className="w-full px-2.5 py-1.5 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-transparent rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
+                  className="w-full text-left px-4 py-1 hover:bg-black hover:text-white disabled:opacity-30 flex justify-between items-center"
                 >
-                  <Redo size={13} className="text-indigo-400" />
-                  <span className="flex-1">Redo</span>
-                  <span className="text-[10px] text-slate-500 font-mono">Ctrl+Y</span>
+                  <span>Redo</span>
+                  <span className="opacity-50 text-[10px]">Ctrl+Y</span>
                 </button>
-
-                <div className="h-px bg-white/5 my-1" />
-
-                <button 
-                  onClick={() => { copyToClipboard(); setActiveMenu(null); }}
-                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
-                >
-                  <Copy size={13} className="text-slate-400" />
-                  <span className="flex-1">Copy to Clipboard</span>
-                </button>
-
+                <div className="border-t border-gray-300 my-1" />
                 <button 
                   onClick={() => { clearCanvas(); setActiveMenu(null); }}
-                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs text-red-400 hover:text-red-300 transition-colors cursor-pointer"
+                  className="w-full text-left px-4 py-1 hover:bg-black hover:text-white"
                 >
-                  <Trash size={13} className="text-red-400" />
-                  <span className="flex-1">Clear Canvas</span>
+                  <span>Clear Window</span>
                 </button>
-              </motion.div>
+              </div>
             )}
-          </AnimatePresence>
-        </div>
-
-        {/* Tools Menu Dropdown */}
-        <div className="relative z-50">
-          <button 
-            onClick={(e) => toggleMenu(e, 'tools')}
-            className={cn(
-              "px-3 py-1 rounded transition-colors cursor-pointer", 
-              activeMenu === 'tools' ? "bg-white/15 text-white font-semibold" : "hover:bg-white/5 text-slate-300"
-            )}
-          >
-            Tools
-          </button>
-          
-          <AnimatePresence>
-            {activeMenu === 'tools' && (
-              <motion.div 
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 4 }}
-                transition={{ duration: 0.1 }}
-                className="absolute left-0 mt-1 w-56 bg-[#1a1a1e] border border-white/10 rounded-xl shadow-2xl p-1 flex flex-col gap-0.5"
-              >
-                <button 
-                  onClick={() => { setTool('brush'); setActiveMenu(null); }}
-                  className={cn(
-                    "w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer",
-                    tool === 'brush' ? "bg-blue-600/20 text-blue-300" : "hover:bg-white/10 text-slate-300"
-                  )}
-                >
-                  <Paintbrush size={13} className="text-blue-400" />
-                  <span className="flex-1">Brush Tool</span>
-                </button>
-
-                <button 
-                  onClick={() => { setTool('eraser'); setActiveMenu(null); }}
-                  className={cn(
-                    "w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer",
-                    tool === 'eraser' ? "bg-blue-600/20 text-blue-300" : "hover:bg-white/10 text-slate-300"
-                  )}
-                >
-                  <Eraser size={13} className="text-pink-400" />
-                  <span className="flex-1">Eraser Tool</span>
-                </button>
-
-                <button 
-                  onClick={() => { fillCanvas(); setActiveMenu(null); }}
-                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
-                >
-                  <PaintBucket size={13} className="text-amber-400" />
-                  <span className="flex-1">Fill Canvas Background</span>
-                </button>
-
-                <div className="h-px bg-white/5 my-1" />
-                <div className="px-2.5 py-1 text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono">Image Filters</div>
-
-                <button 
-                  onClick={() => { invertColors(); setActiveMenu(null); }}
-                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
-                >
-                  <Sparkles size={13} className="text-pink-400" />
-                  <span className="flex-1">Invert Colors</span>
-                </button>
-
-                <button 
-                  onClick={() => { applyGrayscale(); setActiveMenu(null); }}
-                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
-                >
-                  <Contrast size={13} className="text-slate-400" />
-                  <span className="flex-1">Slate Grayscale</span>
-                </button>
-
-                <button 
-                  onClick={() => { applySepia(); setActiveMenu(null); }}
-                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
-                >
-                  <Sparkles size={13} className="text-yellow-600" />
-                  <span className="flex-1">Warm Sepia</span>
-                </button>
-
-                <button 
-                  onClick={() => { mirrorCanvas(); setActiveMenu(null); }}
-                  className="w-full px-2.5 py-1.5 hover:bg-white/10 rounded-lg flex items-center gap-2.5 text-left text-xs transition-colors cursor-pointer"
-                >
-                  <RefreshCw size={13} className="text-cyan-400" />
-                  <span className="flex-1">Flip Horizontal</span>
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        {/* History micro-metrics for elite OS feel */}
-        <div className="ml-auto text-[10px] font-mono text-slate-500 flex items-center gap-2.5">
-          <span>History: {historyIndex + 1}/{history.length} frames</span>
-          <div className="flex gap-1">
-            <button 
-              disabled={historyIndex <= 0} 
-              onClick={handleUndo} 
-              className="p-1 rounded hover:bg-white/10 disabled:opacity-30 cursor-pointer text-slate-400 hover:text-white"
-              title="Undo (Ctrl+Z)"
-            >
-              <Undo size={11} />
-            </button>
-            <button 
-              disabled={historyIndex >= history.length - 1} 
-              onClick={handleRedo} 
-              className="p-1 rounded hover:bg-white/10 disabled:opacity-30 cursor-pointer text-slate-400 hover:text-white"
-              title="Redo (Ctrl+Y)"
-            >
-              <Redo size={11} />
-            </button>
           </div>
+
+          {/* Mode Menu */}
+          <div className="relative">
+            <button 
+              onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'mode' ? null : 'mode'); }}
+              onMouseEnter={() => activeMenu && setActiveMenu('mode')}
+              className={cn("px-2.5 py-0.5 rounded hover:bg-black hover:text-white leading-none cursor-pointer", activeMenu === 'mode' && "bg-black text-white")}
+            >
+              Mode
+            </button>
+            {activeMenu === 'mode' && (
+              <div className="absolute left-0 mt-0.5 w-44 bg-white border border-gray-400 shadow-lg py-1 text-black text-xs rounded z-50">
+                <button onClick={() => { applyGrayscale(); setActiveMenu(null); }} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">
+                  <span>Grayscale</span>
+                </button>
+                <button onClick={() => { setActiveMenu(null); }} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white font-bold">
+                  <span>✓ RGB Color</span>
+                </button>
+                <button disabled className="w-full text-left px-4 py-1 opacity-30 text-gray-400">
+                  <span>Indexed Color</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Image Menu */}
+          <div className="relative">
+            <button 
+              onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'image' ? null : 'image'); }}
+              onMouseEnter={() => activeMenu && setActiveMenu('image')}
+              className={cn("px-2.5 py-0.5 rounded hover:bg-black hover:text-white leading-none cursor-pointer", activeMenu === 'image' && "bg-black text-white")}
+            >
+              Image
+            </button>
+            {activeMenu === 'image' && (
+              <div className="absolute left-0 mt-0.5 w-44 bg-white border border-gray-400 shadow-lg py-1 text-black text-xs rounded z-50">
+                <button onClick={() => { flipCanvas(); setActiveMenu(null); }} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">
+                  <span>Flip Horizontal</span>
+                </button>
+                <button onClick={() => { applyInvert(); setActiveMenu(null); }} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">
+                  <span>Invert Coordinates</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Filter Menu */}
+          <div className="relative">
+            <button 
+              onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'filter' ? null : 'filter'); }}
+              onMouseEnter={() => activeMenu && setActiveMenu('filter')}
+              className={cn("px-2.5 py-0.5 rounded hover:bg-black hover:text-white leading-none cursor-pointer", activeMenu === 'filter' && "bg-black text-white")}
+            >
+              Filter
+            </button>
+            {activeMenu === 'filter' && (
+              <div className="absolute left-0 mt-0.5 w-44 bg-white border border-gray-400 shadow-lg py-1 text-black text-xs rounded z-50">
+                <button onClick={() => { applyInvert(); setActiveMenu(null); }} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">
+                  <span>Invert Colors</span>
+                </button>
+                <button onClick={() => { applyGrayscale(); setActiveMenu(null); }} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">
+                  <span>Slate Grayscale</span>
+                </button>
+                <button onClick={() => { applySepia(); setActiveMenu(null); }} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">
+                  <span>Warm Sepia Tint</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Window Menu */}
+          <div className="relative">
+            <button 
+              onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'window' ? null : 'window'); }}
+              onMouseEnter={() => activeMenu && setActiveMenu('window')}
+              className={cn("px-2.5 py-0.5 rounded hover:bg-black hover:text-white leading-none cursor-pointer", activeMenu === 'window' && "bg-black text-white")}
+            >
+              Window
+            </button>
+            {activeMenu === 'window' && (
+              <div className="absolute left-0 mt-0.5 w-44 bg-white border border-gray-400 shadow-lg py-1 text-black text-xs rounded z-50">
+                <button onClick={() => { setActiveMenu(null); }} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">
+                  <span>✓ Tools Panel</span>
+                </button>
+                <button onClick={() => { setActiveMenu(null); }} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">
+                  <span>✓ Brush Swatches</span>
+                </button>
+                <button onClick={() => { setActiveMenu(null); }} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">
+                  <span>✓ State History</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="ml-auto flex items-center gap-3 text-[10px] text-black/60 font-bold">
+          <span>Frames: {historyIndex + 1}/{history.length}</span>
         </div>
       </div>
 
-      {/* 2. Interactive Tool Settings Panel */}
-      <div className="h-12 border-b border-white/10 flex items-center px-4 justify-between bg-slate-900/80">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
-            <button 
-              onClick={() => { setTool('brush'); addNotification('GlassPaint', 'Switched to Brush', 'info'); }} 
-              className={cn("p-1.5 rounded-lg cursor-pointer transition-all", tool === 'brush' ? "bg-blue-600 text-white shadow-md" : "hover:bg-white/10 text-slate-400 hover:text-slate-200")} 
-              title="Brush Tool"
-            >
-              <Paintbrush size={14} />
-            </button>
-            <button 
-              onClick={() => { setTool('eraser'); addNotification('GlassPaint', 'Switched to Eraser', 'info'); }} 
-              className={cn("p-1.5 rounded-lg cursor-pointer transition-all", tool === 'eraser' ? "bg-blue-600 text-white shadow-md" : "hover:bg-white/10 text-slate-400 hover:text-slate-200")} 
-              title="Eraser Tool"
-            >
-              <Eraser size={14} />
-            </button>
-          </div>
-          
-          <div className="flex items-center gap-2 bg-white/5 px-2.5 py-1 rounded-xl border border-white/5">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Color:</span>
-            <input 
-              type="color" 
-              value={brushColor} 
-              onChange={e => setBrushColor(e.target.value)} 
-              className="w-5 h-5 rounded cursor-pointer border border-white/10 bg-transparent" 
-            />
+      {/* 2. Tool Options Bar */}
+      <div className="bg-[#f0f0f0] border-b border-gray-400 p-2 text-black flex flex-wrap items-center justify-between gap-3 text-xs select-none font-sans">
+        <div className="flex items-center gap-3">
+          <div className="flex flex-col items-center">
+            <span className="text-[8px] font-bold uppercase tracking-tight text-gray-500">Active Tool</span>
+            <span className="px-2 py-0.5 bg-black text-white text-[9px] font-mono uppercase font-bold tracking-wider rounded">
+              {tool}
+            </span>
           </div>
 
-          <div className="flex items-center gap-2 bg-white/5 px-3 py-1 rounded-xl border border-white/5">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold min-w-[50px]">Size: {brushSize}px</span>
-            <input 
-              type="range" 
-              min="1" 
-              max="50" 
-              value={brushSize} 
-              onChange={e => setBrushSize(parseInt(e.target.value))} 
-              className="w-24 accent-blue-500 cursor-ew-resize h-1 bg-white/10 rounded-lg appearance-none" 
-            />
-          </div>
-
-          <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/5 ml-1">
-            <button onClick={() => setShowOpenDialog(true)} className="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer" title="Open Paint File..."><FolderOpen size={14} /></button>
-            <button onClick={handleImportToWord} className="p-1.5 hover:bg-white/10 rounded-lg text-amber-400 hover:text-amber-300 font-bold text-[10px] tracking-wide transition-colors cursor-pointer" title="Export to GlassWord">WORD</button>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-2">
-          <button onClick={clearCanvas} className="p-2 hover:bg-red-500/15 text-slate-400 hover:text-red-300 rounded-xl transition-colors cursor-pointer" title="Clear Canvas"><RefreshCw size={14} /></button>
-          <button 
-            onClick={() => setShowSaveDialog(true)} 
-            className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-lg shadow-blue-600/10 active:scale-95"
-          >
-            <Save size={13} /> 
-            <span>Save Sketch</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 3. Drawing Canvas Board */}
-      <div className="flex-1 bg-white relative">
-        <canvas 
-          ref={canvasRef}
-          width={1200}
-          height={800}
-          className="w-full h-full cursor-crosshair"
-          onMouseDown={startDrawing}
-          onMouseMove={draw}
-          onMouseUp={stopDrawing}
-          onMouseLeave={stopDrawing}
-        />
-      </div>
-
-      {/* Dialog Modals */}
-      <AnimatePresence>
-        {showSaveDialog && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="glass-dark p-6 rounded-2xl w-full max-w-xs border border-white/10 shadow-2xl">
-              <h3 className="text-sm font-bold mb-4 text-white">Save Sketch</h3>
+          {tool === 'text' && (
+            <div className="flex flex-col">
+              <span className="text-[8px] font-bold uppercase tracking-tight text-gray-500">Stamp Text</span>
               <input 
                 type="text" 
-                value={saveName} 
-                onChange={e => setSaveName(e.target.value)}
-                className="w-full glass-input mb-4 text-xs" 
+                value={textInput} 
+                onChange={e => setTextInput(e.target.value)}
+                className="bg-white border border-gray-400 rounded px-1.5 py-0.5 text-[10px] w-36 font-mono outline-none h-5"
               />
+            </div>
+          )}
+
+          {(tool === 'brush' || tool === 'eraser' || tool === 'line' || tool === 'text' || tool === 'marquee' || tool === 'lasso') && (
+            <div className="flex flex-col justify-center">
+              <span className="text-[8px] font-bold uppercase tracking-tight text-gray-500">Brush Weight: {brushSize}px</span>
+              <div className="flex items-center gap-2 h-5">
+                <input 
+                  type="range" 
+                  min="1" 
+                  max="40" 
+                  value={brushSize} 
+                  onChange={e => setBrushSize(parseInt(e.target.value))}
+                  className="w-24 cursor-ew-resize accent-black h-1 bg-black/10 rounded appearance-none"
+                />
+              </div>
+            </div>
+          )}
+
+          {tool === 'zoom' && (
+            <div className="flex flex-col justify-center">
+              <span className="text-[8px] font-bold uppercase tracking-tight text-gray-500">Zoom Instructions</span>
+              <div className="flex items-center gap-2 h-5">
+                <span className="text-[10px] font-semibold text-gray-600">Click to Zoom in / Shift+Click to Zoom out</span>
+                <button 
+                  onClick={() => setZoomLevel(1)} 
+                  className="px-2 py-0.5 border border-gray-400 rounded bg-white hover:bg-black hover:text-white text-[9px] font-bold"
+                >
+                  Reset 100%
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => setShowOpenDialog(true)}
+            className="px-2.5 py-0.5 border border-gray-400 bg-white hover:bg-gray-100 text-[10px] font-semibold rounded shadow-sm active:translate-y-px"
+          >
+            Open Sketch
+          </button>
+          <button 
+            onClick={() => setShowSaveDialog(true)}
+            className="px-2.5 py-0.5 border border-gray-400 bg-black text-white hover:bg-black/90 text-[10px] font-semibold rounded shadow-sm active:translate-y-px"
+          >
+            Save File
+          </button>
+        </div>
+      </div>
+
+      {activeMenu && (
+        <div className="fixed inset-0 z-30" onClick={() => setActiveMenu(null)} />
+      )}
+
+      {/* 3. Main Workspace Container */}
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Left Tool Palette */}
+        <div className="w-12 bg-[#ebebeb] border-r border-gray-400 shrink-0 flex flex-col items-center py-2 gap-3 text-black select-none justify-between h-full z-10">
+          <div className="flex flex-col gap-1 w-full items-center">
+            <div className="grid grid-cols-1 gap-1 w-full px-1">
+              {[
+                { id: 'lasso', icon: <Scissors size={13} />, label: 'Lasso Selection' },
+                { id: 'marquee', icon: <Square size={13} />, label: 'Rect Marquee' },
+                { id: 'hand', icon: <Hand size={13} />, label: 'Pan Tool' },
+                { id: 'zoom', icon: <Search size={13} />, label: 'Zoom Canvas' },
+                { id: 'eyedropper', icon: <Pipette size={13} />, label: 'Color Picker' },
+                { id: 'eraser', icon: <Eraser size={13} />, label: 'Eraser Tool' },
+                { id: 'brush', icon: <Paintbrush size={13} />, label: 'Airbrush Paint' },
+                { id: 'pencil', icon: <Pencil size={13} />, label: 'Pencil Draw' },
+                { id: 'paintbucket', icon: <PaintBucket size={13} />, label: 'Paint Bucket' },
+                { id: 'line', icon: <Minus size={13} />, label: 'Straight Line' },
+                { id: 'text', icon: <Type size={13} />, label: 'Text Stamp' },
+                { id: 'gradient', icon: <Layers size={13} />, label: 'Linear Gradient' },
+              ].map(t => {
+                const isSelected = tool === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setTool(t.id as any)}
+                    className={cn(
+                      "h-8 w-8 border flex items-center justify-center transition-all shadow-[1px_1px_1px_rgba(0,0,0,0.1)] rounded mx-auto cursor-pointer",
+                      isSelected 
+                        ? "bg-[#333333] text-white border-black ring-1 ring-black/50" 
+                        : "bg-white text-gray-800 border-gray-400 hover:bg-gray-100 active:bg-gray-200"
+                    )}
+                    title={t.label}
+                  >
+                    {t.icon}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Color Selection Swatches in bottom of Tool Palette */}
+          <div className="w-full flex flex-col items-center border-t border-gray-300 pt-2 px-1 gap-1 mb-2">
+            <span className="text-[8px] font-bold uppercase tracking-tight text-gray-500">Colors</span>
+            <div className="relative w-9 h-9">
+              <button 
+                onClick={swapColors}
+                className="absolute -top-1 -right-1 text-black hover:text-blue-600 z-10 cursor-pointer"
+                title="Swap Colors"
+              >
+                <ArrowLeftRight size={8} />
+              </button>
+              <div className="absolute bottom-0 right-0 w-6 h-6 border border-gray-400 bg-white overflow-hidden rounded">
+                <input type="color" value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)} className="w-10 h-10 -m-2 cursor-pointer border-0 p-0 bg-transparent" />
+              </div>
+              <div className="absolute top-0 left-0 w-6 h-6 border border-gray-400 bg-black overflow-hidden z-10 rounded">
+                <input type="color" value={brushColor} onChange={e => setBrushColor(e.target.value)} className="w-10 h-10 -m-2 cursor-pointer border-0 p-0 bg-transparent" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Outer Scrollable Frame with Rulers */}
+        <div className="flex-1 flex flex-col overflow-hidden relative" onClick={() => activeMenu && setActiveMenu(null)}>
+          {/* Top Horizontal Ruler */}
+          {showRulers && (
+            <div className="h-6 bg-[#ebebeb] border-b border-gray-400 flex relative shrink-0 overflow-hidden select-none">
+              {Array.from({ length: 30 }).map((_, i) => {
+                const pos = i * 50;
+                return (
+                  <div key={i} className="absolute bottom-0 flex flex-col items-center" style={{ left: `${pos}px`, width: '1px' }}>
+                    <span className="text-[7px] font-mono text-gray-600 mb-0.5">{pos}</span>
+                    <div className="h-2 w-[1px] bg-gray-400" />
+                    <div className="absolute h-1 w-[1px] bg-gray-300" style={{ left: '-10px', bottom: 0 }} />
+                    <div className="absolute h-1.5 w-[1px] bg-gray-300" style={{ left: '-20px', bottom: 0 }} />
+                    <div className="absolute h-1 w-[1px] bg-gray-300" style={{ left: '-30px', bottom: 0 }} />
+                    <div className="absolute h-1 w-[1px] bg-gray-300" style={{ left: '-40px', bottom: 0 }} />
+                  </div>
+                );
+              })}
+              {/* Horizontal mouse tracker */}
+              <div className="absolute bottom-0 w-[1px] h-3 bg-red-500 pointer-events-none" style={{ left: `${mousePos ? mousePos.x * zoomLevel : 0}px` }} />
+            </div>
+          )}
+
+          {/* Core Scroll Area */}
+          <div className="flex-1 flex relative overflow-hidden">
+            {/* Left Vertical Ruler */}
+            {showRulers && (
+              <div className="w-6 bg-[#ebebeb] border-r border-gray-400 flex flex-col relative shrink-0 overflow-hidden select-none">
+                {Array.from({ length: 30 }).map((_, i) => {
+                  const pos = i * 50;
+                  return (
+                    <div key={i} className="absolute right-0 flex items-center pr-1" style={{ top: `${pos}px`, height: '1px' }}>
+                      <span className="text-[7px] font-mono text-gray-600 mr-1">{pos}</span>
+                      <div className="w-2 h-[1px] bg-gray-400" />
+                      <div className="absolute w-1 h-[1px] bg-gray-300" style={{ top: '-10px' }} />
+                      <div className="absolute w-1.5 h-[1px] bg-gray-300" style={{ top: '-20px' }} />
+                      <div className="absolute w-1 h-[1px] bg-gray-300" style={{ top: '-30px' }} />
+                      <div className="absolute w-1 h-[1px] bg-gray-300" style={{ top: '-40px' }} />
+                    </div>
+                  );
+                })}
+                {/* Vertical mouse tracker */}
+                <div className="absolute right-0 h-[1px] w-3 bg-red-500 pointer-events-none" style={{ top: `${mousePos ? mousePos.y * zoomLevel : 0}px` }} />
+              </div>
+            )}
+
+            {/* Scrollable Canvas container */}
+            <div className="flex-1 overflow-auto bg-[#888888] p-8 flex items-start justify-start relative">
+              <div 
+                className="relative bg-white shadow-[4px_4px_16px_rgba(0,0,0,0.4)] border border-gray-600 shrink-0 transition-transform duration-100"
+                style={{ width: '600px', height: '400px', transform: `scale(${zoomLevel})`, transformOrigin: 'top left' }}
+              >
+                <canvas 
+                  ref={canvasRef}
+                  width={600}
+                  height={400}
+                  className={cn(
+                    "block",
+                    tool === 'brush' || tool === 'pencil' ? "cursor-crosshair" :
+                    tool === 'eraser' ? "cursor-cell" : "cursor-default"
+                  )}
+                  onMouseDown={startDrawing}
+                  onMouseMove={draw}
+                  onMouseUp={stopDrawing}
+                  onMouseLeave={stopDrawing}
+                />
+
+                {isDrawing && dragStart && dragCurrent && (
+                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-20">
+                    {tool === 'line' && (
+                      <line x1={dragStart.x} y1={dragStart.y} x2={dragCurrent.x} y2={dragCurrent.y} stroke={brushColor} strokeWidth={brushSize} strokeDasharray="4" />
+                    )}
+                    {tool === 'gradient' && (
+                      <g>
+                        <line x1={dragStart.x} y1={dragStart.y} x2={dragCurrent.x} y2={dragCurrent.y} stroke="#000" strokeWidth="2" />
+                        <circle cx={dragStart.x} cy={dragStart.y} r="4" fill={brushColor} stroke="#000" />
+                        <circle cx={dragCurrent.x} cy={dragCurrent.y} r="4" fill={secondaryColor} stroke="#000" />
+                      </g>
+                    )}
+                    {tool === 'marquee' && (
+                      <rect 
+                        x={Math.min(dragStart.x, dragCurrent.x)}
+                        y={Math.min(dragStart.y, dragCurrent.y)}
+                        width={Math.abs(dragStart.x - dragCurrent.x)}
+                        height={Math.abs(dragStart.y - dragCurrent.y)}
+                        fill="rgba(0,0,0,0.05)"
+                        stroke="#000000"
+                        strokeWidth="1"
+                        strokeDasharray="4"
+                        className="animate-[marching-ants_0.4s_linear_infinite]"
+                      />
+                    )}
+                    {tool === 'lasso' && lassoPoints.length > 1 && (
+                      <polyline points={lassoPoints.map(p => p.join(',')).join(' ')} fill="transparent" stroke="#000" strokeWidth="1.5" strokeDasharray="3" />
+                    )}
+                  </svg>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Symmetrical Window Status Bar */}
+          <div className="h-5 bg-[#ebebeb] border-t border-gray-400 flex items-center justify-between px-3 text-[9px] font-mono text-black font-semibold shrink-0 select-none">
+            <div>Doc: 256K / 240K • 600 x 400 pixels</div>
+            <div>Zoom: {Math.round(zoomLevel * 100)}%</div>
+            <div className="w-24 text-right">{mousePos ? `X: ${mousePos.x} Y: ${mousePos.y}` : 'X: -- Y: --'}</div>
+          </div>
+        </div>
+
+        {/* Attached Right Sidebar Palettes Stack */}
+        <div className="w-40 bg-[#ebebeb] border-l border-gray-400 flex flex-col p-2 gap-3 shrink-0 h-full select-none z-10">
+          {/* Brush Swatches */}
+          <div className="bg-white border border-gray-400 rounded p-2 shadow-sm">
+            <div className="border-b border-gray-200 pb-1 mb-2 font-bold text-[9px] text-gray-500 uppercase flex items-center justify-between">
+              <span>Brush Swatches</span>
+              <div className="w-3 h-0.5 bg-gray-300" />
+            </div>
+            
+            <div className="grid grid-cols-6 gap-1 mb-3">
+              {[
+                '#000000', '#ffffff', '#444444', '#888888', '#cccccc', '#ff0000',
+                '#00ff00', '#0000ff', '#ffff00', '#00ffff', '#ff00ff', '#ffa500'
+              ].map(c => (
+                <button 
+                  key={c} 
+                  onClick={() => setBrushColor(c)} 
+                  className="w-4 h-4 border border-gray-300 rounded-sm cursor-pointer hover:scale-110 transition-transform" 
+                  style={{ backgroundColor: c }} 
+                  title={c}
+                />
+              ))}
+            </div>
+
+            <div className="border-t border-gray-100 pt-2">
+              <div className="text-[8px] text-gray-400 uppercase mb-1 font-bold">Presets:</div>
+              <div className="flex justify-between items-center bg-gray-50 border border-gray-200 rounded p-1">
+                {[1, 3, 5, 8, 12, 18, 25].map(sz => (
+                  <button 
+                    key={sz}
+                    onClick={() => setBrushSize(sz)}
+                    className={cn("flex items-center justify-center rounded-full hover:bg-black/10 w-4 h-4 transition-colors cursor-pointer", brushSize === sz ? "bg-black/20 border border-gray-500" : "")}
+                  >
+                    <div className="bg-black rounded-full" style={{ width: `${Math.max(1, sz / 4)}px`, height: `${Math.max(1, sz / 4)}px` }} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* State History */}
+          <div className="bg-white border border-gray-400 rounded p-2 shadow-sm flex flex-col h-[180px]">
+            <div className="border-b border-gray-200 pb-1 mb-1 font-bold text-[9px] text-gray-500 uppercase flex items-center justify-between">
+              <span>State History</span>
+              <div className="w-3 h-0.5 bg-gray-300" />
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-0.5 pr-1 bg-gray-50 border border-gray-200 rounded p-1 text-[9px] font-mono">
+              {historyActions.map((act, i) => {
+                const isActive = historyIndex === i;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => restoreState(history[i], i)}
+                    className={cn("w-full text-left py-0.5 px-1 font-semibold truncate rounded block cursor-pointer transition-colors", isActive ? "bg-black text-white" : "hover:bg-gray-200 text-gray-700")}
+                  >
+                    {i === 0 ? '⚓ ' : '• '}{act}
+                  </button>
+                );
+              })}
+            </div>
+            
+            <div className="border-t border-gray-100 pt-1.5 mt-2 flex items-center justify-between text-[8px] text-gray-400 font-bold">
+              <span>Layers: 1 active</span>
+              <span className="opacity-65">Background</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes marching-ants {
+          0% { stroke-dashoffset: 0; }
+          100% { stroke-dashoffset: 8; }
+        }
+      `}</style>
+
+      {/* Dialogs */}
+      <AnimatePresence>
+        {showAboutDialog && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-white border-2 border-black p-5 max-w-sm w-full shadow-[4px_4px_0_0_rgba(0,0,0,1)] text-black">
+              <div className="border border-black p-4 flex flex-col gap-3">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 border border-black flex items-center justify-center shrink-0 bg-black text-white">
+                    <Palette size={26} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold tracking-tight">About GlassPaint v1.07</h3>
+                    <p className="text-[10px] text-black/50 font-bold uppercase tracking-wider mt-0.5">Photoshop Edition</p>
+                    <p className="text-xs leading-relaxed mt-2 font-sans font-medium">
+                      Inspired by original 1990 Macintosh Photoshop 1.07. Supporting live raster drawing, scanline flood fills, dithered workspaces, and marching-ant rectangular selections.
+                    </p>
+                  </div>
+                </div>
+                <div className="h-px bg-black/20 my-1" />
+                <div className="text-[9px] leading-normal font-mono opacity-60">Created for the NOC Center OS. Built using functional React, Canvas2D buffer interfaces, and linear vector gradients.</div>
+                <div className="flex justify-end mt-2">
+                  <button onClick={() => setShowAboutDialog(false)} className="px-5 py-1.5 bg-black text-white border border-black hover:bg-white hover:text-black font-bold text-xs shadow-[2px_2px_0_0_rgba(0,0,0,0.2)]">OK</button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showSaveDialog && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white border-2 border-black p-5 w-full max-w-xs shadow-[3px_3px_0_0_rgba(0,0,0,1)]">
+              <h3 className="text-xs font-bold mb-3">Save Sketch Copy</h3>
+              <input type="text" value={saveName} onChange={e => setSaveName(e.target.value)} className="w-full bg-white border border-black p-1.5 text-xs font-mono mb-4 outline-none" />
               <div className="flex gap-2">
-                <button onClick={() => setShowSaveDialog(false)} className="flex-1 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs text-white transition-colors cursor-pointer">Cancel</button>
-                <button onClick={handleSave} className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition-colors cursor-pointer shadow-lg shadow-blue-600/25">Save</button>
+                <button onClick={() => setShowSaveDialog(false)} className="flex-1 py-1.5 border border-black bg-[#f0f0f0] hover:bg-white font-bold text-xs cursor-pointer">Cancel</button>
+                <button onClick={handleSave} className="flex-1 py-1.5 border border-black bg-black text-white hover:bg-black/90 font-bold text-xs cursor-pointer">Save Copy</button>
               </div>
             </motion.div>
           </div>
         )}
 
         {showOpenDialog && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="glass-dark p-4 rounded-2xl w-full max-w-md border border-white/10 shadow-2xl flex flex-col h-[60%]">
-              <div className="flex justify-between items-center mb-4 text-white">
-                 <h3 className="text-sm font-bold">Open Canvas</h3>
-                 <button onClick={() => setShowOpenDialog(false)} className="p-1 hover:bg-white/10 rounded-lg cursor-pointer"><X size={16} /></button>
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white border-2 border-black p-4 w-full max-w-sm shadow-[3px_3px_0_0_rgba(0,0,0,1)] flex flex-col max-h-[60%]">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-xs font-bold">Open Canvas Sketch</h3>
+                <button onClick={() => setShowOpenDialog(false)} className="text-xs hover:bg-[#eaeaea] p-0.5 border border-black">✕</button>
               </div>
-              <div className="flex-1 overflow-y-auto space-y-2 translate-z-0 pr-1 scrollbar-thin">
-                {remoteFiles.length === 0 && <div className="text-center text-white/20 text-xs p-8 italic">No paintings or drawings found</div>}
+              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+                {remoteFiles.length === 0 && <div className="text-center text-black/40 text-xs py-8 italic">No saved paint sketches found</div>}
                 {remoteFiles.map(file => (
-                  <button 
-                    key={file.name} 
-                    onClick={() => handleOpenFile(file)}
-                    className="w-full p-3 bg-white/5 hover:bg-white/10 rounded-xl flex items-center gap-3 text-left group transition-all border border-white/5"
-                  >
-                    {file.name.endsWith('.gpaint') ? <Palette size={16} className="text-pink-400" /> : <BoxIcon size={16} className="text-blue-400" />}
+                  <button key={file.name} onClick={() => handleOpenFile(file)} className="w-full p-2 border border-black bg-[#f9f9f9] hover:bg-black hover:text-white rounded-none flex items-center gap-2.5 text-left transition-all">
+                    <Palette size={13} />
                     <div className="flex-1 overflow-hidden">
-                      <div className="text-xs font-bold truncate text-white">{file.name}</div>
-                      <div className="text-[9px] text-white/40 uppercase font-bold tracking-tighter">
-                        {file.name.endsWith('.gpaint') ? 'Bitmap/Raster' : 'Vector Elements'}
-                      </div>
+                      <div className="text-[11px] font-bold truncate">{file.name}</div>
                     </div>
                   </button>
                 ))}
@@ -6871,6 +7512,7 @@ function GlassPaintApp({ fsLib, addNotification, setGlassWordContent, openWindow
     </div>
   );
 }
+
 
 function GlassPhotoApp({ fsLib, addNotification }: any) {
   const [image, setImage] = useState<string | null>(null);
@@ -9296,6 +9938,7 @@ function renderApp(id: AppId, props: any) {
     case 'clock': return <ClockApp {...props} />;
     case 'timer': return <TimerApp {...props} />;
     case 'calculator': return <CalculatorApp {...props} />;
+    case 'unitconverter': return <UnitConverterApp {...props} />;
     default: return <div className="p-4">App not found</div>;
   }
 }
@@ -9523,7 +10166,7 @@ function SystemMonitorApp(props: any) {
     windows, closeWindow
   } = props;
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'traffic' | 'glasstcp' | 'kernel' | 'security' | 'protocols' | 'hardware'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'traffic' | 'glasstcp' | 'kernel' | 'security' | 'protocols' | 'hardware' | 'printers'>('overview');
   const fsLib = useMemo(() => new FileSystemLib(fs, setFs), [fs, setFs]);
   const [hwInfo, setHwInfo] = useState<SystemInfo | null>(null);
 
@@ -9535,6 +10178,301 @@ function SystemMonitorApp(props: any) {
       }
     }
   }, [props.systemMonitorActiveTab, props.setSystemMonitorActiveTab]);
+
+  // Printers states and Protocol Integration
+  const [printers, setPrinters] = useState([
+    { id: 'p1', name: 'NOC-LaserJet-8000', ip: '192.168.1.180', port: 9100, protocol: 'GPP', status: 'online', ink: 84, paper: 92, speed: '45 PPM', location: 'Floor 3 Server Room' },
+    { id: 'p2', name: 'Color-Plotter-Enclave', ip: '192.168.1.181', port: 631, protocol: 'IPP', status: 'online', ink: 41, paper: 35, speed: '12 PPM', location: 'Design Enclave' },
+    { id: 'p3', name: 'Secure-Thermal-Matrix', ip: '192.168.1.182', port: 515, protocol: 'RAW', status: 'offline', ink: 100, paper: 0, speed: '180 PPM', location: 'Security Gate 2' }
+  ]);
+  const [selectedPrinterId, setSelectedPrinterId] = useState('p1');
+  const [protocolLogs, setProtocolLogs] = useState<string[]>([
+    `[${new Date().toLocaleTimeString()}] GPP: GlassPrint spooler daemon online.`,
+    `[${new Date().toLocaleTimeString()}] GPP: Socket port 9100 bound to 0.0.0.0.`,
+    `[${new Date().toLocaleTimeString()}] IPP: Service listening at https://192.168.1.104:631/ipp/print.`
+  ]);
+  const [isTestPrinting, setIsTestPrinting] = useState(false);
+  const [testDocumentName, setTestDocumentName] = useState('NOC_Diagnostic_Test.pdf');
+  const [testDocumentPages, setTestDocumentPages] = useState(1);
+
+  const processedJobs = useRef<Set<string>>(new Set());
+
+  // Intercept OS Print Spooling Requests and Simulate Network Traffic
+  useEffect(() => {
+    if (!props.printQueue) return;
+    
+    props.printQueue.forEach((job: PrintJob) => {
+      if (job.status === 'printing' && !processedJobs.current.has(job.id)) {
+        processedJobs.current.add(job.id);
+        
+        const docName = job.documentName || 'Document';
+        const activePrinter = printers.find(p => p.id === selectedPrinterId) || printers[0];
+        const documentSize = (job.pages || 1) * 124 * 1024;
+
+        const t0 = new Date().toLocaleTimeString();
+        setProtocolLogs(prev => [
+          ...prev,
+          `[${t0}] [GPP] Intercepted external print request for "${docName}" from "${job.sourceApp || 'Application'}"`,
+          `[${t0}] [GPP] Opening Socket connection to ${activePrinter.ip}:${activePrinter.port}...`,
+          `[${t0}] [TCP] Packet out: SYN seq=0 to ${activePrinter.ip}:${activePrinter.port}`
+        ]);
+
+        const synPacket: TrafficEvent = {
+          id: 'syn-' + Math.random().toString(36).substr(2, 9),
+          protocol: 'IP',
+          source: '192.168.1.104',
+          destination: `${activePrinter.ip}:${activePrinter.port}`,
+          size: '64 B',
+          timestamp: t0
+        };
+        if (setNetworkTraffic) {
+          setNetworkTraffic((prev: TrafficEvent[]) => [synPacket, ...prev].slice(0, 50));
+        }
+
+        // Stage 2
+        setTimeout(() => {
+          const t1 = new Date().toLocaleTimeString();
+          setProtocolLogs(prev => [
+            ...prev,
+            `[${t1}] [TCP] Packet in: SYN-ACK ack=1 seq=1000 from ${activePrinter.ip}:${activePrinter.port}`,
+            `[${t1}] [GPP] Secure SSL channel established.`
+          ]);
+          const synAckPacket: TrafficEvent = {
+            id: 'synack-' + Math.random().toString(36).substr(2, 9),
+            protocol: 'IP',
+            source: `${activePrinter.ip}:${activePrinter.port}`,
+            destination: '192.168.1.104',
+            size: '64 B',
+            timestamp: t1
+          };
+          if (setNetworkTraffic) {
+            setNetworkTraffic((prev: TrafficEvent[]) => [synAckPacket, ...prev].slice(0, 50));
+          }
+        }, 1500);
+
+        // Stage 3
+        setTimeout(() => {
+          const t2 = new Date().toLocaleTimeString();
+          setProtocolLogs(prev => [
+            ...prev,
+            `[${t2}] [GPP] Sending job "${docName}" payload to ${activePrinter.name}`,
+            `[${t2}] [TCP] Packet out: PUSH_DATA length=${documentSize} to ${activePrinter.ip}:${activePrinter.port}`
+          ]);
+          const dataPacket: TrafficEvent = {
+            id: 'data-' + Math.random().toString(36).substr(2, 9),
+            protocol: 'IP',
+            source: '192.168.1.104',
+            destination: `${activePrinter.ip}:${activePrinter.port}`,
+            size: `${(documentSize / 1024).toFixed(1)} KB`,
+            timestamp: t2
+          };
+          if (setNetworkTraffic) {
+            setNetworkTraffic((prev: TrafficEvent[]) => [dataPacket, ...prev].slice(0, 50));
+          }
+        }, 3000);
+
+        // Stage 4
+        setTimeout(() => {
+          const t3 = new Date().toLocaleTimeString();
+          setProtocolLogs(prev => [
+            ...prev,
+            `[${t3}] [GPP] Network print data stream fully spooled. Connection terminated (FIN).`,
+            `[${t3}] [GPP] Printer tray dispatched.`
+          ]);
+          const finPacket: TrafficEvent = {
+            id: 'fin-' + Math.random().toString(36).substr(2, 9),
+            protocol: 'IP',
+            source: `${activePrinter.ip}:${activePrinter.port}`,
+            destination: '192.168.1.104',
+            size: '128 B',
+            timestamp: t3
+          };
+          if (setNetworkTraffic) {
+            setNetworkTraffic((prev: TrafficEvent[]) => [finPacket, ...prev].slice(0, 50));
+          }
+          setPrinters(prev => prev.map(p => p.id === activePrinter.id ? { ...p, jobsCompleted: p.jobsCompleted + 1 } : p));
+        }, 4500);
+      }
+    });
+  }, [props.printQueue, printers, selectedPrinterId, setNetworkTraffic]);
+
+  const clearJobs = () => {
+    if (props.setPrintQueue) {
+      props.setPrintQueue([]);
+      addNotification('Print Manager', 'Print queue cleared', 'info');
+    }
+  };
+
+  const handlePrintScript = (job: PrintJob) => {
+    const scriptContent = `##printjob_${job.id}
+Start
+PRINT 'Initiating physical raster...'
+PRINT 'Job: ${job.documentName}'
+PRINT 'Source: ${job.sourceApp || 'Application'}'
+PRINT 'Payload Hash: ${Math.random().toString(16).slice(2)}'
+End
+`;
+    const folderPath = '/GlassDrive/Documents/System/Spooler';
+    const filePath = `${folderPath}/${job.documentName.replace(/\s+/g, '_')}_${Date.now()}.scr`;
+    
+    try {
+      if (!fsLib.exists(folderPath)) fsLib.mkdir(folderPath);
+      fsLib.write(filePath, scriptContent);
+      addNotification('Printer Daemon', `Compiled spooler script for "${job.documentName}" in /GlassDrive/Documents/System/Spooler`, 'success');
+    } catch (e) {
+      addNotification('Printer Daemon', 'Failed to generate spooler script', 'error');
+    }
+  };
+
+  const handleSendTestPage = () => {
+    if (isTestPrinting) return;
+
+    const activePrinter = printers.find(p => p.id === selectedPrinterId) || printers[0];
+    if (activePrinter.status === 'offline') {
+      addNotification('GPP Spooler', `Selected printer ${activePrinter.name} is offline.`, 'error');
+      return;
+    }
+
+    setIsTestPrinting(true);
+
+    const docName = testDocumentName || 'NOC_Diagnostic_Test.pdf';
+    const pagesCount = testDocumentPages || 1;
+    const documentSize = pagesCount * 124 * 1024; // 124KB per page
+    
+    // Add to printQueue
+    const newJob: PrintJob = {
+      id: 'gpp-' + Math.random().toString(36).substr(2, 9),
+      documentName: docName,
+      filename: docName,
+      status: 'printing',
+      progress: 0,
+      pages: pagesCount,
+      timestamp: new Date().toLocaleTimeString(),
+      owner: currentUser?.username || 'admin',
+      sourceApp: 'NOC-Spooler'
+    };
+
+    if (props.setPrintQueue) {
+      props.setPrintQueue((prev: PrintJob[]) => [...prev, newJob]);
+    }
+
+    addNotification('GPP Spooler', `Sending network print stream to ${activePrinter.name}...`, 'info');
+
+    // Simulate real network GPP protocol packet stream
+    // Stage 1: TCP Handshake (SYN)
+    const t0 = new Date().toLocaleTimeString();
+    setProtocolLogs(prev => [
+      ...prev,
+      `[${t0}] [GPP] Opening Socket connection to ${activePrinter.ip}:${activePrinter.port}...`,
+      `[${t0}] [TCP] Packet out: SYN seq=0 to ${activePrinter.ip}:${activePrinter.port}`
+    ]);
+
+    const synPacket: TrafficEvent = {
+      id: 'syn-' + Math.random().toString(36).substr(2, 9),
+      protocol: 'IP',
+      source: '192.168.1.104',
+      destination: `${activePrinter.ip}:${activePrinter.port}`,
+      size: '64 B',
+      timestamp: t0
+    };
+    if (setNetworkTraffic) {
+      setNetworkTraffic((prev: TrafficEvent[]) => [synPacket, ...prev].slice(0, 50));
+    }
+
+    // Stage 2: SYN-ACK response
+    setTimeout(() => {
+      const t1 = new Date().toLocaleTimeString();
+      setProtocolLogs(prev => [
+        ...prev,
+        `[${t1}] [TCP] Packet in: SYN-ACK ack=1 seq=1000 from ${activePrinter.ip}:${activePrinter.port}`,
+        `[${t1}] [GPP] TCP Link status: ESTABLISHED. Initiating GPP secure handshake.`
+      ]);
+      const synAckPacket: TrafficEvent = {
+        id: 'synack-' + Math.random().toString(36).substr(2, 9),
+        protocol: 'IP',
+        source: `${activePrinter.ip}:${activePrinter.port}`,
+        destination: '192.168.1.104',
+        size: '64 B',
+        timestamp: t1
+      };
+      if (setNetworkTraffic) {
+        setNetworkTraffic((prev: TrafficEvent[]) => [synAckPacket, ...prev].slice(0, 50));
+      }
+
+      // Update progress
+      if (props.setPrintQueue) {
+        props.setPrintQueue((prev: PrintJob[]) => 
+          prev.map(j => j.id === newJob.id ? { ...j, progress: 25 } : j)
+        );
+      }
+    }, 800);
+
+    // Stage 3: ACK & GPP Print Payload stream
+    setTimeout(() => {
+      const t2 = new Date().toLocaleTimeString();
+      setProtocolLogs(prev => [
+        ...prev,
+        `[${t2}] [GPP] Protocol negotiated. Cipher: AES-256-GPP. Sending raster data.`,
+        `[${t2}] [GPP] Sending job "${docName}" (${pagesCount} pages, ${(documentSize / 1024).toFixed(0)} KB)`,
+        `[${t2}] [TCP] Packet out: PUSH_DATA length=${documentSize} to ${activePrinter.ip}:${activePrinter.port}`
+      ]);
+      const dataPacket: TrafficEvent = {
+        id: 'data-' + Math.random().toString(36).substr(2, 9),
+        protocol: 'IP',
+        source: '192.168.1.104',
+        destination: `${activePrinter.ip}:${activePrinter.port}`,
+        size: `${(documentSize / 1024).toFixed(1)} KB`,
+        timestamp: t2
+      };
+      if (setNetworkTraffic) {
+        setNetworkTraffic((prev: TrafficEvent[]) => [dataPacket, ...prev].slice(0, 50));
+      }
+
+      // Update progress
+      if (props.setPrintQueue) {
+        props.setPrintQueue((prev: PrintJob[]) => 
+          prev.map(j => j.id === newJob.id ? { ...j, progress: 75 } : j)
+        );
+      }
+    }, 1800);
+
+    // Stage 4: Transfer Completion & TCP Close (FIN)
+    setTimeout(() => {
+      const t3 = new Date().toLocaleTimeString();
+      setProtocolLogs(prev => [
+        ...prev,
+        `[${t3}] [GPP] Printer acknowledged spool payload receipt (GPP_OK).`,
+        `[${t3}] [TCP] Packet in: FIN-ACK ack=${documentSize + 1} from ${activePrinter.ip}:${activePrinter.port}`,
+        `[${t3}] [TCP] Packet out: ACK seq=${documentSize + 1} to ${activePrinter.ip}:${activePrinter.port}`,
+        `[${t3}] [GPP] Network socket closed cleanly. Job dispatched to physical tray.`
+      ]);
+
+      const finPacket: TrafficEvent = {
+        id: 'fin-' + Math.random().toString(36).substr(2, 9),
+        protocol: 'IP',
+        source: `${activePrinter.ip}:${activePrinter.port}`,
+        destination: '192.168.1.104',
+        size: '128 B',
+        timestamp: t3
+      };
+      if (setNetworkTraffic) {
+        setNetworkTraffic((prev: TrafficEvent[]) => [finPacket, ...prev].slice(0, 50));
+      }
+
+      // Complete print job
+      if (props.setPrintQueue) {
+        props.setPrintQueue((prev: PrintJob[]) => 
+          prev.map(j => j.id === newJob.id ? { ...j, status: 'completed', progress: 100 } : j)
+        );
+      }
+
+      // Increment completed counter on selected printer
+      setPrinters(prev => prev.map(p => p.id === activePrinter.id ? { ...p, jobsCompleted: p.jobsCompleted + 1 } : p));
+
+      addNotification('GPP Spooler', `Finished network print stream for "${docName}"`, 'success');
+      setIsTestPrinting(false);
+    }, 3200);
+  };
 
   // Firewall states
   const [firewallActive, setFirewallActive] = useState<boolean>(true);
@@ -9874,6 +10812,13 @@ function SystemMonitorApp(props: any) {
           title="Protocols & Compression"
         >
           <FolderArchive size={22} />
+        </button>
+        <button 
+          onClick={() => setActiveTab('printers')}
+          className={cn("p-3 rounded-2xl transition-all", activeTab === 'printers' ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "text-white/40 hover:text-white hover:bg-white/5")}
+          title="Print Spooler Protocol"
+        >
+          <Printer size={22} />
         </button>
         <button 
           onClick={() => setActiveTab('hardware')}
@@ -10516,6 +11461,296 @@ function SystemMonitorApp(props: any) {
                     </div>
                   </div>
 
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'printers' && (
+            <div className="flex flex-col gap-8 opacity-0 animate-[fade-in_0.3s_ease-out_forwards]" style={{ animationDelay: '0.1s' }}>
+              {/* Header Title bar */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-4">
+                <div>
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Printer className="text-blue-500" size={20} />
+                    GlassPrint Network Protocol (GPP) Daemon
+                  </h2>
+                  <p className="text-xs text-white/40">Manage network print spoolers and monitor the GlassPrint raw-byte socket TCP transmission protocol.</p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={clearJobs}
+                    className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white/85 text-xs rounded-xl font-bold transition-all border border-white/5"
+                  >
+                    Clear Spooler Queue
+                  </button>
+                </div>
+              </div>
+
+              {/* Bento Grid */}
+              <div className="grid grid-cols-12 gap-6 items-start">
+                {/* Left side: Printer Registry & Protocol Console (5 cols) */}
+                <div className="col-span-12 lg:col-span-5 flex flex-col gap-6">
+                  {/* Network Printers Devices */}
+                  <div className="bg-[#161b22] border border-white/5 rounded-3xl p-6 flex flex-col gap-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-white/30 uppercase font-bold tracking-[0.2em] font-mono">Discovered Network Node Spoolers</span>
+                        <h4 className="text-sm font-bold text-white/90">Select Target Network Printer</h4>
+                      </div>
+                      <span className="text-[9px] bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded font-bold font-mono">L3 PRINTER NODES</span>
+                    </div>
+
+                    <div className="space-y-3">
+                      {printers.map(printer => {
+                        const isSelected = printer.id === selectedPrinterId;
+                        return (
+                          <button
+                            key={printer.id}
+                            onClick={() => setSelectedPrinterId(printer.id)}
+                            className={cn(
+                              "w-full p-4 rounded-2xl border transition-all text-left flex items-center justify-between relative group overflow-hidden",
+                              isSelected
+                                ? "bg-blue-500/10 border-blue-500/30 text-blue-400 shadow-md shadow-blue-500/5"
+                                : "bg-white/2 hover:bg-white/5 border-white/5 text-white/60 hover:text-white"
+                            )}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className={cn(
+                                "w-10 h-10 rounded-xl flex items-center justify-center border",
+                                isSelected ? "bg-blue-500/20 border-blue-500/30 text-blue-400" : "bg-white/5 border-transparent text-white/50"
+                              )}>
+                                <Printer size={18} />
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-xs font-bold">{printer.name}</span>
+                                <span className="text-[9px] font-mono text-white/30">{printer.ip}:{printer.port} • {printer.protocol}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-col items-end gap-1.5 font-mono text-right">
+                              <div className="flex items-center gap-1.5">
+                                <div className={cn("w-1.5 h-1.5 rounded-full", printer.status === 'online' ? "bg-emerald-500 animate-pulse" : "bg-white/10")} />
+                                <span className="text-[9px] uppercase font-bold text-white/40">{printer.status}</span>
+                              </div>
+                              <span className="text-[8px] text-white/20">Spooler Count: {printer.jobsCompleted}</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Selected Printer Metrics */}
+                  {(() => {
+                    const activeP = printers.find(p => p.id === selectedPrinterId) || printers[0];
+                    return (
+                      <div className="bg-[#161b22] border border-white/5 rounded-3xl p-6 flex flex-col gap-4">
+                        <h4 className="text-xs uppercase tracking-widest font-mono text-white/30">Node Telemetry - {activeP.name}</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="bg-[#0d1117] border border-white/5 p-4 rounded-2xl flex flex-col gap-1">
+                            <span className="text-[9px] text-white/30 uppercase font-bold font-mono">Toner level</span>
+                            <div className="flex items-center gap-2 mt-1">
+                              <div className="flex-1 h-2 bg-white/5 rounded-full overflow-hidden">
+                                <div className="h-full bg-blue-500 transition-all duration-1000" style={{ width: `${activeP.ink}%` }} />
+                              </div>
+                              <span className="text-xs font-bold text-white font-mono">{activeP.ink}%</span>
+                            </div>
+                          </div>
+                          <div className="bg-[#0d1117] border border-white/5 p-4 rounded-2xl flex flex-col gap-1">
+                            <span className="text-[9px] text-white/30 uppercase font-bold font-mono">Tray Level</span>
+                            <div className="flex items-center gap-2 mt-1">
+                              <div className="flex-1 h-2 bg-white/5 rounded-full overflow-hidden">
+                                <div className="h-full bg-amber-500 transition-all duration-1000" style={{ width: `${activeP.paper}%` }} />
+                              </div>
+                              <span className="text-xs font-bold text-white font-mono">{activeP.paper}%</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 text-[10px] font-mono border-t border-white/5 pt-3 text-white/40">
+                          <div>Location: <strong className="text-white/70 font-sans">{activeP.location}</strong></div>
+                          <div>Throughput: <strong className="text-white/70">{activeP.speed}</strong></div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Network Test Stream Generator */}
+                  <div className="bg-[#161b22] border border-white/5 rounded-3xl p-6 flex flex-col gap-4">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-white/30 uppercase font-bold tracking-[0.2em] font-mono">Protocol Test Bench</span>
+                      <h4 className="text-sm font-bold text-white/90">GPP Stream Packet Injector</h4>
+                    </div>
+
+                    <div className="grid grid-cols-12 gap-3 items-end">
+                      <div className="col-span-8 flex flex-col gap-1.5">
+                        <label className="text-[9px] text-white/30 font-mono uppercase font-bold">Document Name</label>
+                        <input
+                          type="text"
+                          value={testDocumentName}
+                          onChange={(e) => setTestDocumentName(e.target.value)}
+                          className="bg-[#0d1117] border border-white/5 rounded-xl text-xs py-2 px-3 text-white focus:outline-none focus:border-blue-500 transition-all font-mono"
+                          placeholder="document.pdf"
+                        />
+                      </div>
+                      <div className="col-span-4 flex flex-col gap-1.5">
+                        <label className="text-[9px] text-white/30 font-mono uppercase font-bold">Pages</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={testDocumentPages}
+                          onChange={(e) => setTestDocumentPages(parseInt(e.target.value) || 1)}
+                          className="bg-[#0d1117] border border-white/5 rounded-xl text-xs py-2 px-3 text-white focus:outline-none focus:border-blue-500 transition-all text-center font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {(() => {
+                      const activeP = printers.find(p => p.id === selectedPrinterId) || printers[0];
+                      const isOffline = activeP.status === 'offline';
+                      return (
+                        <button
+                          onClick={handleSendTestPage}
+                          disabled={isTestPrinting || isOffline}
+                          className={cn(
+                            "w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 mt-2 transition-all shadow-lg",
+                            isOffline
+                              ? "bg-red-500/10 border border-red-500/20 text-red-400 cursor-not-allowed"
+                              : isTestPrinting
+                                ? "bg-blue-500/20 text-blue-400 cursor-wait border border-blue-500/10"
+                                : "bg-blue-500 text-white hover:bg-blue-600 shadow-blue-500/10 hover:scale-[1.01]"
+                          )}
+                        >
+                          <Send size={14} />
+                          {isOffline
+                            ? 'Selected Printer Node is Offline'
+                            : isTestPrinting
+                              ? 'Spooling GPP Packet Stream...'
+                              : `Transmit GPP Packet Stream`
+                          }
+                        </button>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* Right side: Live Spooler Queue & GPP Handshake Logs Terminal (7 cols) */}
+                <div className="col-span-12 lg:col-span-7 flex flex-col gap-6">
+                  {/* Spooler Queue */}
+                  <div className="bg-[#161b22] border border-white/5 rounded-3xl p-6 flex flex-col gap-4">
+                    <div className="flex items-center justify-between pb-2 border-b border-white/5">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-white/30 uppercase font-bold tracking-[0.2em] font-mono">Print Spooler Pipeline</span>
+                        <h4 className="text-sm font-bold text-white/90">Active Spooler Buffer</h4>
+                      </div>
+                      <span className="text-xs font-mono font-bold text-white/30">{(props.printQueue || []).length} Jobs in Spooler</span>
+                    </div>
+
+                    <div className="overflow-hidden border border-white/5 rounded-2xl bg-white/1">
+                      <div className="grid grid-cols-12 p-3.5 bg-white/2 border-b border-white/5 text-[9px] font-bold text-white/30 uppercase tracking-widest font-mono">
+                        <span className="col-span-4">Document Name</span>
+                        <span className="col-span-3 text-center">Status / Progress</span>
+                        <span className="col-span-2 text-right">Owner</span>
+                        <span className="col-span-2 text-right">Timestamp</span>
+                        <span className="col-span-1 text-right">Action</span>
+                      </div>
+                      <div className="overflow-y-auto max-h-[220px] no-scrollbar divide-y divide-white/2">
+                        {(!props.printQueue || props.printQueue.length === 0) ? (
+                          <div className="py-16 flex flex-col items-center justify-center gap-3 text-white/15">
+                            <Printer size={36} className="opacity-40" />
+                            <span className="text-xs font-bold uppercase tracking-widest font-mono">Spooler Empty</span>
+                          </div>
+                        ) : (
+                          [...(props.printQueue || [])].reverse().map((job: PrintJob) => {
+                            const isPrinting = job.status === 'printing';
+                            return (
+                              <div key={job.id} className="grid grid-cols-12 p-3.5 text-xs items-center group hover:bg-white/2 transition-colors font-sans">
+                                <span className="col-span-4 truncate pr-4 text-white/80 font-bold flex items-center gap-2">
+                                  <FileText size={12} className="text-white/40 shrink-0" />
+                                  {job.documentName}
+                                </span>
+                                <div className="col-span-3 flex flex-col justify-center items-center px-4 font-mono">
+                                  <span className={cn(
+                                    "font-mono text-[10px] font-bold uppercase px-1.5 py-0.5 rounded",
+                                    job.status === 'printing' ? "text-blue-400 bg-blue-500/10" : 
+                                    job.status === 'completed' ? "text-emerald-400 bg-emerald-500/10" :
+                                    job.status === 'error' ? "text-rose-400 bg-rose-500/10" : "text-white/40"
+                                  )}>
+                                    {job.status}
+                                  </span>
+                                  {isPrinting && (
+                                    <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden mt-1.5">
+                                      <motion.div 
+                                        className="h-full bg-blue-500" 
+                                        animate={{ width: job.progress !== undefined ? `${job.progress}%` : ['0%', '100%'] }} 
+                                        transition={job.progress !== undefined ? { duration: 0.5 } : { duration: 4, repeat: Infinity }} 
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                                <span className="col-span-2 text-white/50 text-right truncate font-mono text-[10px]">{job.owner || 'user'}</span>
+                                <span className="col-span-2 text-white/30 text-right font-mono text-[9px]">{job.timestamp}</span>
+                                <div className="col-span-1 flex justify-end">
+                                  <button
+                                    onClick={() => handlePrintScript(job)}
+                                    title="Compile Spooler Script"
+                                    className="p-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-md transition-all cursor-pointer hover:scale-105"
+                                  >
+                                    <Terminal size={11} />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* GPP Daemon Handshake Console */}
+                  <div className="bg-[#161b22] border border-white/5 rounded-3xl p-6 flex flex-col gap-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-white/30 uppercase font-bold tracking-[0.2em] font-mono">Protocol Stream Analyzer</span>
+                        <h4 className="text-sm font-bold text-white/90">GPP Daemon Handshake Console</h4>
+                      </div>
+                      <span className="text-[9px] bg-blue-500/10 border border-blue-500/20 text-blue-400 px-2 py-0.5 rounded font-bold font-mono">UDP/TCP RAW PACKETS</span>
+                    </div>
+
+                    <div className="bg-[#0d1117] border border-white/10 rounded-3xl p-5 font-mono text-[10px] leading-relaxed relative flex flex-col gap-1">
+                      <div className="flex items-center gap-2 mb-3 border-b border-white/5 pb-3">
+                        <Terminal size={12} className="text-white/20" />
+                        <span className="text-white/40 font-bold">gppd.service::network-logs</span>
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping ml-auto" />
+                      </div>
+                      <div className="flex-1 space-y-1.5 max-h-[180px] overflow-y-auto no-scrollbar scroll-smooth">
+                        {protocolLogs.map((log, i) => {
+                          const isError = log.includes('error') || log.includes('offline') || log.includes('terminated');
+                          const isSuccess = log.includes('ESTABLISHED') || log.includes('success') || log.includes('completed');
+                          const isPacket = log.includes('[TCP]');
+                          return (
+                            <p 
+                              key={i} 
+                              className={cn(
+                                "leading-normal truncate",
+                                isError ? "text-rose-400" :
+                                isSuccess ? "text-emerald-400" :
+                                isPacket ? "text-purple-400" : "text-white/60"
+                              )}
+                            >
+                              {log}
+                            </p>
+                          );
+                        })}
+                      </div>
+                      <div className="mt-4 pt-3 border-t border-white/5 text-[8px] text-white/20 flex justify-between font-mono">
+                        <span>GPP_STREAM_ACTIVE_DAEMON</span>
+                        <span>LINK_PORT:9100</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -12847,8 +14082,15 @@ function SettingsApp(props: any) {
     serverStatus,
     networkNodes, setNetworkNodes,
     isAdmin, setIsAdmin, isSandboxed, setIsSandboxed, requestSudo,
+    activeSettingsTab,
   } = props;
   const [view, setView] = useState<'main' | 'personalization' | 'network' | 'control-panel' | 'extensions' | 'accounts' | 'hardware'>('main');
+
+  React.useEffect(() => {
+    if (activeSettingsTab) {
+      setView(activeSettingsTab);
+    }
+  }, [activeSettingsTab]);
   const [activeControl, setActiveControl] = useState<string | null>(null);
   const [displayConfig, setDisplayConfig] = useState(DisplayLib.getConfig());
   const [extensions, setExtensions] = useState([
@@ -21503,6 +22745,7 @@ function AppFolderApp(props: any) {
   const availableApps = [
     { id: 'weather', name: 'Weather', icon: <RefreshCw size={24} /> },
     { id: 'calculator', name: 'Calculator', icon: <Plus size={24} /> },
+    { id: 'unitconverter', name: 'Converter', icon: <Ruler size={24} /> },
     { id: 'calendar', name: 'Calendar', icon: <Clock size={24} /> },
   ];
 

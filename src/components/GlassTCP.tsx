@@ -4,7 +4,8 @@ import {
   Network, Radio, Activity, Compass, Shield, Cpu, 
   FileText, Send, Zap, Check, AlertCircle, ArrowLeftRight, 
   Globe, Server, Lock, Unlock, Database, RefreshCw, X, Play, Pause,
-  Terminal, Layers, Monitor, ChevronRight, Plus, Trash2, Sliders
+  Terminal, Layers, Monitor, ChevronRight, Plus, Trash2, Sliders,
+  Printer
 } from 'lucide-react';
 import { FileSystemItem } from '../types';
 
@@ -29,6 +30,7 @@ interface NodeLocation {
   x: number; // percentage coordinate for map SVG
   y: number; // percentage coordinate for map SVG
   isBot: boolean;
+  isPrinter?: boolean;
 }
 
 interface TcpPacket {
@@ -101,7 +103,10 @@ const DEFAULT_LOCATIONS: NodeLocation[] = [
   { id: 'loc-london', name: 'London-Gate', ip: '192.168.1.75', x: 45, y: 20, isBot: true },
   { id: 'loc-singapore', name: 'Singapore-Hub', ip: '192.168.1.150', x: 72, y: 70, isBot: true },
   { id: 'loc-sydney', name: 'Sydney-Terminal', ip: '192.168.1.90', x: 88, y: 85, isBot: true },
-  { id: 'loc-paris', name: 'Paris-Gateway', ip: '192.168.1.110', x: 48, y: 24, isBot: true }
+  { id: 'loc-paris', name: 'Paris-Gateway', ip: '192.168.1.110', x: 48, y: 24, isBot: true },
+  { id: 'loc-p1', name: 'NOC-LaserJet-8000', ip: '192.168.1.180', x: 38, y: 55, isBot: true, isPrinter: true },
+  { id: 'loc-p2', name: 'Color-Plotter-Enclave', ip: '192.168.1.181', x: 32, y: 68, isBot: true, isPrinter: true },
+  { id: 'loc-p3', name: 'Secure-Thermal-Matrix', ip: '192.168.1.182', x: 58, y: 62, isBot: true, isPrinter: true }
 ];
 
 export function GlassTCP({
@@ -141,7 +146,8 @@ export function GlassTCP({
   const [tenants, setTenants] = useState<TenantRoute[]>([
     { id: 'ten-devops', name: 'DevOps Sentinel Logs', subdomain: 'devops.core.glass', ingressLanes: 12, activeConnections: 184, bandwidthLimit: '500 Mbps', priority: 'critical', ingressQueuePressure: 32 },
     { id: 'ten-holo', name: 'Holographic Stream Engine', subdomain: 'holo.pipeline.glass', ingressLanes: 32, activeConnections: 1240, bandwidthLimit: '5.0 Gbps', priority: 'high', ingressQueuePressure: 58 },
-    { id: 'ten-db', name: 'Virtual Replica DB Mirror', subdomain: 'db-sync.replica.glass', ingressLanes: 8, activeConnections: 45, bandwidthLimit: '100 Mbps', priority: 'standard', ingressQueuePressure: 15 }
+    { id: 'ten-db', name: 'Virtual Replica DB Mirror', subdomain: 'db-sync.replica.glass', ingressLanes: 8, activeConnections: 45, bandwidthLimit: '100 Mbps', priority: 'standard', ingressQueuePressure: 15 },
+    { id: 'ten-printers', name: 'GPP Print Network Gateway', subdomain: 'spooler.print.glass', ingressLanes: 6, activeConnections: 3, bandwidthLimit: '10 Mbps', priority: 'standard', ingressQueuePressure: 10 }
   ]);
 
   // Firewall Asynchronous Filtering & Fault Isolation States
@@ -160,6 +166,37 @@ export function GlassTCP({
     }, 2000);
     return () => clearInterval(keyInterval);
   }, []);
+
+  // Hook into shared networkTraffic to animate GPP printer traffic on the map
+  const lastProcessedGppId = useRef<string>('');
+  useEffect(() => {
+    if (!networkTraffic || networkTraffic.length === 0) return;
+    const latest = networkTraffic[0];
+    if (latest.id === lastProcessedGppId.current) return;
+    lastProcessedGppId.current = latest.id;
+
+    const destStr = latest.destination || '';
+    const srcStr = latest.source || '';
+    
+    // Printer IPs
+    const printerIps = ['192.168.1.180', '192.168.1.181', '192.168.1.182'];
+    const isPrinterDest = printerIps.some(ip => destStr.includes(ip));
+    const isPrinterSrc = printerIps.some(ip => srcStr.includes(ip));
+
+    if (isPrinterDest || isPrinterSrc) {
+      // Find coordinates on map
+      const hqNode = DEFAULT_LOCATIONS.find(n => n.id === 'loc-silicon') || DEFAULT_LOCATIONS[1];
+      const printerNode = DEFAULT_LOCATIONS.find(n => destStr.includes(n.ip) || srcStr.includes(n.ip));
+      
+      if (printerNode) {
+        if (isPrinterDest) {
+          triggerPacketAnimation(hqNode.x, hqNode.y, printerNode.x, printerNode.y, '#F59E0B'); // Amber for printing data stream
+        } else {
+          triggerPacketAnimation(printerNode.x, printerNode.y, hqNode.x, hqNode.y, '#10B981'); // Emerald for printer SYN-ACK/FIN replies
+        }
+      }
+    }
+  }, [networkTraffic]);
 
   const [asyncFilters, setAsyncFilters] = useState<AsyncFilterRule[]>([
     { id: 'flt-udp', pattern: 'UDP Flood / Port Scanner Block', action: 'DROP', isActive: true, severity: 'high', matchesCount: 142 },
@@ -1074,8 +1111,8 @@ export function GlassTCP({
                   </linearGradient>
                 </defs>
                 {/* Plot static topology lanes */}
-                {DEFAULT_LOCATIONS.map((node, i) => {
-                  const nextNode = DEFAULT_LOCATIONS[(i + 1) % DEFAULT_LOCATIONS.length];
+                {DEFAULT_LOCATIONS.filter(n => !n.isPrinter).map((node, i, arr) => {
+                  const nextNode = arr[(i + 1) % arr.length];
                   return (
                     <line
                       key={node.id}
@@ -1086,6 +1123,23 @@ export function GlassTCP({
                       stroke="url(#blueGrad)"
                       strokeWidth="1"
                       strokeDasharray="4 4"
+                    />
+                  );
+                })}
+
+                {/* Plot dedicated printer gateway trunk routes */}
+                {DEFAULT_LOCATIONS.filter(n => n.isPrinter).map((printer) => {
+                  const hq = DEFAULT_LOCATIONS.find(n => n.id === 'loc-silicon') || DEFAULT_LOCATIONS[1];
+                  return (
+                    <line
+                      key={`link-${printer.id}`}
+                      x1={`${hq.x}%`}
+                      y1={`${hq.y}%`}
+                      x2={`${printer.x}%`}
+                      y2={`${printer.y}%`}
+                      stroke="rgba(245, 158, 11, 0.25)"
+                      strokeWidth="1.2"
+                      strokeDasharray="2 3"
                     />
                   );
                 })}
@@ -1119,12 +1173,18 @@ export function GlassTCP({
                       className={`w-7 h-7 rounded-xl flex items-center justify-center transition-all ${
                         isSelected 
                           ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/40 ring-2 ring-white/20 scale-110' 
-                          : hasActiveLink
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 animate-pulse'
-                            : 'bg-[#161b22] border border-white/10 text-white/50 hover:text-white hover:border-white/30'
+                          : node.isPrinter
+                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                            : hasActiveLink
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 animate-pulse'
+                              : 'bg-[#161b22] border border-white/10 text-white/50 hover:text-white hover:border-white/30'
                       }`}
                     >
-                      <Server size={12} />
+                      {node.isPrinter ? (
+                        <Printer size={12} className={isSelected ? "text-white" : "text-amber-400"} />
+                      ) : (
+                        <Server size={12} />
+                      )}
                     </button>
                     <div className="bg-[#0d1117]/90 border border-white/5 px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider text-white/70 shadow-xl opacity-80 group-hover/node:opacity-100 transition-opacity">
                       {node.name.split(' ')[0]}
