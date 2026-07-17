@@ -171,6 +171,8 @@ import {
   Phone,
   PhoneOff,
   Disc,
+  Sliders,
+  VolumeX,
 } from 'lucide-react';
 import { motion, AnimatePresence, useDragControls } from 'motion/react';
 import { 
@@ -20536,51 +20538,959 @@ function PhotosApp({ fsLib, addNotification, selectedFile }: any) {
   );
 }
 
+const TRACKS = [
+  { id: 'symphony', name: 'Glass Symphony', artist: 'GlassOS Orchestra', bpm: 90, duration: '2:00', genre: 'Ambient / Chillout' },
+  { id: 'runner', name: 'Cyber Runner', artist: 'Neoteric', bpm: 120, duration: '1:40', genre: 'Synthwave / Outrun' },
+  { id: 'space', name: 'Deep Space Lounge', artist: 'Chronos', bpm: 80, duration: '2:15', genre: 'Dub Ambient / Space' }
+];
+
 function MusicApp({ addNotification }: any) {
+  const [currentTrack, setCurrentTrack] = useState(TRACKS[0]);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [progress, setProgress] = useState(35);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [volume, setVolume] = useState(70); // 0 to 100
+  const [eqPreset, setEqPreset] = useState('Flat'); // Flat, Bass Boost, Treble Boost, Vocal, Custom
+  const [bassGain, setBassGain] = useState(0); // -15 to +15
+  const [midGain, setMidGain] = useState(0); // -15 to +15
+  const [trebleGain, setTrebleGain] = useState(0); // -15 to +15
+  const [visualizerStyle, setVisualizerStyle] = useState<'bars' | 'wave' | 'orbit'>('bars');
+
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const bassFilterRef = useRef<BiquadFilterNode | null>(null);
+  const midFilterRef = useRef<BiquadFilterNode | null>(null);
+  const trebleFilterRef = useRef<BiquadFilterNode | null>(null);
+  const masterGainRef = useRef<GainNode | null>(null);
+  
+  const schedulerIntervalRef = useRef<any>(null);
+  const playbackTimeIntervalRef = useRef<any>(null);
+  const stepRef = useRef(0);
+  
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const animationRef = useRef<number | null>(null);
+
+  // Initialize Web Audio API nodes
+  const initAudio = () => {
+    if (audioCtxRef.current) return audioCtxRef.current;
+
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    const ctx = new AudioContextClass();
+    audioCtxRef.current = ctx;
+
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    analyserRef.current = analyser;
+
+    const bass = ctx.createBiquadFilter();
+    bass.type = 'lowshelf';
+    bass.frequency.value = 150;
+    bass.gain.value = bassGain;
+    bassFilterRef.current = bass;
+
+    const mid = ctx.createBiquadFilter();
+    mid.type = 'peaking';
+    mid.frequency.value = 1000;
+    mid.Q.value = 1.0;
+    mid.gain.value = midGain;
+    midFilterRef.current = mid;
+
+    const treble = ctx.createBiquadFilter();
+    treble.type = 'highshelf';
+    treble.frequency.value = 6000;
+    treble.gain.value = trebleGain;
+    trebleFilterRef.current = treble;
+
+    const masterGain = ctx.createGain();
+    masterGain.gain.value = volume / 100;
+    masterGainRef.current = masterGain;
+
+    // Connect chain
+    bass.connect(mid);
+    mid.connect(treble);
+    treble.connect(analyser);
+    analyser.connect(masterGain);
+    masterGain.connect(ctx.destination);
+
+    return ctx;
+  };
+
+  // Synchronize parameter changes
+  useEffect(() => {
+    if (masterGainRef.current && audioCtxRef.current) {
+      masterGainRef.current.gain.setValueAtTime(volume / 100, audioCtxRef.current.currentTime);
+    }
+  }, [volume]);
+
+  useEffect(() => {
+    if (bassFilterRef.current && audioCtxRef.current) {
+      bassFilterRef.current.gain.setValueAtTime(bassGain, audioCtxRef.current.currentTime);
+    }
+  }, [bassGain]);
+
+  useEffect(() => {
+    if (midFilterRef.current && audioCtxRef.current) {
+      midFilterRef.current.gain.setValueAtTime(midGain, audioCtxRef.current.currentTime);
+    }
+  }, [midGain]);
+
+  useEffect(() => {
+    if (trebleFilterRef.current && audioCtxRef.current) {
+      trebleFilterRef.current.gain.setValueAtTime(trebleGain, audioCtxRef.current.currentTime);
+    }
+  }, [trebleGain]);
+
+  // Clean up audio on unmount
+  useEffect(() => {
+    return () => {
+      if (schedulerIntervalRef.current) clearInterval(schedulerIntervalRef.current);
+      if (playbackTimeIntervalRef.current) clearInterval(playbackTimeIntervalRef.current);
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close().catch(() => {});
+        audioCtxRef.current = null;
+      }
+    };
+  }, []);
+
+  // Format track duration from seconds
+  const formatTime = (secs: number) => {
+    const minutes = Math.floor(secs / 60);
+    const seconds = Math.floor(secs % 60);
+    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+  };
+
+  // Track playtime limit mapping
+  const getTrackDurationSeconds = (id: string) => {
+    if (id === 'symphony') return 120;
+    if (id === 'runner') return 100;
+    return 135;
+  };
+
+  const durationSeconds = getTrackDurationSeconds(currentTrack.id);
+  const progressPercent = (currentTime / durationSeconds) * 100;
+
+  // Synthesized instrument sound scheduler step
+  const playSynthStep = (ctx: AudioContext, step: number, time: number, trackId: string) => {
+    const destination = bassFilterRef.current || ctx.destination;
+
+    // KICK DRUM
+    const playKick = (vol = 0.5) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(destination);
+
+      osc.frequency.setValueAtTime(125, time);
+      osc.frequency.exponentialRampToValueAtTime(38, time + 0.12);
+
+      gain.gain.setValueAtTime(vol, time);
+      gain.gain.exponentialRampToValueAtTime(0.01, time + 0.14);
+
+      osc.start(time);
+      osc.stop(time + 0.15);
+    };
+
+    // SNARE
+    const playSnare = (vol = 0.3) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(1000, time);
+
+      osc.type = 'triangle';
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(destination);
+
+      osc.frequency.setValueAtTime(180, time);
+      osc.frequency.exponentialRampToValueAtTime(80, time + 0.1);
+
+      gain.gain.setValueAtTime(vol, time);
+      gain.gain.exponentialRampToValueAtTime(0.01, time + 0.11);
+
+      osc.start(time);
+      osc.stop(time + 0.12);
+
+      // Noise burst for snare snap
+      try {
+        const bufferSize = ctx.sampleRate * 0.08;
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = Math.random() * 2 - 1;
+        }
+        const noise = ctx.createBufferSource();
+        noise.buffer = buffer;
+        const noiseFilter = ctx.createBiquadFilter();
+        noiseFilter.type = 'highpass';
+        noiseFilter.frequency.setValueAtTime(2000, time);
+
+        const noiseGain = ctx.createGain();
+        noiseGain.gain.setValueAtTime(vol * 0.65, time);
+        noiseGain.gain.exponentialRampToValueAtTime(0.01, time + 0.07);
+
+        noise.connect(noiseFilter);
+        noiseFilter.connect(noiseGain);
+        noiseGain.connect(destination);
+
+        noise.start(time);
+        noise.stop(time + 0.08);
+      } catch (e) {}
+    };
+
+    // HI-HAT
+    const playHat = (vol = 0.15, closed = true) => {
+      try {
+        const bufferSize = ctx.sampleRate * (closed ? 0.025 : 0.15);
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = Math.random() * 2 - 1;
+        }
+        const noise = ctx.createBufferSource();
+        noise.buffer = buffer;
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.setValueAtTime(7500, time);
+
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(vol, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + (closed ? 0.025 : 0.12));
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(destination);
+
+        noise.start(time);
+        noise.stop(time + (closed ? 0.03 : 0.15));
+      } catch (e) {
+        // Fallback
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(destination);
+        osc.frequency.setValueAtTime(9500, time);
+        gain.gain.setValueAtTime(vol * 0.5, time);
+        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.02);
+        osc.start(time);
+        osc.stop(time + 0.03);
+      }
+    };
+
+    // BASS SYNTH
+    const playBass = (freq: number, vol = 0.35, len = 0.15) => {
+      if (freq <= 0) return;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+      
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, time);
+
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(280, time);
+      filter.frequency.exponentialRampToValueAtTime(100, time + len);
+
+      gain.gain.setValueAtTime(0.001, time);
+      gain.gain.linearRampToValueAtTime(vol, time + 0.015);
+      gain.gain.setValueAtTime(vol, time + len - 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + len);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(destination);
+
+      osc.start(time);
+      osc.stop(time + len + 0.01);
+    };
+
+    // CHORD PAD
+    const playChord = (freqs: number[], vol = 0.2, len = 0.6) => {
+      freqs.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const filter = ctx.createBiquadFilter();
+
+        osc.type = idx % 2 === 0 ? 'triangle' : 'sine';
+        osc.frequency.setValueAtTime(freq, time);
+        osc.detune.setValueAtTime((idx - 1) * 5, time);
+
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(450, time);
+        filter.frequency.linearRampToValueAtTime(750, time + len * 0.4);
+        filter.frequency.exponentialRampToValueAtTime(280, time + len);
+
+        gain.gain.setValueAtTime(0.001, time);
+        gain.gain.linearRampToValueAtTime(vol, time + len * 0.25);
+        gain.gain.setValueAtTime(vol, time + len * 0.7);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + len);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(destination);
+
+        osc.start(time);
+        osc.stop(time + len + 0.05);
+      });
+    };
+
+    // MELODY BELL
+    const playBell = (freq: number, vol = 0.2, len = 0.4) => {
+      if (freq <= 0) return;
+      const osc = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, time);
+
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(freq * 2.015, time);
+
+      const osc2Gain = ctx.createGain();
+      osc2Gain.gain.setValueAtTime(vol * 0.35, time);
+
+      osc.connect(gain);
+      osc2.connect(osc2Gain);
+      osc2Gain.connect(gain);
+      gain.connect(destination);
+
+      gain.gain.setValueAtTime(0.001, time);
+      gain.gain.linearRampToValueAtTime(vol, time + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + len);
+
+      osc.start(time);
+      osc2.start(time);
+      osc.stop(time + len);
+      osc2.stop(time + len);
+    };
+
+    // Track Sequencer Logic
+    if (trackId === 'symphony') {
+      if (step === 0) {
+        playChord([261.63, 329.63, 392.00, 493.88], 0.1, 1.3);
+        playBass(130.81, 0.22, 1.2);
+      } else if (step === 4) {
+        playBass(110.00, 0.22, 0.85);
+        playBell(523.25, 0.07, 0.65);
+      } else if (step === 8) {
+        playChord([174.61, 261.63, 349.23, 440.00], 0.1, 1.3);
+        playBass(87.31, 0.22, 1.2);
+      } else if (step === 12) {
+        playBass(98.00, 0.22, 0.85);
+        playBell(587.33, 0.07, 0.65);
+      }
+
+      if (step % 2 === 1) {
+        playHat(0.02, true);
+      }
+
+      if (step === 2) playBell(392.00, 0.05, 0.55);
+      if (step === 6) playBell(440.00, 0.05, 0.55);
+      if (step === 10) playBell(493.88, 0.05, 0.55);
+      if (step === 14) playBell(523.25, 0.07, 0.7);
+    } 
+    else if (trackId === 'runner') {
+      if (step % 4 === 0) {
+        playKick(0.33);
+      }
+      if (step === 4 || step === 12) {
+        playSnare(0.16);
+      }
+      if (step % 2 === 1) {
+        playHat(0.05, true);
+      } else if (step % 4 === 2) {
+        playHat(0.03, false);
+      }
+
+      const bassNotes = [
+        65.41, 65.41, 65.41, 65.41, 
+        77.78, 77.78, 77.78, 77.78, 
+        98.00, 98.00, 98.00, 98.00, 
+        87.31, 87.31, 116.54, 116.54
+      ];
+      playBass(bassNotes[step], 0.18, 0.08);
+
+      const leadNotes = [
+        261.63, 311.13, 392.00, 523.25, 622.25, 523.25, 392.00, 311.13,
+        293.66, 349.23, 440.00, 587.33, 698.46, 587.33, 440.00, 349.23
+      ];
+      if (step % 2 === 0) {
+        playBell(leadNotes[step], 0.07, 0.16);
+      }
+    } 
+    else if (trackId === 'space') {
+      if (step === 0 || step === 10) {
+        playKick(0.28);
+      }
+      if (step === 6) {
+        playSnare(0.09);
+      }
+      if (step === 2 || step === 8 || step === 14) {
+        playHat(0.03, false);
+      }
+
+      if (step === 0) {
+        playChord([196.00, 233.08, 293.66], 0.07, 1.8);
+        playBass(48.99, 0.2, 1.5);
+      } else if (step === 8) {
+        playChord([196.00, 261.63, 311.13], 0.07, 1.8);
+        playBass(65.41, 0.2, 1.5);
+      }
+
+      const bellMelody = [0, 587.33, 0, 783.99, 0, 0, 698.46, 0, 0, 880.00, 0, 0, 587.33, 0, 783.99, 0];
+      if (bellMelody[step] > 0) {
+        playBell(bellMelody[step], 0.06, 0.85);
+      }
+    }
+  };
+
+  // Synthesizer scheduler clock setup
+  useEffect(() => {
+    if (!isPlaying) {
+      if (schedulerIntervalRef.current) clearInterval(schedulerIntervalRef.current);
+      if (playbackTimeIntervalRef.current) clearInterval(playbackTimeIntervalRef.current);
+      return;
+    }
+
+    const ctx = initAudio();
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+
+    const bpm = currentTrack.bpm;
+    
+    playbackTimeIntervalRef.current = setInterval(() => {
+      setCurrentTime(prev => {
+        const durSecs = getTrackDurationSeconds(currentTrack.id);
+        if (prev >= durSecs) return 0;
+        return prev + 1;
+      });
+    }, 1000);
+
+    let nextStepTime = ctx.currentTime;
+    stepRef.current = 0;
+
+    const scheduleNextSteps = () => {
+      const lookaheadSecs = 0.1;
+      const stepDurationSecs = 60 / bpm / 4;
+
+      while (nextStepTime < ctx.currentTime + lookaheadSecs) {
+        playSynthStep(ctx, stepRef.current, nextStepTime, currentTrack.id);
+        stepRef.current = (stepRef.current + 1) % 16;
+        nextStepTime += stepDurationSecs;
+      }
+    };
+
+    scheduleNextSteps();
+    schedulerIntervalRef.current = setInterval(scheduleNextSteps, 35);
+
+    return () => {
+      if (schedulerIntervalRef.current) clearInterval(schedulerIntervalRef.current);
+      if (playbackTimeIntervalRef.current) clearInterval(playbackTimeIntervalRef.current);
+    };
+  }, [isPlaying, currentTrack]);
+
+  // Visualizer render engine
+  const draw = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const analyser = analyserRef.current;
+
+    if (!analyser || !isPlaying) {
+      // Draw smooth idle wave
+      ctx.fillStyle = '#0a0a16';
+      ctx.fillRect(0, 0, width, height);
+      
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(96, 165, 250, 0.25)';
+      ctx.beginPath();
+      ctx.moveTo(0, height / 2);
+      for (let x = 0; x < width; x++) {
+        const y = height / 2 + Math.sin(x * 0.02) * 10;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      return;
+    }
+
+    // Clear with semi-transparent background for cool motion trail overlay
+    ctx.fillStyle = 'rgba(10, 10, 22, 0.2)';
+    ctx.fillRect(0, 0, width, height);
+
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    if (visualizerStyle === 'bars') {
+      analyser.getByteFrequencyData(dataArray);
+      const barWidth = (width / bufferLength) * 1.6;
+      let x = 0;
+
+      for (let i = 0; i < bufferLength; i++) {
+        const barHeight = (dataArray[i] / 255) * height * 0.85;
+        
+        // Dynamic gradient color matching EQ levels and frequencies
+        const r = Math.floor(70 + (i / bufferLength) * 120);
+        const g = Math.floor(120 + (barHeight / height) * 135);
+        const b = Math.floor(255 - (i / bufferLength) * 120);
+
+        ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+        ctx.fillRect(x, height - barHeight, barWidth - 1, barHeight);
+        x += barWidth;
+      }
+    } 
+    else if (visualizerStyle === 'wave') {
+      analyser.getByteTimeDomainData(dataArray);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(96, 165, 250, 0.9)';
+      ctx.beginPath();
+
+      const sliceWidth = width / bufferLength;
+      let x = 0;
+
+      for (let i = 0; i < bufferLength; i++) {
+        const v = dataArray[i] / 128.0;
+        const y = (v * height) / 2;
+
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+        x += sliceWidth;
+      }
+
+      ctx.lineTo(width, height / 2);
+      ctx.stroke();
+    } 
+    else if (visualizerStyle === 'orbit') {
+      analyser.getByteFrequencyData(dataArray);
+      const centerX = width / 2;
+      const centerY = height / 2;
+
+      // Extract low/bass energy to pulsate circle
+      let bassSum = 0;
+      const numBassBins = Math.floor(bufferLength * 0.15);
+      for (let i = 0; i < numBassBins; i++) {
+        bassSum += dataArray[i];
+      }
+      const avgBass = bassSum / (numBassBins || 1);
+      const pulseRadius = 35 + (avgBass / 255) * 35;
+
+      // Draw center glowing pulse
+      const glow = ctx.createRadialGradient(centerX, centerY, pulseRadius * 0.2, centerX, centerY, pulseRadius);
+      glow.addColorStop(0, 'rgba(168, 85, 247, 0.75)');
+      glow.addColorStop(0.5, 'rgba(59, 130, 246, 0.3)');
+      glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, pulseRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Outer rings and ray spikes
+      ctx.strokeStyle = 'rgba(96, 165, 250, 0.85)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+
+      for (let i = 0; i < bufferLength; i += 3) {
+        const angle = (i / bufferLength) * Math.PI * 2;
+        const energy = (dataArray[i] / 255) * 55;
+        const rOuter = pulseRadius + 6 + energy;
+
+        const x1 = centerX + Math.cos(angle) * (pulseRadius + 3);
+        const y1 = centerY + Math.sin(angle) * (pulseRadius + 3);
+        const x2 = centerX + Math.cos(angle) * rOuter;
+        const y2 = centerY + Math.sin(angle) * rOuter;
+
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+      }
+      ctx.stroke();
+    }
+  };
+
+  // requestAnimationFrame hook
+  useEffect(() => {
+    let active = true;
+    const drawLoop = () => {
+      if (!active) return;
+      draw();
+      animationRef.current = requestAnimationFrame(drawLoop);
+    };
+
+    if (isPlaying) {
+      animationRef.current = requestAnimationFrame(drawLoop);
+    } else {
+      draw();
+    }
+
+    return () => {
+      active = false;
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    };
+  }, [isPlaying, visualizerStyle, bassGain, midGain, trebleGain]);
+
+  // Resize listener using ResizeObserver (safe container sizing)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const container = canvas.parentElement;
+    if (!container) return;
+
+    const handleResize = () => {
+      canvas.width = container.clientWidth;
+      canvas.height = container.clientHeight;
+      draw();
+    };
+
+    handleResize();
+    const observer = new ResizeObserver(() => handleResize());
+    observer.observe(container);
+
+    return () => observer.disconnect();
+  }, []);
+
+  const togglePlay = () => {
+    const targetState = !isPlaying;
+    setIsPlaying(targetState);
+    addNotification('Media Player', targetState ? `Playing: ${currentTrack.name}` : 'Paused', 'info');
+  };
+
+  const handleNextTrack = () => {
+    const currentIndex = TRACKS.findIndex(t => t.id === currentTrack.id);
+    const nextTrack = TRACKS[(currentIndex + 1) % TRACKS.length];
+    setCurrentTrack(nextTrack);
+    setCurrentTime(0);
+    if (isPlaying) {
+      addNotification('Media Player', `Playing: ${nextTrack.name}`, 'info');
+    }
+  };
+
+  const handlePrevTrack = () => {
+    const currentIndex = TRACKS.findIndex(t => t.id === currentTrack.id);
+    const prevTrack = TRACKS[(currentIndex - 1 + TRACKS.length) % TRACKS.length];
+    setCurrentTrack(prevTrack);
+    setCurrentTime(0);
+    if (isPlaying) {
+      addNotification('Media Player', `Playing: ${prevTrack.name}`, 'info');
+    }
+  };
+
+  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const percentage = clickX / rect.width;
+    const newTime = Math.floor(percentage * durationSeconds);
+    setCurrentTime(Math.max(0, Math.min(newTime, durationSeconds)));
+  };
 
   return (
-    <div className="h-full flex flex-col items-center justify-center p-8 bg-gradient-to-br from-purple-900/20 to-blue-900/20">
-      <div className="w-48 h-48 glass rounded-2xl mb-8 flex items-center justify-center shadow-2xl relative overflow-hidden group">
-        <Music size={64} className="text-white/20 group-hover:scale-110 transition-transform" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-      </div>
-      
-      <div className="text-center mb-8">
-        <h2 className="text-xl font-medium mb-1">Glass Symphony</h2>
-        <p className="text-sm text-white/40">GlassOS Orchestra</p>
+    <div className="h-full flex text-white select-none overflow-hidden bg-slate-950 font-sans">
+      {/* Left Panel: Library & EQ */}
+      <div className="w-[220px] shrink-0 border-r border-white/5 bg-black/30 p-4 flex flex-col gap-5 overflow-y-auto no-scrollbar">
+        {/* Tracks List */}
+        <div>
+          <h3 className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2 px-1">Tracks</h3>
+          <div className="space-y-1.5">
+            {TRACKS.map(track => {
+              const isSelected = track.id === currentTrack.id;
+              return (
+                <button
+                  key={track.id}
+                  onClick={() => {
+                    setCurrentTrack(track);
+                    setCurrentTime(0);
+                    if (isPlaying) {
+                      addNotification('Media Player', `Playing: ${track.name}`, 'info');
+                    }
+                  }}
+                  className={`w-full text-left p-2 rounded-xl transition-all flex items-center gap-2.5 group ${
+                    isSelected ? 'bg-white/10 text-white' : 'text-white/50 hover:bg-white/5 hover:text-white/80'
+                  }`}
+                >
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center transition-transform ${
+                    isSelected ? 'bg-blue-500/20 text-blue-400 scale-105' : 'bg-white/5 text-white/30 group-hover:scale-105'
+                  }`}>
+                    {isSelected && isPlaying ? (
+                      <div className="flex gap-0.5 items-end h-3">
+                        <div className="w-0.5 bg-blue-400 animate-[bounce_0.6s_infinite_alternate]" style={{ animationDelay: '0s' }} />
+                        <div className="w-0.5 bg-blue-400 animate-[bounce_0.6s_infinite_alternate]" style={{ animationDelay: '0.15s' }} />
+                        <div className="w-0.5 bg-blue-400 animate-[bounce_0.6s_infinite_alternate]" style={{ animationDelay: '0.3s' }} />
+                      </div>
+                    ) : (
+                      <Disc size={13} className={isSelected ? 'animate-spin' : ''} />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-medium truncate leading-tight">{track.name}</div>
+                    <div className="text-[9px] text-white/30 truncate leading-tight mt-0.5">{track.artist}</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Equalizer (EQ) Settings */}
+        <div>
+          <div className="flex items-center justify-between mb-2 px-1">
+            <h3 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-1">
+              <Sliders size={10} /> Equalizer
+            </h3>
+            <span className="text-[9px] text-blue-400 font-semibold px-1.5 py-0.5 rounded-full bg-blue-500/10 border border-blue-400/10">
+              {eqPreset}
+            </span>
+          </div>
+
+          {/* Preset buttons */}
+          <div className="grid grid-cols-2 gap-1 mb-3">
+            {[
+              { name: 'Flat', bass: 0, mid: 0, treble: 0 },
+              { name: 'Bass Boost', bass: 12, mid: 0, treble: -2 },
+              { name: 'Treble Boost', bass: -2, mid: 2, treble: 12 },
+              { name: 'Vocal', bass: -4, mid: 8, treble: 4 }
+            ].map(preset => {
+              const isPresetActive = eqPreset === preset.name;
+              return (
+                <button
+                  key={preset.name}
+                  onClick={() => {
+                    setEqPreset(preset.name);
+                    setBassGain(preset.bass);
+                    setMidGain(preset.mid);
+                    setTrebleGain(preset.treble);
+                    addNotification('Media Player', `EQ Preset: ${preset.name}`, 'info');
+                  }}
+                  className={`text-[9px] font-medium py-1 px-1.5 rounded-lg text-center transition-all border ${
+                    isPresetActive 
+                      ? 'bg-blue-500/15 border-blue-500/30 text-blue-400 font-bold' 
+                      : 'bg-white/5 border-transparent text-white/40 hover:bg-white/10 hover:text-white/60'
+                  }`}
+                >
+                  {preset.name}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Manual Sliders */}
+          <div className="space-y-2 px-1 bg-white/5 p-2 rounded-xl border border-white/5">
+            {/* Bass slider */}
+            <div>
+              <div className="flex justify-between text-[9px] text-white/30 font-medium mb-1">
+                <span>Bass</span>
+                <span className={bassGain > 0 ? 'text-emerald-400' : bassGain < 0 ? 'text-red-400' : 'text-white/50'}>
+                  {bassGain > 0 ? `+${bassGain}` : bassGain} dB
+                </span>
+              </div>
+              <input
+                type="range"
+                min="-15"
+                max="15"
+                step="1"
+                value={bassGain}
+                onChange={(e) => {
+                  setBassGain(parseInt(e.target.value));
+                  setEqPreset('Custom');
+                }}
+                className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-400"
+              />
+            </div>
+
+            {/* Mid slider */}
+            <div>
+              <div className="flex justify-between text-[9px] text-white/30 font-medium mb-1">
+                <span>Mid</span>
+                <span className={midGain > 0 ? 'text-emerald-400' : midGain < 0 ? 'text-red-400' : 'text-white/50'}>
+                  {midGain > 0 ? `+${midGain}` : midGain} dB
+                </span>
+              </div>
+              <input
+                type="range"
+                min="-15"
+                max="15"
+                step="1"
+                value={midGain}
+                onChange={(e) => {
+                  setMidGain(parseInt(e.target.value));
+                  setEqPreset('Custom');
+                }}
+                className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-400"
+              />
+            </div>
+
+            {/* Treble slider */}
+            <div>
+              <div className="flex justify-between text-[9px] text-white/30 font-medium mb-1">
+                <span>Treble</span>
+                <span className={trebleGain > 0 ? 'text-emerald-400' : trebleGain < 0 ? 'text-red-400' : 'text-white/50'}>
+                  {trebleGain > 0 ? `+${trebleGain}` : trebleGain} dB
+                </span>
+              </div>
+              <input
+                type="range"
+                min="-15"
+                max="15"
+                step="1"
+                value={trebleGain}
+                onChange={(e) => {
+                  setTrebleGain(parseInt(e.target.value));
+                  setEqPreset('Custom');
+                }}
+                className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-400"
+              />
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="w-full max-md mb-8">
-        <div className="h-1 w-full bg-white/10 rounded-full mb-2 relative cursor-pointer">
-          <div 
-            className="absolute top-0 left-0 h-full bg-blue-400 rounded-full" 
-            style={{ width: `${progress}%` }}
-          />
-          <div 
-            className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg"
-            style={{ left: `${progress}%` }}
-          />
-        </div>
-        <div className="flex justify-between text-[10px] text-white/30">
-          <span>1:24</span>
-          <span>3:45</span>
-        </div>
-      </div>
+      {/* Right/Main Panel: Visualizer & Controls */}
+      <div className="flex-1 p-5 flex flex-col justify-between relative overflow-hidden">
+        {/* Visualizer Canvas & Selector */}
+        <div className="flex-1 min-h-0 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Visualizer</span>
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            </div>
+            <div className="flex gap-1.5 bg-white/5 p-0.5 rounded-lg border border-white/5">
+              {(['bars', 'wave', 'orbit'] as const).map(style => (
+                <button
+                  key={style}
+                  onClick={() => setVisualizerStyle(style)}
+                  className={`text-[9px] font-semibold py-1 px-2.5 rounded-md transition-all ${
+                    visualizerStyle === style 
+                      ? 'bg-blue-500/25 text-blue-400 shadow' 
+                      : 'text-white/40 hover:text-white/70'
+                  }`}
+                >
+                  {style.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
 
-      <div className="flex items-center gap-8">
-        <button className="text-white/50 hover:text-white transition-colors"><SkipBack size={24} /></button>
-        <button 
-          onClick={() => {
-            setIsPlaying(!isPlaying);
-            addNotification('Media Player', !isPlaying ? 'Playing: Glass Symphony' : 'Paused', 'info');
-          }}
-          className="w-16 h-16 glass rounded-full flex items-center justify-center hover:bg-white/20 transition-all"
-        >
-          {isPlaying ? <Pause size={32} /> : <Play size={32} className="ml-1" />}
-        </button>
-        <button className="text-white/50 hover:text-white transition-colors"><SkipForward size={24} /></button>
+          {/* Canvas container */}
+          <div className="flex-1 relative bg-black/40 rounded-xl overflow-hidden border border-white/5 flex items-center justify-center">
+            <canvas
+              ref={canvasRef}
+              className="absolute inset-0 w-full h-full"
+            />
+            {!isPlaying && (
+              <div className="z-10 text-center pointer-events-none p-4">
+                <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-2 animate-pulse border border-white/10">
+                  <Play size={18} className="text-white/60 ml-0.5" />
+                </div>
+                <p className="text-[11px] font-medium text-white/60">Audio Context Suspended</p>
+                <p className="text-[9px] text-white/30 mt-0.5">Click Play below to start the Web Audio synth</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Track Info & Progress */}
+        <div className="mt-4 pt-4 border-t border-white/5 space-y-3">
+          <div className="flex justify-between items-end">
+            <div>
+              <h2 className="text-sm font-semibold truncate max-w-[240px] tracking-tight">{currentTrack.name}</h2>
+              <p className="text-[10px] text-white/40 flex items-center gap-1.5 mt-0.5">
+                <span>{currentTrack.artist}</span>
+                <span className="w-1 h-1 rounded-full bg-white/20" />
+                <span className="text-white/30 text-[9px]">{currentTrack.genre}</span>
+              </p>
+            </div>
+            {/* EQ boost active notification badge */}
+            {(bassGain >= 10 || trebleGain >= 10) && (
+              <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[8px] font-bold tracking-wide uppercase">
+                <Sliders size={8} /> Boost Active
+              </div>
+            )}
+          </div>
+
+          {/* Progress slider bar */}
+          <div className="w-full">
+            <div 
+              onClick={handleProgressClick}
+              className="h-1 w-full bg-white/10 rounded-full relative cursor-pointer group py-1.5 flex items-center"
+            >
+              <div className="h-1 w-full bg-white/10 rounded-full relative">
+                <div 
+                  className="absolute top-0 left-0 h-full bg-gradient-to-r from-blue-500 to-indigo-400 rounded-full group-hover:from-blue-400 group-hover:to-indigo-300" 
+                  style={{ width: `${progressPercent}%` }}
+                />
+                <div 
+                  className="absolute top-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                  style={{ left: `${progressPercent}%`, transform: 'translate(-50%, -50%)' }}
+                />
+              </div>
+            </div>
+            <div className="flex justify-between text-[9px] text-white/30 font-medium">
+              <span>{formatTime(currentTime)}</span>
+              <span>{currentTrack.duration}</span>
+            </div>
+          </div>
+
+          {/* Play Controls and Volume */}
+          <div className="flex items-center justify-between">
+            {/* Skip & Play Buttons */}
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={handlePrevTrack}
+                className="text-white/50 hover:text-white hover:scale-105 active:scale-95 transition-all"
+                title="Previous Track"
+              >
+                <SkipBack size={18} />
+              </button>
+              
+              <button 
+                onClick={togglePlay}
+                className="w-10 h-10 bg-white text-black rounded-full flex items-center justify-center hover:bg-white/90 hover:scale-105 active:scale-95 shadow-md transition-all group"
+                title={isPlaying ? 'Pause' : 'Play'}
+              >
+                {isPlaying ? (
+                  <Pause size={18} fill="currentColor" />
+                ) : (
+                  <Play size={18} fill="currentColor" className="ml-0.5" />
+                )}
+              </button>
+
+              <button 
+                onClick={handleNextTrack}
+                className="text-white/50 hover:text-white hover:scale-105 active:scale-95 transition-all"
+                title="Next Track"
+              >
+                <SkipForward size={18} />
+              </button>
+            </div>
+
+            {/* Volume slider */}
+            <div className="flex items-center gap-2 bg-white/5 py-1.5 px-3 rounded-full border border-white/5 min-w-[120px]">
+              <button 
+                onClick={() => setVolume(v => v === 0 ? 70 : 0)}
+                className="text-white/50 hover:text-white transition-colors"
+              >
+                {volume === 0 ? <VolumeX size={13} /> : <Volume2 size={13} />}
+              </button>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={volume}
+                onChange={(e) => setVolume(parseInt(e.target.value))}
+                className="w-16 h-1 bg-white/15 rounded-lg appearance-none cursor-pointer accent-white hover:accent-blue-400"
+              />
+              <span className="text-[9px] font-semibold text-white/40 w-5 text-right">{volume}%</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
