@@ -134,6 +134,146 @@ export function FilesApp({
   const [isExternalDragging, setIsExternalDragging] = useState(false);
   const dragCounter = useRef(0);
 
+  // Find Panel States
+  const [isFindPanelOpen, setIsFindPanelOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const [findScope, setFindScope] = useState<'all' | 'current'>('all');
+  const [findInContent, setFindInContent] = useState(false);
+  const [findMatchCase, setFindMatchCase] = useState(false);
+  const [findType, setFindType] = useState('all');
+  const [findMinSize, setFindMinSize] = useState('');
+  const [findDateRange, setFindDateRange] = useState('all');
+
+  const parseSizeInBytes = (sizeStr: string): number | null => {
+    const cleanStr = sizeStr.trim().toLowerCase();
+    if (!cleanStr) return null;
+    const match = cleanStr.match(/^(\d+)\s*(b|kb|mb|gb)?$/);
+    if (!match) return null;
+    const value = parseInt(match[1]);
+    const unit = match[2];
+    if (!unit || unit === 'b') return value;
+    if (unit === 'kb') return value * 1024;
+    if (unit === 'mb') return value * 1024 * 1024;
+    if (unit === 'gb') return value * 1024 * 1024 * 1024;
+    return value;
+  };
+
+  const matchesDate = (dateStr: string | undefined, range: string): boolean => {
+    if (range === 'all') return true;
+    if (!dateStr) return false;
+    const date = new Date(dateStr);
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    switch (range) {
+      case 'today':
+        return date >= startOfToday;
+      case 'week':
+        const startOfWeek = new Date(startOfToday.getTime() - 7 * 24 * 60 * 60 * 1000);
+        return date >= startOfWeek;
+      case 'month':
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        return date >= startOfMonth;
+      case 'year':
+        const startOfYear = new Date(now.getFullYear(), 0, 1);
+        return date >= startOfYear;
+      default:
+        return true;
+    }
+  };
+
+  const matchingFindItems = useMemo(() => {
+    if (!findQuery.trim() && findType === 'all' && !findMinSize.trim() && findDateRange === 'all') {
+      return [];
+    }
+
+    const results: { item: FileSystemItem, path: string[] }[] = [];
+    const minSizeBytes = parseSizeInBytes(findMinSize);
+
+    const searchRecursive = (items: FileSystemItem[], path: string[]) => {
+      const isDescentAllowed = findScope === 'all' || (() => {
+        if (path.length >= currentPath.length) return true;
+        for (let i = 0; i < path.length; i++) {
+          if (path[i] !== currentPath[i]) return false;
+        }
+        return true;
+      })();
+
+      items.forEach(item => {
+        const itemFullPath = [...path, item.name];
+        
+        const itemInScope = findScope === 'all' || (() => {
+          if (path.length < currentPath.length) return false;
+          for (let i = 0; i < currentPath.length; i++) {
+            if (path[i] !== currentPath[i]) return false;
+          }
+          return true;
+        })();
+
+        if (itemInScope) {
+          let matches = true;
+
+          if (findQuery.trim()) {
+            const queryLower = findQuery.toLowerCase();
+            const nameLower = item.name.toLowerCase();
+            const contentLower = (item.content || '').toLowerCase();
+
+            const escapedQuery = findQuery.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+            const regex = new RegExp(escapedQuery, findMatchCase ? '' : 'i');
+
+            const nameMatches = findMatchCase 
+              ? item.name.includes(findQuery) || regex.test(item.name)
+              : nameLower.includes(queryLower) || regex.test(item.name);
+
+            let contentMatches = false;
+            if (findInContent && item.type === 'file') {
+              contentMatches = findMatchCase
+                ? (item.content || '').includes(findQuery)
+                : contentLower.includes(queryLower);
+            }
+
+            if (!nameMatches && !contentMatches) {
+              matches = false;
+            }
+          }
+
+          if (matches && findType !== 'all') {
+            if (findType === 'file' && item.type !== 'file') matches = false;
+            else if (findType === 'folder' && item.type !== 'folder') matches = false;
+            else if (findType !== 'file' && findType !== 'folder') {
+              const ext = item.name.split('.').pop()?.toLowerCase();
+              if (findType === 'image') {
+                if (!['jpg', 'jpeg', 'png', 'tiff'].includes(ext || '')) matches = false;
+              } else {
+                if (ext !== findType) matches = false;
+              }
+            }
+          }
+
+          if (matches && minSizeBytes !== null && item.type === 'file') {
+            const itemSize = item.size || item.content?.length || 0;
+            if (itemSize < minSizeBytes) matches = false;
+          }
+
+          if (matches && findDateRange !== 'all') {
+            if (!matchesDate(item.dateModified, findDateRange)) matches = false;
+          }
+
+          if (matches) {
+            results.push({ item, path });
+          }
+        }
+
+        if (item.type === 'folder' && item.children && isDescentAllowed) {
+          searchRecursive(item.children, itemFullPath);
+        }
+      });
+    };
+
+    searchRecursive(fs, []);
+    return results;
+  }, [fs, findQuery, findScope, findInContent, findMatchCase, findType, findMinSize, findDateRange, currentPath]);
+
   /**
    * Handles the selection of files from the local machine through the file input.
    * Processes the selected files and adds them to the virtual file system.
@@ -739,11 +879,17 @@ export function FilesApp({
   // Keyboard shortcuts handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if typing in an input or textarea
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const cmdKey = isMac ? e.metaKey : e.ctrlKey;
+
+      if (cmdKey && e.key === 'f') {
+        e.preventDefault();
+        setIsFindPanelOpen(prev => !prev);
+        return;
+      }
+
+      // Don't trigger if typing in an input or textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
       if (e.key === 'Delete' || (e.key === 'Backspace' && cmdKey)) {
         if (selectedItemNames.length > 0) {
@@ -901,6 +1047,17 @@ export function FilesApp({
                      <span>Paste</span>
                      <span className="text-white/20 group-hover:text-white/40">Ctrl+V</span>
                    </button>
+                    <div className="h-px bg-white/10 my-1" />
+                    <button 
+                      onClick={() => {
+                        setIsFindPanelOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-4 py-1.5 text-[11px] hover:bg-blue-500/20 flex items-center justify-between group"
+                    >
+                      <span>Find...</span>
+                      <span className="text-white/20 group-hover:text-white/40">Ctrl+F</span>
+                    </button>
                    <div className="h-px bg-white/10 my-1" />
                    <button 
                      onClick={() => handleDelete(selectedItemNames)}
@@ -1136,6 +1293,20 @@ export function FilesApp({
             )}
           </div>
           <button 
+            onClick={() => setIsFindPanelOpen(prev => !prev)}
+            className={cn(
+              "p-1.5 rounded-lg border transition-all hover:text-white hover:bg-white/5",
+              isFindPanelOpen ? "bg-blue-500/20 border-blue-500/40 text-blue-400" : "bg-white/5 border-white/10 text-white/40"
+            )}
+            style={{
+              borderColor: isFindPanelOpen ? accentColor : undefined,
+              color: isFindPanelOpen ? accentColor : undefined
+            }}
+            title="Advanced Find (Ctrl+F)"
+          >
+            <Filter size={14} />
+          </button>
+          <button 
             onClick={() => fileInputRef.current?.click()}
             className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-full text-[10px] font-medium transition-all"
             title="Upload Files"
@@ -1152,6 +1323,192 @@ export function FilesApp({
           />
         </div>
       </div>
+
+      {/* Slide-down Find Panel */}
+      <AnimatePresence>
+        {isFindPanelOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="border-b border-white/10 bg-black/40 backdrop-blur-md overflow-hidden"
+          >
+            <div className="p-4 flex flex-col gap-3">
+              {/* Row 1: Title & Close Button */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Search size={14} style={{ color: accentColor }} />
+                  <span className="text-[11px] font-bold tracking-wider uppercase text-white/60">Find Files & Folders</span>
+                </div>
+                <button 
+                  onClick={() => setIsFindPanelOpen(false)}
+                  className="p-1 hover:bg-white/10 rounded-md transition-colors text-white/40 hover:text-white"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              {/* Row 2: Search Input and Scope */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div className="md:col-span-2 relative">
+                  <input
+                    type="text"
+                    placeholder="Search by name (use * for wildcards) or content..."
+                    className="w-full bg-white/5 border border-white/10 rounded-lg py-1.5 pl-3 pr-8 text-xs outline-none focus:border-blue-500/50 transition-all font-mono"
+                    value={findQuery}
+                    onChange={(e) => setFindQuery(e.target.value)}
+                    autoFocus
+                  />
+                  {findQuery && (
+                    <button 
+                      onClick={() => setFindQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/30 hover:text-white"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
+                <div>
+                  <select
+                    value={findScope}
+                    onChange={(e) => setFindScope(e.target.value as 'all' | 'current')}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg py-1.5 px-2 text-xs outline-none text-white/70"
+                  >
+                    <option value="all" className="bg-neutral-900">Entire Drive (All)</option>
+                    <option value="current" className="bg-neutral-900">Current Folder (/{currentPath.join('/')})</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-4 px-1">
+                  <label className="flex items-center gap-2 text-[11px] text-white/60 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={findInContent}
+                      onChange={(e) => setFindInContent(e.target.checked)}
+                      className="rounded border-white/20 bg-white/5 text-blue-500 focus:ring-0"
+                    />
+                    Search content
+                  </label>
+                  <label className="flex items-center gap-2 text-[11px] text-white/60 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={findMatchCase}
+                      onChange={(e) => setFindMatchCase(e.target.checked)}
+                      className="rounded border-white/20 bg-white/5 text-blue-500 focus:ring-0"
+                    />
+                    Match case
+                  </label>
+                </div>
+              </div>
+
+              {/* Row 3: Filters (Type, Size, Date) */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 border-t border-white/5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold text-white/30 uppercase w-12">Type:</span>
+                  <select
+                    value={findType}
+                    onChange={(e) => setFindType(e.target.value)}
+                    className="flex-1 bg-white/5 border border-white/10 rounded-lg py-1 px-2 text-[11px] outline-none text-white/70"
+                  >
+                    <option value="all" className="bg-neutral-900">All Files & Folders</option>
+                    <option value="file" className="bg-neutral-900">All Files</option>
+                    <option value="folder" className="bg-neutral-900">All Folders</option>
+                    <option value="txt" className="bg-neutral-900">Text Documents (.txt)</option>
+                    <option value="gdoc" className="bg-neutral-900">GlassWord Documents (.gdoc)</option>
+                    <option value="gsheet" className="bg-neutral-900">Glass Sheets (.gsheet)</option>
+                    <option value="gdraw" className="bg-neutral-900">Glass Draw (.gdraw)</option>
+                    <option value="image" className="bg-neutral-900">Images (.jpg, .png, etc.)</option>
+                    <option value="b" className="bg-neutral-900">Brainscript (.b)</option>
+                    <option value="json" className="bg-neutral-900">JSON (.json)</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold text-white/30 uppercase w-16">Min Size:</span>
+                  <input
+                    type="text"
+                    placeholder="e.g. 100 or 1KB, 1MB"
+                    className="flex-1 bg-white/5 border border-white/10 rounded-lg py-1 px-2 text-[11px] outline-none text-white/70 font-mono"
+                    value={findMinSize}
+                    onChange={(e) => setFindMinSize(e.target.value)}
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold text-white/30 uppercase w-16">Modified:</span>
+                  <select
+                    value={findDateRange}
+                    onChange={(e) => setFindDateRange(e.target.value)}
+                    className="flex-1 bg-white/5 border border-white/10 rounded-lg py-1 px-2 text-[11px] outline-none text-white/70"
+                  >
+                    <option value="all" className="bg-neutral-900">Any Time</option>
+                    <option value="today" className="bg-neutral-900">Today</option>
+                    <option value="week" className="bg-neutral-900">This Week</option>
+                    <option value="month" className="bg-neutral-900">This Month</option>
+                    <option value="year" className="bg-neutral-900">This Year</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Row 4: Live Results Section */}
+              {findQuery.trim() && (
+                <div className="mt-2 border-t border-white/10 pt-2 flex flex-col max-h-[160px] overflow-y-auto no-scrollbar">
+                  <div className="flex items-center justify-between text-[10px] text-white/40 mb-1 px-1 font-mono">
+                    <span>{matchingFindItems.length} results found</span>
+                    <span className="opacity-50">Double-click to open, single-click to select</span>
+                  </div>
+                  {matchingFindItems.length > 0 ? (
+                    <div className="flex flex-col gap-1">
+                      {matchingFindItems.map((res, index) => (
+                        <div
+                          key={index}
+                          onClick={() => {
+                            setSelectedItemNames([res.item.name]);
+                            if (res.path && JSON.stringify(currentPath) !== JSON.stringify(res.path)) {
+                              setCurrentPath(res.path);
+                            }
+                          }}
+                          onDoubleClick={() => {
+                            if (res.path && JSON.stringify(currentPath) !== JSON.stringify(res.path)) {
+                              setCurrentPath(res.path);
+                            }
+                            openItem(res.item);
+                          }}
+                          className="flex items-center justify-between p-1.5 hover:bg-white/10 rounded-lg text-xs transition-all cursor-pointer font-mono group"
+                        >
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            {getFileIcon(res.item.name, res.item.type)}
+                            <span className="text-white/80 font-bold truncate">{res.item.name}</span>
+                            <span className="text-white/30 truncate text-[10px]">/{res.path.join('/')}</span>
+                          </div>
+                          <div className="flex items-center gap-3 text-[10px] text-white/40">
+                            <span>{res.item.type === 'file' ? `${res.item.size || res.item.content?.length || 0} B` : 'Folder'}</span>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (res.path) {
+                                  setCurrentPath(res.path);
+                                  setSelectedItemNames([res.item.name]);
+                                }
+                              }}
+                              className="opacity-0 group-hover:opacity-100 px-1.5 py-0.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded text-[9px] font-bold"
+                            >
+                              Reveal
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-4 text-xs text-white/30 font-mono">No matching files or folders found</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar */}
