@@ -13400,6 +13400,8 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
   const [insertType, setInsertType] = useState<'image' | 'sheet'>('image');
   const [saveFileName, setSaveFileName] = useState('');
   const [showScriptPicker, setShowScriptPicker] = useState(false);
+  const [showImportPicker, setShowImportPicker] = useState(false);
+  const [importCategory, setImportCategory] = useState<'image' | 'drawing' | 'paint'>('image');
   const editorRef = useRef<HTMLDivElement>(null);
   const lastContent = useRef(content);
   const lastSelection = useRef('');
@@ -13684,6 +13686,47 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
     setShowInsertPicker(false);
   };
 
+  const handleImportFile = (selectedPath: string, category: 'image' | 'drawing' | 'paint') => {
+    const file = findItemByPath(fs, selectedPath.split('/'));
+    if (!file) return;
+
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    let contentToInsert = '';
+
+    if (category === 'image') {
+      if (!['jpeg', 'jpg', 'png', 'gif', 'img'].includes(ext || '')) {
+        addNotification('GlassWord', 'Selected file is not an image file', 'warning');
+        return;
+      }
+      const src = file.content?.startsWith('data:') ? file.content : `data:image/${ext};base64,${file.content}`;
+      contentToInsert = `<img src="${src}" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin: 10px 0;" alt="${file.name}" />`;
+    } else if (category === 'drawing') {
+      if (ext !== 'gdraw') {
+        addNotification('GlassWord', 'Selected file is not a drawing file', 'warning');
+        return;
+      }
+      contentToInsert = `<div style="padding: 20px; background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 12px; text-align: center; margin: 15px 0; color: #64748b;">
+        <div style="font-weight: bold; margin-bottom: 4px;">Drawing: ${file.name}</div>
+        <div style="font-size: 10px; opacity: 0.7;">Vector data from GlassDraw</div>
+      </div>`;
+    } else if (category === 'paint') {
+      if (ext !== 'gpaint') {
+        addNotification('GlassWord', 'Selected file is not a paint file', 'warning');
+        return;
+      }
+      const src = file.content || '';
+      contentToInsert = `<div style="text-align: center; margin: 15px 0;">
+        <img src="${src}" style="max-width: 80%; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.1);" alt="Painting: ${file.name}" />
+        <div style="font-size: 9px; color: #94a3b8; margin-top: 4px; font-weight: bold;">PAINTING: ${file.name}</div>
+      </div>`;
+    }
+
+    if (contentToInsert) {
+      exec('insertHTML', contentToInsert);
+      addNotification('GlassWord', `Imported ${file.name}`, 'success');
+    }
+  };
+
   const menuItems = [
     { 
       label: 'File', 
@@ -13692,6 +13735,14 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
         { label: 'Open...', action: () => setShowOpenDialog(true) },
         { label: 'Save', action: handleSave, shortcut: 'Cmd+S' },
         { label: 'Save As...', action: () => setShowSaveDialog(true) },
+        { 
+          label: 'Import', 
+          items: [
+            { label: 'Import Image', action: () => { setImportCategory('image'); setShowImportPicker(true); } },
+            { label: 'Import Drawing', action: () => { setImportCategory('drawing'); setShowImportPicker(true); } },
+            { label: 'Import Paint File', action: () => { setImportCategory('paint'); setShowImportPicker(true); } }
+          ]
+        },
         { label: 'Print...', action: handlePrint, shortcut: 'Cmd+P' },
         { label: 'Exit', action: () => addNotification('System', 'Use window controls to exit', 'info') }
       ] 
@@ -14011,6 +14062,34 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
             accentColor="#3b82f6"
             onCancel={() => setShowInsertPicker(false)}
             onSelect={handleInsertFile}
+          />
+        )}
+
+        {showImportPicker && (
+          <FilePicker 
+            title={
+              importCategory === 'image' 
+                ? "Import Image" 
+                : importCategory === 'drawing'
+                ? "Import Drawing"
+                : "Import Paint File"
+            }
+            fs={fs}
+            fsLib={fsLib}
+            mode="open"
+            allowedExtensions={
+              importCategory === 'image' 
+                ? ['jpeg', 'jpg', 'png', 'gif', 'img'] 
+                : importCategory === 'drawing'
+                ? ['gdraw']
+                : ['gpaint']
+            }
+            accentColor="#3b82f6"
+            onCancel={() => setShowImportPicker(false)}
+            onSelect={(selectedPath) => {
+              handleImportFile(selectedPath, importCategory);
+              setShowImportPicker(false);
+            }}
           />
         )}
       </AnimatePresence>
