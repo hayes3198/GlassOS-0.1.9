@@ -13,6 +13,178 @@ const PORT = 3000;
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
+function generateHeuristicResponse(messages: any[]): string {
+  const lastMsg = messages && messages.length > 0 ? messages[messages.length - 1] : null;
+  const userText = lastMsg ? (lastMsg.content || lastMsg.text || '').toLowerCase() : '';
+
+  if (userText.includes('glassscript') || userText.includes('script') || userText.includes('automate')) {
+    return `### ⚡ GlassScript System Automation Sequence
+
+Here is a standard, fully-formed **glassScript** macro designed to run safely inside the GlassOS sandbox. You can execute this directly inside Code Studio or the system terminal to orchestrate window states and generate notifications:
+
+\`\`\`glassscript
+// glassScript Automation Macro
+// Target: Workspace Optimization
+const main = () => {
+    // 1. Initialize subsystem references
+    const term = System.openApp("terminal");
+    term.write("Executing workspace consolidation sequence...\\n");
+
+    // 2. Clear background cache lines
+    System.flushBuffers();
+
+    // 3. Dispatch security notification to NOC
+    System.addNotification(
+        "glassScript Kernel", 
+        "Subsystem optimization completed (12ms delay).", 
+        "success"
+    );
+};
+
+main();
+\`\`\`
+
+#### Key Architecture Principles:
+* **Execution Boundary**: Runs with sandboxed local execution context.
+* **State Operations**: Synchronously reads and writes to GlassOS IndexedDB state hooks.`;
+  }
+
+  if (userText.includes('brainscript') || userText.includes('cognitive') || userText.includes('model') || userText.includes('agent')) {
+    return `### 🧠 Brainscript Cognitive Pipeline Layout
+
+To configure advanced logic routing or process complex user flows, GlassOS uses **Brainscript** to declare structured agent orchestrations. Here is a valid configuration schema:
+
+\`\`\`brainscript
+// Brainscript Cognitive Model Definition
+declare model "Heuristics-Core-V2" {
+    temperature: 0.25;
+    max_tokens: 2048;
+    top_p: 0.90;
+}
+
+// Memory block mapping for workspace reference
+declare memory "system_context" {
+    source: "/sys/config/kernel.conf";
+    priority: "highest";
+    cache_policy: "write-through";
+}
+
+// Sequential agent execution cycle
+execute "Consolidate active network lanes and verify gTLSP TCP packets."
+\`\`\`
+
+#### Usage Instructions:
+1. Load this Brainscript payload into any active IDE window.
+2. The local cognitive parser will compile the tokens into executable JSON actions dynamically.`;
+  }
+
+  if (userText.includes('database') || userText.includes('sql') || userText.includes('table') || userText.includes('schema') || userText.includes('query')) {
+    return `### 🗄️ GlassOS Database Query & Schema Design
+
+Here is a highly optimized schema layout and structured JSON collection query template for the Glass Database applet:
+
+\`\`\`json
+{
+  "collection": "system_nodes",
+  "operation": "SELECT",
+  "query": {
+    "priority": { "$in": ["critical", "high"] },
+    "status": "active"
+  },
+  "options": {
+    "sort": { "latencyMs": 1 },
+    "limit": 25
+  }
+}
+\`\`\`
+
+#### SQL Equivalency:
+If you are mapping this to a relational or Cloud SQL architecture, use the following optimized command:
+
+\`\`\`sql
+-- Fetch top performing critical routing nodes
+SELECT id, hostname, ip, latency_ms 
+FROM system_nodes 
+WHERE priority IN ('critical', 'high') AND status = 'active'
+ORDER BY latency_ms ASC 
+LIMIT 25;
+\`\`\`
+
+Let me know if you need help with table normalizations or indexing specific query attributes!`;
+  }
+
+  if (userText.includes('mail') || userText.includes('email') || userText.includes('letter') || userText.includes('draft')) {
+    return `### ✉️ Drafted Communication Template
+
+Based on your active mail context, here is a highly professional and polished email draft ready for dispatch in GlassMail:
+
+**Subject:** GlassOS Subsystem Tuning Sequence - Status Complete
+
+Dear Systems Operator,
+
+I have completed a thorough check of our active local ports and TCP socket connections. All virtual channels are fully optimized and running smoothly, displaying low latency metrics.
+
+**Subsystem Health Report:**
+* **gTLSP Handshakes**: Fully Secured (Derived 256-bit keys)
+* **Quantum Bridge (QVB)**: Active (Zero segment dropped)
+* **Ingress Queue Pressure**: 12% (Nominal)
+
+Please review the attached diagnostic sheets at your convenience.
+
+Best regards,  
+**glassChat Assistant**`;
+  }
+
+  if (userText.includes('spreadsheet') || userText.includes('sheet') || userText.includes('formula') || userText.includes('excel')) {
+    return `### 📊 Suggested Tabular Formulas for Glass Sheets
+
+To analyze your active spreadsheet grid, here are the most effective formula paths:
+
+* **Calculate Total Sockets Latency**:  
+  \`=SUM(D2:D12)\`
+* **Evaluate Standard Deviation of Packet Jitter**:  
+  \`=STDEV(E2:E12)\`
+* **Trigger Congestion Flag**:  
+  \`=IF(F2 > 75, "CONGESTED", "OPTIMAL")\`
+* **Compute Weighted Priority Index**:  
+  \`=AVERAGEIF(C2:C12, "high", D2:D12)\`
+
+You can input these formulas directly into any cell coordinate in Glass Sheets to evaluate live array updates in real-time.`;
+  }
+
+  if (userText.includes('document') || userText.includes('write') || userText.includes('text') || userText.includes('paragraph') || userText.includes('word')) {
+    return `### 📝 Rich Document Composition Outline
+
+Here is a structured, elegant draft compiled for your document workspace inside GlassWord:
+
+# GlassOS Systems Integration Blueprint
+## Section 1: End-to-End Transport Layer Security
+
+This specification outlines the integration of **gTLSP** (Glass Transport Security Protocol) with the client-side socket bridge. By establishing secure key exchanges over physical virtual lanes, the network prevents unauthorized third-party snooping.
+
+### Key Objectives
+* **Zero-copy DMA transfers** for rapid packet delivery.
+* **Poly1305 symmetric validation** to guard stream authenticity.
+* **Quantum-Virtualization Bridge (QVB)** to map ingress ports cleanly.
+
+You can paste this structured document outline directly into GlassWord and select from standard formatting fonts like *Inter* or *JetBrains Mono* to style.`;
+  }
+
+  return `### ⚡ glassChat Offline Copilot
+
+Hello, Operator! I am your local, high-performance systems copilot. 
+
+Since this system has been successfully decoupled from external cloud APIs, I run entirely **offline on your local machine** with zero network latency.
+
+I am an expert in:
+* **glassOS Architecture** (Subsystems, Files, Mail, Sheets, Database, Drawing)
+* **glassScript** (Automating interface configurations and actions)
+* **Brainscript** (Setting up agent orchestrations and neural pipelines)
+* **Code & Queries** (Writing SQL queries, Excel formulas, rich text documents, or HTML app templates)
+
+How can I assist you with your GlassOS environment today?`;
+}
+
 async function ensureStorage() {
   try {
     await fs.access(DATA_DIR);
@@ -129,6 +301,22 @@ async function startServer() {
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Failed to save data' });
+    }
+  });
+
+  app.post('/api/gemini/chat', async (req, res) => {
+    try {
+      const { messages } = req.body;
+      if (!messages || !Array.isArray(messages)) {
+        return res.status(400).json({ error: 'Invalid or missing messages array' });
+      }
+
+      // Generate response offline using our deterministic heuristic rules
+      const responseText = generateHeuristicResponse(messages);
+      res.json({ text: responseText });
+    } catch (error: any) {
+      console.error("Local Assistant Error:", error);
+      res.status(500).json({ error: error.message || 'Failed to generate response' });
     }
   });
 

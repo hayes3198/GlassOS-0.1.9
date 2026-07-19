@@ -453,6 +453,7 @@ export default function App() {
   const [notepadStyle, setNotepadStyle] = useState<any>({ fontSize: '14px', fontWeight: 'normal', textAlign: 'left' });
   const [glassScriptLine, setGlassScriptLine] = useState<number>(-1);
   const [brainscriptLine, setBrainscriptLine] = useState<number>(-1);
+  const [glassChatContext, setGlassChatContext] = useState<{ appName: string; initialPrompt: string } | null>(null);
   const [activeFileInNotepad, setActiveFileInNotepad] = useState<{name: string, path: string[]} | null>(null);
   const [calendarEvents, setCalendarEvents] = useState<any[]>([
     { id: '1', title: 'System Review', date: new Date().toISOString().split('T')[0], time: '10:00', type: 'meeting' },
@@ -553,6 +554,7 @@ export default function App() {
   const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'syncing'>('offline');
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, items: ContextMenuItem[] } | null>(null);
   const [isAltTabOpen, setIsAltTabOpen] = useState(false);
+  const [altTabHighlightId, setAltTabHighlightId] = useState<AppId | null>(null);
   const [isQuickSettingsOpen, setIsQuickSettingsOpen] = useState(false);
   const desktopRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -578,7 +580,7 @@ export default function App() {
       case 'calendar': return { label: 'Calendar', desc: 'Daily schedule and calendar organizer' };
       case 'glassmail': return { label: 'GlassMail', desc: 'Secure local client and server inbox' };
       case 'glassdatabase': return { label: 'GlassDatabase', desc: 'Database engine database query client' };
-      case 'glassmessaging': return { label: 'Comms Chat', desc: 'Unified chat and messaging shard' };
+      case 'glassmessaging': return { label: 'glassChat', desc: 'Secure systems chat and offline Copilot companion' };
       case 'printers': return { label: 'Printer Queue', desc: 'Monitor virtual and network paper printouts' };
       case 'taskscheduler': return { label: 'Task Scheduler', desc: 'Automate system scripts and tasks' };
       case 'clock': return { label: 'Clock', desc: 'World clocks and time alarms' };
@@ -1041,43 +1043,76 @@ export default function App() {
     return () => clearInterval(interval);
   }, [tasks]);
 
-  // Global Keyboard Listeners
+  // Global Keyboard Listeners (Keyboard Shortcut Manager)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Win + D (Show Desktop)
-      if (e.metaKey && e.key === 'd') {
+      // 1. Alt + Tab (Switch Windows with Cycling highlight)
+      if (e.altKey && e.key === 'Tab') {
+        e.preventDefault();
+        
+        if (windows.length > 0) {
+          setIsAltTabOpen(true);
+          setAltTabHighlightId(prev => {
+            const currentIdx = windows.findIndex(w => w.id === (prev || activeWindow));
+            const nextIdx = (currentIdx + 1) % windows.length;
+            return windows[nextIdx].id;
+          });
+        } else {
+          setIsAltTabOpen(true);
+          setAltTabHighlightId(null);
+        }
+        return;
+      }
+
+      // 2. Win + N (or Cmd + N / Ctrl + Alt + N for maximum compatibility) -> New Notepad
+      if ((e.metaKey && e.key?.toLowerCase() === 'n') || (e.ctrlKey && e.altKey && e.key?.toLowerCase() === 'n')) {
+        e.preventDefault();
+        setNotepadContent('');
+        setActiveFileInNotepad(null);
+        openWindow('notepad', 'Notepad');
+        addNotification('Notepad', 'Shortcut: Initialized new notepad document (Win+N)', 'success');
+        return;
+      }
+
+      // 3. Win + D (Show Desktop)
+      if (e.metaKey && e.key?.toLowerCase() === 'd') {
         e.preventDefault();
         setWindows(prev => prev.map(w => ({ ...w, isMinimized: true })));
         addNotification('System', 'Showing Desktop', 'info');
-      }
-      
-      // Alt + Tab (Switch Windows)
-      if (e.altKey && e.key === 'Tab') {
-        e.preventDefault();
-        setIsAltTabOpen(true);
+        return;
       }
 
-      // Win + L (Logout/Lock)
-      if (e.metaKey && e.key === 'l') {
+      // 4. Win + L (Logout/Lock)
+      if (e.metaKey && e.key?.toLowerCase() === 'l') {
         e.preventDefault();
         handleLogout();
+        return;
       }
 
-      // Cmd + K (Global Search)
-      if (e.metaKey && e.key === 'k') {
+      // 5. Cmd + K or Ctrl + K (Global Search)
+      if ((e.metaKey || e.ctrlKey) && e.key?.toLowerCase() === 'k') {
         e.preventDefault();
         setIsGlobalSearchOpen(true);
+        return;
       }
 
-      // Win + V (Clipboard Manager)
-      if (e.metaKey && e.key === 'v') {
+      // 6. Win + V (Clipboard Manager)
+      if (e.metaKey && e.key?.toLowerCase() === 'v') {
         e.preventDefault();
         setIsClipboardOpen(true);
+        return;
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
+      // When Alt is released, focus the selected Alt+Tab highlight
       if (e.key === 'Alt') {
+        setAltTabHighlightId(currentHighlight => {
+          if (currentHighlight) {
+            focusWindow(currentHighlight);
+          }
+          return null;
+        });
         setIsAltTabOpen(false);
       }
     };
@@ -1088,7 +1123,7 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [windows]);
+  }, [windows, activeWindow]);
 
   useEffect(() => {
     localStorage.setItem('glassos_username', userName);
@@ -1201,6 +1236,12 @@ export default function App() {
 
     setWindows(prev => [...prev, newWindow]);
     setActiveWindow(id);
+  };
+
+  const handleOpenGlassChat = (appName: string, initialPrompt: string) => {
+    setGlassChatContext({ appName, initialPrompt });
+    openWindow('glassmessaging', 'glassChat');
+    addNotification('glassChat', `Neural Link synced with ${appName} workspace context`, 'success');
   };
 
   const closeWindow = (id: AppId) => {
@@ -1468,7 +1509,7 @@ export default function App() {
               <DesktopIcon icon={<Calendar />} label="Calendar" onClick={() => openWindow('calendar', 'Glass Calendar')} />
               <DesktopIcon icon={<TableIcon />} label="Sheets" onClick={() => openWindow('spreadsheet', 'Glass Sheets')} />
               <DesktopIcon icon={<Mail />} label="GlassMail" onClick={() => openWindow('glassmail', 'GlassMail Professional')} />
-              <DesktopIcon icon={<MessageSquare />} label="Messages" onClick={() => openWindow('glassmessaging', 'Systems Messaging')} />
+              <DesktopIcon icon={<MessageSquare className="text-emerald-400" />} label="glassChat" onClick={() => openWindow('glassmessaging', 'glassChat')} />
               <DesktopIcon icon={<Database />} label="Database" onClick={() => openWindow('glassdatabase', 'GlassDatabase Engine')} />
               <DesktopIcon icon={<BoxIcon className="text-orange-400" />} label="GlassDraw" onClick={() => openWindow('glassdraw', 'Glass Draw Vector')} />
               <DesktopIcon icon={<Palette className="text-pink-400" />} label="GlassPaint" onClick={() => openWindow('glasspaint', 'Glass Paint Raster')} />
@@ -1523,6 +1564,9 @@ export default function App() {
                     protocolsCompressSelectedFile, setProtocolsCompressSelectedFile,
                     builds, setBuilds,
                     openWindow,
+                    handleOpenGlassChat,
+                    glassChatContext,
+                    setGlassChatContext,
                     windows,
                     setWindows,
                     fs,
@@ -2066,7 +2110,8 @@ export default function App() {
           <AltTabSwitcher 
             windows={windows}
             activeWindow={activeWindow}
-            onFocus={(id) => { focusWindow(id); setIsAltTabOpen(false); }}
+            highlightId={altTabHighlightId}
+            onFocus={(id) => { focusWindow(id); setIsAltTabOpen(false); setAltTabHighlightId(null); }}
           />
         )}
       </AnimatePresence>
@@ -2674,7 +2719,17 @@ function ClipboardManager({
   );
 }
 
-function AltTabSwitcher({ windows, activeWindow, onFocus }: { windows: WindowState[], activeWindow: AppId | null, onFocus: (id: AppId) => void }) {
+function AltTabSwitcher({ 
+  windows, 
+  activeWindow, 
+  highlightId, 
+  onFocus 
+}: { 
+  windows: WindowState[], 
+  activeWindow: AppId | null, 
+  highlightId: AppId | null, 
+  onFocus: (id: AppId) => void 
+}) {
   return (
     <div className="fixed inset-0 z-[9500] flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <motion.div 
@@ -2682,24 +2737,27 @@ function AltTabSwitcher({ windows, activeWindow, onFocus }: { windows: WindowSta
         animate={{ opacity: 1, scale: 1 }}
         className="glass-dark border border-white/20 rounded-3xl p-8 shadow-2xl flex gap-6"
       >
-        {windows.map(win => (
-          <button
-            key={win.id}
-            onClick={() => onFocus(win.id)}
-            className={cn(
-              "flex flex-col items-center gap-4 p-6 rounded-2xl transition-all group",
-              activeWindow === win.id ? "bg-white/20 scale-110 shadow-xl" : "hover:bg-white/10"
-            )}
-          >
-            <div className={cn(
-              "w-16 h-16 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110",
-              activeWindow === win.id ? "bg-blue-500/20 text-blue-400" : "bg-white/5 text-white/40"
-            )}>
-              {getAppIcon(win.id, 32)}
-            </div>
-            <span className="text-xs font-medium text-white/80">{win.title}</span>
-          </button>
-        ))}
+        {windows.map(win => {
+          const isHighlighted = highlightId ? highlightId === win.id : activeWindow === win.id;
+          return (
+            <button
+              key={win.id}
+              onClick={() => onFocus(win.id)}
+              className={cn(
+                "flex flex-col items-center gap-4 p-6 rounded-2xl transition-all group",
+                isHighlighted ? "bg-white/20 scale-110 shadow-xl border border-white/10" : "hover:bg-white/10"
+              )}
+            >
+              <div className={cn(
+                "w-16 h-16 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110",
+                isHighlighted ? "bg-blue-500/20 text-blue-400" : "bg-white/5 text-white/40"
+              )}>
+                {getAppIcon(win.id, 32)}
+              </div>
+              <span className="text-xs font-medium text-white/80">{win.title}</span>
+            </button>
+          );
+        })}
         {windows.length === 0 && (
           <div className="text-white/20 text-sm py-8 px-12">No active windows</div>
         )}
@@ -3276,6 +3334,15 @@ function GlassDatabase(props: any) {
               </button>
             ))}
           </nav>
+          <button 
+            onClick={() => {
+              props.handleOpenGlassChat('GlassDatabase', `I am working with GlassDatabase. Here are my database details:\n- Total Tables: ${dbInfo.collections}\n- Total Records: ${dbInfo.documents}\n- Allocated Space: "${dbInfo.storage}"\n- Table list: ${Object.keys(collections).filter(k => !k.startsWith('_')).join(', ')}\n\nCan you write database queries, explain SQL/JSON query syntax, help normalize schemas, design table keys, or assist with query optimization?`);
+            }}
+            className="px-3 py-1.5 rounded-xl hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 font-bold text-xs transition-all flex items-center gap-1.5 border border-emerald-500/20"
+          >
+            <Sparkles size={12} />
+            glassChat Copilot
+          </button>
           <div className="flex items-center gap-2 text-[10px] text-white/30 font-mono uppercase bg-white/5 px-3 py-1.5 rounded-lg border border-white/5">
             Server: Online <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
           </div>
@@ -4215,6 +4282,15 @@ function GlassMail(props: any) {
         <Mail size={18} className="text-blue-400" />
         <h2 className="text-sm font-bold tracking-tight">GlassMail Professional</h2>
         <div className="flex-1" />
+        <button 
+          onClick={() => {
+            props.handleOpenGlassChat('GlassMail', `I am using GlassMail. Here is what I am doing:\n- View State: "${view}"\n- Current Compose Data To: "${composeData.to}"\n- Subject: "${composeData.subject}"\n- Message: "${composeData.message}"\n\nCan you help draft a professional email reply, proofread my draft, compose an email newsletter, or generate structured content for me?`);
+          }}
+          className="px-3 py-1.5 rounded-xl hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 font-bold text-xs transition-all flex items-center gap-1.5 border border-emerald-500/20 mr-2"
+        >
+          <Sparkles size={12} />
+          glassChat Copilot
+        </button>
         <button 
           onClick={() => {
             if (view === 'inbox') {
@@ -7878,8 +7954,28 @@ function GlassPhotoApp({ fsLib, addNotification }: any) {
 }
 
 function GlassMessaging(props: any) {
-  const { collections, setCollections, addNotification, currentUser, networkConfig } = props;
+  const { collections, setCollections, addNotification, currentUser, networkConfig, glassChatContext, setGlassChatContext } = props;
+  const [activeTab, setActiveTab] = useState<'systems' | 'ai'>('systems');
   const [msgText, setMsgText] = useState('');
+  const [aiMsgText, setAiMsgText] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  
+  const [aiHistory, setAiHistory] = useState<{ role: 'user' | 'model'; text: string; timestamp: string }[]>([
+    {
+      role: 'model',
+      text: "Greetings, Operator. I am glassChat Copilot, your deeply integrated offline companion in glassOS.\n\nI am an expert in:\n* **glassOS Architecture & Apps** (Notepad, GlassWord, Glass Sheets, Database, Mail)\n* **glassScript** (system-level scripting and process automation)\n* **Brainscript** (agent cognitive loops and reasoning pipelines)\n\nI can write structured emails, draft documents, design database schemas, analyze spreadsheets, and help you automate your glassOS environment. How can I assist you today?",
+      timestamp: new Date().toLocaleTimeString()
+    }
+  ]);
+
+  useEffect(() => {
+    if (glassChatContext) {
+      setActiveTab('ai');
+      setAiMsgText(glassChatContext.initialPrompt);
+      setGlassChatContext(null);
+      addNotification('glassChat Copilot', `Synced workspace context from ${glassChatContext.appName}`, 'success');
+    }
+  }, [glassChatContext, setGlassChatContext]);
 
   const sendMsg = () => {
     if (!msgText.trim()) return;
@@ -7899,66 +7995,249 @@ function GlassMessaging(props: any) {
     setMsgText('');
   };
 
+  const sendAiMsg = async () => {
+    if (!aiMsgText.trim() || isAiLoading) return;
+    
+    const userMessage = aiMsgText;
+    const timestamp = new Date().toLocaleTimeString();
+    
+    setAiHistory(prev => [...prev, { role: 'user', text: userMessage, timestamp }]);
+    setAiMsgText('');
+    setIsAiLoading(true);
+
+    try {
+      const messagesPayload = [
+        ...aiHistory.map(h => ({ role: h.role === 'model' ? 'assistant' : 'user', content: h.text })),
+        { role: 'user', content: userMessage }
+      ];
+
+      const response = await fetch('/api/gemini/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: messagesPayload })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to fetch response');
+      }
+
+      const data = await response.json();
+      setAiHistory(prev => [...prev, {
+        role: 'model',
+        text: data.text || 'No response from system core.',
+        timestamp: new Date().toLocaleTimeString()
+      }]);
+    } catch (error: any) {
+      console.error(error);
+      addNotification('glassChat Copilot', 'Local systems core latency or offline state detected.', 'error');
+      setAiHistory(prev => [...prev, {
+        role: 'model',
+        text: `⚠️ **System Communication Interrupted**\n\nFailed to sync with the local copilot service.\n\n**Error Details:**\n${error.message}`,
+        timestamp: new Date().toLocaleTimeString()
+      }]);
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  function FormattedMessage({ text }: { text: string }) {
+    const parts = text.split(/(```[\s\S]*?```)/g);
+    
+    return (
+      <div className="space-y-3 leading-relaxed text-sm">
+        {parts.map((part, idx) => {
+          if (part.startsWith('```')) {
+            const lines = part.split('\n');
+            const firstLine = lines[0].replace('```', '').trim() || 'code';
+            const codeBody = lines.slice(1, -1).join('\n');
+            
+            return (
+              <div key={idx} className="my-2 border border-white/10 rounded-xl overflow-hidden bg-black/40 shadow-xl font-mono text-xs">
+                <div className="bg-white/5 px-4 py-1.5 flex items-center justify-between border-b border-white/10 text-[10px] text-white/50 tracking-wide font-sans select-none">
+                  <span className="uppercase font-bold text-emerald-400">{firstLine}</span>
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(codeBody);
+                      addNotification('System', 'Code copied to clipboard', 'info');
+                    }}
+                    className="hover:text-emerald-400 transition-colors flex items-center gap-1 cursor-pointer font-bold"
+                  >
+                    <Copy size={10} />
+                    COPY
+                  </button>
+                </div>
+                <pre className="p-4 overflow-x-auto text-emerald-300 whitespace-pre scrollbar-thin scrollbar-thumb-white/10">{codeBody}</pre>
+              </div>
+            );
+          } else {
+            const lines = part.split('\n');
+            return (
+              <div key={idx} className="space-y-1.5">
+                {lines.map((line, lIdx) => {
+                  const trimmed = line.trim();
+                  if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
+                    return (
+                      <ul key={lIdx} className="list-disc list-inside pl-2 text-white/80 space-y-1">
+                        <li>
+                          {parseInlineStyles(trimmed.substring(2))}
+                        </li>
+                      </ul>
+                    );
+                  }
+                  return (
+                    <p key={lIdx} className="text-white/90">
+                      {parseInlineStyles(line)}
+                    </p>
+                  );
+                })}
+              </div>
+            );
+          }
+        })}
+      </div>
+    );
+  }
+
+  function parseInlineStyles(text: string) {
+    const regex = /(\*\*.*?\*\*)/g;
+    const parts = text.split(regex);
+    return parts.map((part, index) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={index} className="text-emerald-300 font-semibold">{part.slice(2, -2)}</strong>;
+      }
+      return part;
+    });
+  }
+
   return (
     <div className="h-full flex flex-col bg-[#050505] text-white font-sans">
-      <div className="h-16 border-b border-white/10 flex items-center px-6 justify-between bg-white/5">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
-            <MessageSquare size={20} className="text-emerald-400" />
+      {/* Header with Glassmorphic Tabs */}
+      <div className="h-20 border-b border-white/10 flex flex-col justify-between bg-white/5 px-6 pt-3 select-none">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
+              <MessageSquare size={13} className="text-emerald-400" />
+            </div>
+            <h2 className="text-xs font-bold uppercase tracking-widest text-white/80">glassChat</h2>
           </div>
-          <div>
-            <h2 className="text-sm font-bold flex items-center gap-2">
-              Systems Messenger
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]" />
-            </h2>
-            <p className="text-[10px] text-white/30 font-mono tracking-tighter uppercase">XMPP JID: {networkConfig.protocols.xmpp.jid}</p>
+          <div className="text-[9px] font-bold text-white/20 uppercase tracking-widest border border-white/10 px-2 py-0.5 rounded flex items-center gap-1.5 font-mono">
+            Neural Link <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-[9px] font-bold text-white/20 uppercase tracking-widest border border-white/10 px-2 py-1 rounded">
-            OMEMO Encrypted
-          </div>
+
+        {/* Tab Controls */}
+        <div className="flex gap-4 border-b border-transparent text-xs font-bold uppercase tracking-wider">
+          <button 
+            onClick={() => setActiveTab('systems')}
+            className={cn(
+              "pb-2 transition-all border-b-2 px-1",
+              activeTab === 'systems' ? "border-emerald-500 text-emerald-400 font-extrabold" : "border-transparent text-white/40 hover:text-white"
+            )}
+          >
+            Systems Messenger
+          </button>
+          <button 
+            onClick={() => setActiveTab('ai')}
+            className={cn(
+              "pb-2 transition-all border-b-2 px-1 flex items-center gap-1.5",
+              activeTab === 'ai' ? "border-emerald-500 text-emerald-400 font-extrabold" : "border-transparent text-white/40 hover:text-white"
+            )}
+          >
+            <Sparkles size={11} className={cn(activeTab === 'ai' ? "text-emerald-400" : "text-white/40")} />
+            glassChat Copilot
+          </button>
         </div>
       </div>
 
+      {/* Message Area */}
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
-        {collections.messages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center opacity-10">
-            <MessageSquare size={48} className="mb-2" />
-            <p className="text-[10px] uppercase font-bold tracking-widest underline underline-offset-8 decoration-blue-500">End-to-End Persistence Ready</p>
-          </div>
+        {activeTab === 'systems' ? (
+          collections.messages.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center opacity-10">
+              <MessageSquare size={48} className="mb-2" />
+              <p className="text-[10px] uppercase font-bold tracking-widest underline underline-offset-8 decoration-blue-500">End-to-End Persistence Ready</p>
+            </div>
+          ) : (
+            collections.messages.map((m: DBMessage) => (
+              <div key={m.id} className={cn("flex flex-col gap-1 max-w-[80%]", m.sender === currentUser?.username ? "ml-auto items-end" : "items-start")}>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-[10px] font-bold text-white/40">{m.sender}</span>
+                  <span className="text-[9px] text-white/20">{m.timestamp}</span>
+                </div>
+                <div className={cn("px-4 py-2 rounded-2xl text-sm", m.sender === currentUser?.username ? "bg-blue-600 rounded-tr-none" : "bg-white/10 rounded-tl-none")}>
+                  {m.text}
+                </div>
+              </div>
+            ))
+          )
         ) : (
-          collections.messages.map((m: DBMessage) => (
-            <div key={m.id} className={cn("flex flex-col gap-1 max-w-[80%]", m.sender === currentUser?.username ? "ml-auto items-end" : "items-start")}>
-              <div className="flex items-center gap-2 mb-0.5">
-                <span className="text-[10px] font-bold text-white/40">{m.sender}</span>
+          aiHistory.map((m, idx) => (
+            <div key={idx} className={cn("flex flex-col gap-1 max-w-[85%] animate-fade-in", m.role === 'user' ? "ml-auto items-end" : "items-start")}>
+              <div className="flex items-center gap-2 mb-0.5 select-none">
+                <span className="text-[10px] font-bold text-white/40">{m.role === 'user' ? (currentUser?.username || 'Operator') : 'glassChat Copilot'}</span>
                 <span className="text-[9px] text-white/20">{m.timestamp}</span>
               </div>
-              <div className={cn("px-4 py-2 rounded-2xl text-sm", m.sender === currentUser?.username ? "bg-blue-600 rounded-tr-none" : "bg-white/10 rounded-tl-none")}>
-                {m.text}
+              <div className={cn("px-4 py-3 rounded-2xl", m.role === 'user' ? "bg-emerald-600/20 border border-emerald-500/20 rounded-tr-none text-white" : "bg-white/5 border border-white/5 rounded-tl-none text-white/90")}>
+                <FormattedMessage text={m.text} />
               </div>
             </div>
           ))
         )}
+
+        {activeTab === 'ai' && isAiLoading && (
+          <div className="flex flex-col gap-1 max-w-[85%] items-start animate-pulse">
+            <div className="flex items-center gap-2 mb-0.5 select-none">
+              <span className="text-[10px] font-bold text-emerald-400">glassChat Copilot</span>
+              <span className="text-[9px] text-white/20">Thinking...</span>
+            </div>
+            <div className="px-4 py-3 rounded-2xl bg-white/5 border border-white/5 rounded-tl-none flex items-center gap-2 text-white/50 text-xs">
+              <RefreshCw size={12} className="animate-spin text-emerald-400" />
+              <span>Analyzing systems query offline...</span>
+            </div>
+          </div>
+        )}
       </div>
 
+      {/* Input Area */}
       <div className="p-4 bg-white/5 border-t border-white/10">
-        <div className="relative group">
-          <input 
-            type="text"
-            placeholder="Type a message..."
-            value={msgText}
-            onChange={(e) => setMsgText(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && sendMsg()}
-            className="w-full glass-input h-12 pr-12 text-sm"
-          />
-          <button 
-            onClick={sendMsg}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-blue-400 hover:text-blue-300 transition-colors"
-          >
-            <Send size={18} />
-          </button>
-        </div>
+        {activeTab === 'systems' ? (
+          <div className="relative group">
+            <input 
+              type="text"
+              placeholder="Type a message to other operators..."
+              value={msgText}
+              onChange={(e) => setMsgText(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && sendMsg()}
+              className="w-full glass-input h-12 pr-12 text-sm"
+            />
+            <button 
+              onClick={sendMsg}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-emerald-400 hover:text-emerald-300 transition-colors"
+            >
+              <Send size={18} />
+            </button>
+          </div>
+        ) : (
+          <div className="relative group">
+            <input 
+              type="text"
+              placeholder={isAiLoading ? "Copilot is processing..." : "Ask glassChat Copilot about glassScript, Brainscript, emails..."}
+              value={aiMsgText}
+              onChange={(e) => setAiMsgText(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && sendAiMsg()}
+              disabled={isAiLoading}
+              className="w-full glass-input h-12 pr-12 text-sm disabled:opacity-50"
+            />
+            <button 
+              onClick={sendAiMsg}
+              disabled={isAiLoading}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-emerald-400 hover:text-emerald-300 transition-colors disabled:opacity-30"
+            >
+              <Send size={18} />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -8979,7 +9258,7 @@ interface CellFormat {
   conditionalRules?: ConditionalRule[];
 }
 
-function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets, setActiveFileInSheets, addNotification, currentUser, openWindow, setPrintQueue, userName, runGlassScript, runBrainscript }: any) {
+function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets, setActiveFileInSheets, addNotification, currentUser, openWindow, setPrintQueue, userName, runGlassScript, runBrainscript, handleOpenGlassChat }: any) {
   const [activeCell, setActiveCell] = useState<[number, number] | null>(null);
   const [selectionRange, setSelectionRange] = useState<{ start: [number, number], end: [number, number] } | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -8993,6 +9272,226 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
   const [showValidationDialog, setShowValidationDialog] = useState(false);
   const [showConditionalDialog, setShowConditionalDialog] = useState(false);
   const [showScriptPicker, setShowScriptPicker] = useState(false);
+
+  const [sheetsHistory, setSheetsHistory] = useState<{ data: string[][]; formats: Record<string, CellFormat> }[]>([]);
+  const [sheetsHistoryIndex, setSheetsHistoryIndex] = useState(-1);
+  const [sheetsClipboard, setSheetsClipboard] = useState<{
+    data: string[][];
+    formats: Record<string, CellFormat>;
+    startRow: number;
+    startCol: number;
+  } | null>(null);
+
+  const saveToHistory = (data: string[][], formats: Record<string, CellFormat>) => {
+    const newHistory = sheetsHistory.slice(0, sheetsHistoryIndex + 1);
+    const snapData = JSON.parse(JSON.stringify(data));
+    const snapFormats = JSON.parse(JSON.stringify(formats));
+    newHistory.push({ data: snapData, formats: snapFormats });
+    setSheetsHistory(newHistory);
+    setSheetsHistoryIndex(newHistory.length - 1);
+  };
+
+  const handleUndo = () => {
+    if (sheetsHistoryIndex > 0) {
+      const prevIdx = sheetsHistoryIndex - 1;
+      const snapshot = sheetsHistory[prevIdx];
+      setSheetData(JSON.parse(JSON.stringify(snapshot.data)));
+      setCellFormats(JSON.parse(JSON.stringify(snapshot.formats)));
+      setSheetsHistoryIndex(prevIdx);
+      addNotification('Sheets', 'Undo action applied', 'success');
+    } else {
+      addNotification('Sheets', 'Nothing to undo', 'warning');
+    }
+  };
+
+  const handleRedo = () => {
+    if (sheetsHistoryIndex < sheetsHistory.length - 1) {
+      const nextIdx = sheetsHistoryIndex + 1;
+      const snapshot = sheetsHistory[nextIdx];
+      setSheetData(JSON.parse(JSON.stringify(snapshot.data)));
+      setCellFormats(JSON.parse(JSON.stringify(snapshot.formats)));
+      setSheetsHistoryIndex(nextIdx);
+      addNotification('Sheets', 'Redo action applied', 'success');
+    } else {
+      addNotification('Sheets', 'Nothing to redo', 'warning');
+    }
+  };
+
+  const handleCopy = () => {
+    let rStart = 0, rEnd = 0, cStart = 0, cEnd = 0;
+    if (selectionRange) {
+      rStart = Math.min(selectionRange.start[0], selectionRange.end[0]);
+      rEnd = Math.max(selectionRange.start[0], selectionRange.end[0]);
+      cStart = Math.min(selectionRange.start[1], selectionRange.end[1]);
+      cEnd = Math.max(selectionRange.start[1], selectionRange.end[1]);
+    } else if (activeCell) {
+      rStart = rEnd = activeCell[0];
+      cStart = cEnd = activeCell[1];
+    } else {
+      addNotification('Sheets', 'No cells selected to copy', 'warning');
+      return;
+    }
+
+    const copiedData: string[][] = [];
+    const copiedFormats: Record<string, CellFormat> = {};
+
+    for (let r = rStart; r <= rEnd; r++) {
+      const rowData: string[] = [];
+      for (let c = cStart; c <= cEnd; c++) {
+        rowData.push(sheetData[r]?.[c] || '');
+        const format = cellFormats[`${r},${c}`];
+        if (format) {
+          copiedFormats[`${r - rStart},${c - cStart}`] = format;
+        }
+      }
+      copiedData.push(rowData);
+    }
+
+    setSheetsClipboard({
+      data: copiedData,
+      formats: copiedFormats,
+      startRow: rStart,
+      startCol: cStart,
+    });
+
+    const textString = copiedData.map(row => row.join('\t')).join('\n');
+    navigator.clipboard.writeText(textString).catch(() => {});
+
+    addNotification('Sheets', `Copied ${copiedData.length}x${copiedData[0].length} cell range`, 'success');
+  };
+
+  const handleCut = () => {
+    let rStart = 0, rEnd = 0, cStart = 0, cEnd = 0;
+    if (selectionRange) {
+      rStart = Math.min(selectionRange.start[0], selectionRange.end[0]);
+      rEnd = Math.max(selectionRange.start[0], selectionRange.end[0]);
+      cStart = Math.min(selectionRange.start[1], selectionRange.end[1]);
+      cEnd = Math.max(selectionRange.start[1], selectionRange.end[1]);
+    } else if (activeCell) {
+      rStart = rEnd = activeCell[0];
+      cStart = cEnd = activeCell[1];
+    } else {
+      addNotification('Sheets', 'No cells selected to cut', 'warning');
+      return;
+    }
+
+    const copiedData: string[][] = [];
+    const copiedFormats: Record<string, CellFormat> = {};
+
+    for (let r = rStart; r <= rEnd; r++) {
+      const rowData: string[] = [];
+      for (let c = cStart; c <= cEnd; c++) {
+        rowData.push(sheetData[r]?.[c] || '');
+        const format = cellFormats[`${r},${c}`];
+        if (format) {
+          copiedFormats[`${r - rStart},${c - cStart}`] = format;
+        }
+      }
+      copiedData.push(rowData);
+    }
+
+    setSheetsClipboard({
+      data: copiedData,
+      formats: copiedFormats,
+      startRow: rStart,
+      startCol: cStart,
+    });
+
+    const textString = copiedData.map(row => row.join('\t')).join('\n');
+    navigator.clipboard.writeText(textString).catch(() => {});
+
+    const newData = sheetData.map((row, r) => {
+      if (r >= rStart && r <= rEnd) {
+        return row.map((val, c) => (c >= cStart && c <= cEnd) ? '' : val);
+      }
+      return row;
+    });
+
+    const newFormats = { ...cellFormats };
+    for (let r = rStart; r <= rEnd; r++) {
+      for (let c = cStart; c <= cEnd; c++) {
+        delete newFormats[`${r},${c}`];
+      }
+    }
+
+    setSheetData(newData);
+    setCellFormats(newFormats);
+    saveToHistory(newData, newFormats);
+
+    addNotification('Sheets', `Cut ${copiedData.length}x${copiedData[0].length} cell range`, 'success');
+  };
+
+  const handlePaste = async () => {
+    if (!activeCell) {
+      addNotification('Sheets', 'Select a target cell to paste', 'warning');
+      return;
+    }
+
+    const [tr, tc] = activeCell;
+    
+    if (sheetsClipboard) {
+      const { data: clipData, formats: clipFormats } = sheetsClipboard;
+      const newData = sheetData.map(row => [...row]);
+      const newFormats = { ...cellFormats };
+
+      for (let r = 0; r < clipData.length; r++) {
+        const targetRow = tr + r;
+        if (targetRow < newData.length) {
+          for (let c = 0; c < clipData[r].length; c++) {
+            const targetCol = tc + c;
+            if (targetCol < newData[targetRow].length) {
+              newData[targetRow][targetCol] = clipData[r][c];
+              
+              const formatKey = `${r},${c}`;
+              if (clipFormats[formatKey]) {
+                newFormats[`${targetRow},${targetCol}`] = { ...clipFormats[formatKey] };
+              } else {
+                delete newFormats[`${targetRow},${targetCol}`];
+              }
+            }
+          }
+        }
+      }
+
+      setSheetData(newData);
+      setCellFormats(newFormats);
+      saveToHistory(newData, newFormats);
+      addNotification('Sheets', 'Cells pasted successfully', 'success');
+      return;
+    }
+
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        const rows = text.split(/\r?\n/).map(row => {
+          if (row.includes('\t')) return row.split('\t');
+          return row.split(',');
+        });
+
+        const newData = sheetData.map(row => [...row]);
+        const newFormats = { ...cellFormats };
+
+        for (let r = 0; r < rows.length; r++) {
+          const targetRow = tr + r;
+          if (targetRow < newData.length) {
+            for (let c = 0; c < rows[r].length; c++) {
+              const targetCol = tc + c;
+              if (targetCol < newData[targetRow].length) {
+                newData[targetRow][targetCol] = rows[r][c];
+              }
+            }
+          }
+        }
+
+        setSheetData(newData);
+        setCellFormats(newFormats);
+        saveToHistory(newData, newFormats);
+        addNotification('Sheets', 'Pasted grid content from system clipboard', 'success');
+      }
+    } catch (err) {
+      addNotification('Sheets', 'Clipboard is empty or access denied', 'warning');
+    }
+  };
   
   const validateCell = (val: string, validation?: DataValidation): { isValid: boolean, error?: string } => {
     if (!validation || validation.type === 'none') return { isValid: true };
@@ -9064,6 +9563,7 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
         newFormats[cellId] = { ...newFormats[cellId], ...updates };
       }
       
+      saveToHistory(sheetData, newFormats);
       return newFormats;
     });
   };
@@ -9192,6 +9692,13 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
   }, [activeFileInSheets]);
 
   useEffect(() => {
+    if (sheetsHistory.length === 0) {
+      setSheetsHistory([{ data: JSON.parse(JSON.stringify(sheetData)), formats: JSON.parse(JSON.stringify(cellFormats)) }]);
+      setSheetsHistoryIndex(0);
+    }
+  }, []);
+
+  useEffect(() => {
     // Global state mapping for GlassScript
     (window as any).GlassSheets = {
       state: sheetData,
@@ -9228,6 +9735,7 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
     newData[r] = [...newData[r]];
     newData[r][c] = val;
     setSheetData(newData);
+    saveToHistory(newData, cellFormats);
   };
 
   const handleSave = () => {
@@ -9302,14 +9810,22 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
     if (file.type === 'file' && file.content) {
       try {
         const parsed = JSON.parse(file.content);
+        let finalData;
+        let finalFormats;
         if (parsed.data && parsed.formats) {
+          finalData = parsed.data;
+          finalFormats = parsed.formats;
           setSheetData(parsed.data);
           setCellFormats(parsed.formats);
         } else {
           // Legacy support
+          finalData = parsed;
+          finalFormats = {};
           setSheetData(parsed);
           setCellFormats({});
         }
+        setSheetsHistory([{ data: JSON.parse(JSON.stringify(finalData)), formats: JSON.parse(JSON.stringify(finalFormats)) }]);
+        setSheetsHistoryIndex(0);
         setActiveFile({ name: file.name, path });
         setActiveFileInSheets({ name: file.name, path });
         setShowOpenDialog(false);
@@ -9490,7 +10006,11 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
   const menuItems = {
     file: [
       { label: 'New Sheet', shortcut: 'Ctrl+N', action: () => { 
-        setSheetData(DEFAULT_SHEET_DATA.map(row => [...row])); 
+        const freshData = DEFAULT_SHEET_DATA.map(row => [...row]);
+        setSheetData(freshData); 
+        setCellFormats({});
+        setSheetsHistory([{ data: JSON.parse(JSON.stringify(freshData)), formats: {} }]);
+        setSheetsHistoryIndex(0);
         setActiveFile(null); 
         setActiveFileInSheets(null); 
         addNotification('Sheets', 'New sheet created', 'success');
@@ -9501,12 +10021,18 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
       { label: 'Print', shortcut: 'Ctrl+P', action: handlePrint },
     ],
     edit: [
-      { label: 'Undo', shortcut: 'Ctrl+Z', action: () => addNotification('Sheets', 'Undo not yet implemented', 'info') },
-      { label: 'Redo', shortcut: 'Ctrl+Y', action: () => addNotification('Sheets', 'Redo not yet implemented', 'info') },
-      { label: 'Cut', shortcut: 'Ctrl+X', action: () => addNotification('Sheets', 'Cut not yet implemented', 'info') },
-      { label: 'Copy', shortcut: 'Ctrl+C', action: () => addNotification('Sheets', 'Copy not yet implemented', 'info') },
-      { label: 'Paste', shortcut: 'Ctrl+V', action: () => addNotification('Sheets', 'Paste not yet implemented', 'info') },
-      { label: 'Clear All', action: () => setSheetData(DEFAULT_SHEET_DATA.map(row => row.map(() => ''))) },
+      { label: 'Undo', shortcut: 'Ctrl+Z', action: handleUndo },
+      { label: 'Redo', shortcut: 'Ctrl+Y', action: handleRedo },
+      { label: 'Cut', shortcut: 'Ctrl+X', action: handleCut },
+      { label: 'Copy', shortcut: 'Ctrl+C', action: handleCopy },
+      { label: 'Paste', shortcut: 'Ctrl+V', action: handlePaste },
+      { label: 'Clear All', action: () => {
+        const clearedData = DEFAULT_SHEET_DATA.map(row => row.map(() => ''));
+        setSheetData(clearedData);
+        setCellFormats({});
+        saveToHistory(clearedData, {});
+        addNotification('Sheets', 'Cleared all cells', 'info');
+      } },
     ],
     format: [
       { label: 'Bold', shortcut: 'Ctrl+B', action: () => updateFormat({ bold: !cellFormats[`${activeCell?.[0]},${activeCell?.[1]}`]?.bold }) },
@@ -9522,6 +10048,9 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
       { label: 'Data Validation', icon: <ShieldCheck size={14} />, action: () => setShowValidationDialog(true) },
       { label: 'Script Editor', action: () => openWindow('codestudio', 'Code Studio') },
       { label: 'Run Script...', icon: <Play size={14} />, action: () => setShowScriptPicker(true) },
+      { label: 'Open glassChat Copilot', icon: <Sparkles size={14} />, action: () => {
+        handleOpenGlassChat('Spreadsheet', `I am working on a spreadsheet in Glass Sheets. Here is the active grid data (first 10 rows/columns):\n\`\`\`json\n${JSON.stringify(sheetData.slice(0, 10).map(row => row.slice(0, 10)), null, 2)}\n\`\`\`\n\nCan you analyze this spreadsheet, write excel formulas, help with financial analysis, design tables, or help clean/restructure the data?`);
+      } },
     ],
     graph: [
       { label: 'WORK GRAPHS', type: 'header' },
@@ -10788,7 +11317,7 @@ End
         <button 
           onClick={() => setActiveTab('glasstcp')}
           className={cn("p-3 rounded-2xl transition-all", activeTab === 'glasstcp' ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "text-white/40 hover:text-white hover:bg-white/5")}
-          title="GlassTCP Bridge"
+          title="Glass Transport Security Protocol (gTLSP) Bridge"
         >
           <Network size={22} />
         </button>
@@ -12013,7 +12542,7 @@ function TerminalApp({
           const systemDaemons = [
             { pid: 101, proc: 'System Core', cpu: (Math.random() * 2 + 1).toFixed(1), mem: '128MB' },
             { pid: 204, proc: 'Window Manager', cpu: (Math.random() * 4 + 2).toFixed(1), mem: '256MB' },
-            { pid: 501, proc: 'Network Stack (GlassTCP)', cpu: (Math.random() * 0.8 + 0.2).toFixed(1), mem: '64MB' },
+            { pid: 501, proc: 'Network Stack (gTLSP)', cpu: (Math.random() * 0.8 + 0.2).toFixed(1), mem: '64MB' },
             { pid: 800, proc: 'Memory Daemon', cpu: (Math.random() * 0.4 + 0.1).toFixed(1), mem: '45MB' },
             { pid: 900, proc: 'Kernel Core (GlassKernel)', cpu: (Math.random() * 0.5 + 0.1).toFixed(1), mem: '80MB' },
           ];
@@ -12140,7 +12669,7 @@ function TerminalApp({
       'calendar': 'Calendar',
       'glassmail': 'GlassMail',
       'glassdatabase': 'Glass Database',
-      'glassmessaging': 'Glass Messaging',
+      'glassmessaging': 'glassChat',
       'glassdraw': 'Glass Draw App',
       'glasspaint': 'Glass Paint App',
       'glassphoto': 'Glass Photo App',
@@ -12794,7 +13323,7 @@ function TerminalApp({
             'Examples:',
             '  start action videostudio',
             '  start action task-id-or-name',
-            '  start action GlassTCP'
+            '  start action gTLSP'
           ] });
           break;
         }
@@ -12817,7 +13346,7 @@ function TerminalApp({
           'calendar': 'Calendar',
           'glassmail': 'GlassMail',
           'glassdatabase': 'Glass Database',
-          'glassmessaging': 'Glass Messaging',
+          'glassmessaging': 'glassChat',
           'glassdraw': 'Glass Draw App',
           'glasspaint': 'Glass Paint App',
           'glassphoto': 'Glass Photo App',
@@ -12983,7 +13512,7 @@ function TerminalApp({
             '    • spreadsheet     - Glass Sheets Calculator',
             '    • glassmail       - Secure gRPC/XMPP Email Client',
             '    • glassdatabase   - NoSQL/JSON Collection Database',
-            '    • glassmessaging  - Direct Encrypted Chat Terminal',
+            '    • glassmessaging  - glassChat - Systems Chat & Systems Copilot Link',
             '    • printers        - Spooler & Spooled Document Jobs',
             '    • calendar        - Personal Scheduling Agenda',
             '    • glassdraw       - Vector & Pencil Drawing Editor',
@@ -12996,9 +13525,9 @@ function TerminalApp({
             'SYSTEM SERVICES (Halt requires sudo):',
             '    • System          - System Core Daemon (PID: 101)',
             '    • WindowManager   - Compositor & Drag-Resize Frame Core (PID: 204)',
-            '    • NetworkService  - GlassTCP Ingress Lanes, Sockets & Enclave (PID: 501)',
+            '    • NetworkService  - gTLSP Ingress Lanes, Sockets & Enclave (PID: 501)',
             '    • MemoryDaemon    - Primary RAM, SWAP File, Buffers (PID: 800)',
-            '    • GlassTCP        - Firewall Rules, Intercept Sockets (PID: 820)',
+            '    • gTLSP           - Firewall Rules, Intercept Sockets (PID: 820)',
             '    • GlassKernel     - Driver compilations, interrupt-IRQ handler (PID: 900)',
             '',
             'SCHEDULED ACTION TASKS (Start/Halt to trigger automator):',
@@ -13025,7 +13554,7 @@ function TerminalApp({
           'spreadsheet': { title: 'Glass Sheets Pro', desc: 'Grid-based tabular processor supporting mathematical evaluation.', group: 'Office Apps', path: '/sys/bin/sheets.bin', cpu: '3.1%', mem: '180MB' },
           'glassmail': { title: 'GlassMail Client', desc: 'Encrypted mail transceiver syncing inbox over custom ports.', group: 'Office Apps', path: '/sys/bin/glassmail.bin', cpu: '1.0%', mem: '110MB' },
           'glassdatabase': { title: 'Glass Database', desc: 'JSON document persistence database with collection models.', group: 'Development', path: '/sys/bin/database.bin', cpu: '5.4%', mem: '290MB' },
-          'glassmessaging': { title: 'Glass Messaging', desc: 'Direct secure chat channel over XMPP lanes.', group: 'Communication', path: '/sys/bin/messaging.bin', cpu: '1.8%', mem: '90MB' },
+          'glassmessaging': { title: 'glassChat', desc: 'Secure systems chat and offline Copilot companion.', group: 'Communication', path: '/sys/bin/messaging.bin', cpu: '1.8%', mem: '90MB' },
           'printers': { title: 'Printer Spooler', desc: 'Print spooler managing offline and online virtual printers.', group: 'Hardware', path: '/sys/bin/printers.bin', cpu: '0.3%', mem: '40MB' },
           'calendar': { title: 'Calendar Agenda', desc: 'Timekeeping planner with custom meeting reminders.', group: 'Office Apps', path: '/sys/bin/calendar.bin', cpu: '0.5%', mem: '50MB' },
           'taskscheduler': { title: 'Task Scheduler', desc: 'Automation manager running periodic command triggers.', group: 'System Utilities', path: '/sys/bin/scheduler.bin', cpu: '0.4%', mem: '45MB' },
@@ -13110,13 +13639,13 @@ function TerminalApp({
             `  Description:  Aggregates physical RAM blocks, maps pages to SWAP, and super-fetches cache rings.`
           ],
           'glasstcp': [
-            `Service Daemon: GlassTCP Advanced Network Stack`,
+            `Service Daemon: Glass Transport Security Protocol (gTLSP) Advanced Network Stack`,
             `-------------------------------------------------------------`,
             `  PID:          820`,
             `  Status:       RUNNING`,
             `  Enclave Mode: ACTIVE (Ring-0 Secure Enclave isolation)`,
             `  Firewall:     Active rules monitoring incoming socket requests`,
-            `  Description:  Zero-copy TCP pipeline transceivers, TLS Inspectors, and firewall threat containment.`
+            `  Description:  Zero-copy TCP/gTLSP pipeline transceivers, TLS Inspectors, and firewall threat containment.`
           ],
           'glasskernel': [
             `Service Daemon: GlassKernel (Silicon-Agnostic HAL)`,
@@ -13389,7 +13918,7 @@ function Screensaver({ type, onDismiss }: { type: string, onDismiss: () => void 
   );
 }
 
-function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, openWindow, setPrintQueue, userName, glassWordContent, setGlassWordContent, activeFileInGlassWord, setActiveFileInGlassWord, runGlassScript, runBrainscript }: any) {
+function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, openWindow, setPrintQueue, userName, glassWordContent, setGlassWordContent, activeFileInGlassWord, setActiveFileInGlassWord, runGlassScript, runBrainscript, handleOpenGlassChat }: any) {
   const [content, setContent] = useState(glassWordContent || DEFAULT_GLASSWORD_CONTENT);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState(new Date().toLocaleTimeString());
@@ -13801,7 +14330,10 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
         }},
         { label: 'Run Script...', action: () => setShowScriptPicker(true) },
         { label: 'Code Studio', action: () => openWindow('codestudio', 'Code Studio') },
-        { label: 'Terminal', action: () => openWindow('terminal', 'Terminal') }
+        { label: 'Terminal', action: () => openWindow('terminal', 'Terminal') },
+        { label: 'Open glassChat Copilot', action: () => {
+          handleOpenGlassChat('GlassWord', `I am working on a document in GlassWord. Here is the rich HTML content:\n\`\`\`html\n${content}\n\`\`\`\n\nCan you edit, rewrite, improve formatting, draft paragraphs, or assist with copy-writing for this document?`);
+        }}
       ] 
     },
   ];
@@ -15791,7 +16323,10 @@ function NotepadApp({
   calendarEvents,
   sheetData,
   openWindow,
-  accentColor
+  accentColor,
+  collections,
+  setCollections,
+  handleOpenGlassChat
 }: any) {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
 
@@ -16679,6 +17214,27 @@ console.log("Grouped Animals:", grouped);`;
     addNotification('Notepad', 'New file created', 'info');
   };
 
+  const handleSendFileByEmail = () => {
+    const newDraft = {
+      id: Math.random().toString(36).substr(2, 9),
+      from: currentUser?.username || 'user',
+      to: '',
+      subject: activeFileInNotepad ? `Draft: ${activeFileInNotepad.name}` : 'Draft: Untitled Note',
+      message: notepadContent,
+      date: new Date().toLocaleString(),
+      read: true,
+      folder: 'drafts'
+    };
+    
+    setCollections((prev: any) => ({
+      ...prev,
+      emails: [newDraft, ...(prev.emails || []).map((e: any) => ({ ...e }))]
+    }));
+    
+    openWindow('glassmail', 'GlassMail Professional');
+    addNotification('Notepad', 'Note content attached to a new draft in GlassMail', 'success');
+  };
+
   const handleOpen = (file: FileSystemItem, path: string[]) => {
     if (file.type === 'file') {
       setNotepadContent(file.content || '');
@@ -17007,7 +17563,7 @@ console.log("Grouped Animals:", grouped);`;
                     <ChevronRight size={12} />
                   </button>
                   <div className="absolute top-0 left-full ml-1 w-40 glass-dark border border-white/20 rounded-xl shadow-2xl hidden group-hover/sub:block py-2">
-                    <MenuButton label="Email" onClick={() => addNotification('Notepad', 'Email service unavailable', 'warning')} />
+                    <MenuButton label="Email" onClick={() => { handleSendFileByEmail(); setActiveMenu(null); }} />
                   </div>
                 </div>
                 <div className="h-px bg-white/10 my-1 mx-2" />
@@ -17338,6 +17894,17 @@ console.log("Grouped Animals:", grouped);`;
                   label="Document Stats" 
                   onClick={() => { setShowStats(true); setActiveMenu(null); }} 
                 />
+                <div className="h-px bg-white/10 my-1 mx-2" />
+                <button 
+                  onClick={() => { 
+                    handleOpenGlassChat('Notepad', `I am working on a text document in Notepad. Here is the active document content:\n\`\`\`\n${notepadContent}\n\`\`\`\n\nCan you edit, format, rewrite, check for grammatical errors, summarize, or draft something for me based on this content?`);
+                    setActiveMenu(null);
+                  }}
+                  className="w-full px-4 py-1.5 flex items-center gap-3 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 font-bold transition-all text-left text-[11px]"
+                >
+                  <Sparkles size={14} />
+                  <span>Open glassChat</span>
+                </button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -21448,6 +22015,76 @@ function BrowserApp({ fs, fsLib, addNotification, closeWindow, setPrintQueue, us
 
               {/* Scrollable Content */}
               <div className="p-4 overflow-y-auto space-y-5 scrollbar-thin scrollbar-thumb-slate-800 text-xs">
+                {/* GlassOS System Hotkeys Section */}
+                <div className="shortcut-section space-y-2">
+                  <h4 className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest border-b border-slate-800/60 pb-1">GlassOS System Hotkeys</h4>
+                  <div className="space-y-1">
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Switch Windows (Alt+Tab)</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Alt</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Tab</kbd>
+                        <span className="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 text-[8px] uppercase tracking-wider rounded font-semibold border border-indigo-500/10 ml-2">System-wide</span>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">New Notepad File (Win+N)</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Win</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">N</kbd>
+                        <span className="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 text-[8px] uppercase tracking-wider rounded font-semibold border border-indigo-500/10 ml-2">System-wide</span>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Show Desktop (Win+D)</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Win</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">D</kbd>
+                        <span className="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 text-[8px] uppercase tracking-wider rounded font-semibold border border-indigo-500/10 ml-2">System-wide</span>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Lock Workstation / Logout (Win+L)</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Win</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">L</kbd>
+                        <span className="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 text-[8px] uppercase tracking-wider rounded font-semibold border border-indigo-500/10 ml-2">System-wide</span>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Universal Global Search (Cmd+K)</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Cmd</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">K</kbd>
+                        <span className="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 text-[8px] uppercase tracking-wider rounded font-semibold border border-indigo-500/10 ml-2">System-wide</span>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Clipboard History Manager (Win+V)</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Win</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">V</kbd>
+                        <span className="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 text-[8px] uppercase tracking-wider rounded font-semibold border border-indigo-500/10 ml-2">System-wide</span>
+                      </div>
+                    </div>
+                    <div className="shortcut-item flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/40 transition-colors">
+                      <span className="text-slate-300">Toggle Keyboard Shortcuts (Ctrl+/)</span>
+                      <div className="flex items-center gap-1.5">
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">Ctrl</kbd>
+                        <span className="text-slate-600 font-mono text-[10px]">+</span>
+                        <kbd className="px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-slate-400">/</kbd>
+                        <span className="text-[10px] font-mono text-slate-500 ml-2">Quick Toggle</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Tab Management Section */}
                 <div className="shortcut-section space-y-2">
                   <h4 className="text-[10px] font-bold text-blue-400 uppercase tracking-widest border-b border-slate-800/60 pb-1">Tab Management</h4>
@@ -23973,6 +24610,8 @@ function CodeStudioApp({
                 )}
               </AnimatePresence>
             </div>
+
+
           </div>
           <div className="h-4 w-[1px] bg-white/10 mx-2" />
           <div className="flex items-center gap-3">
@@ -24038,6 +24677,7 @@ function CodeStudioApp({
             <TerminalIcon size={12} />
             <span className="text-[10px] font-bold uppercase">Output</span>
           </button>
+
         </div>
         <button 
           onClick={activeFile.endsWith('.b') ? handleRunBrainscript : activeFile.endsWith('.scr') ? () => runGlassScript(code) : handleBuild}
@@ -24272,6 +24912,8 @@ function CodeStudioApp({
                 </div>
               </div>
             </div>
+
+
           </div>
           
           {syntaxErrors.length > 0 && (

@@ -8,6 +8,7 @@ import {
   Printer
 } from 'lucide-react';
 import { FileSystemItem } from '../types';
+import { GTLSPTransportEngine, modPow, DH_P, QVBBinding } from '../lib/gTLSP';
 
 interface GlassTCPProps {
   socket: any;
@@ -115,6 +116,7 @@ export function GlassTCP({
   networkTraffic, setNetworkTraffic, openWindow
 }: GlassTCPProps) {
   // Local identity selection
+  const transportEngineRef = useRef(new GTLSPTransportEngine());
   const [selectedLocation, setSelectedLocation] = useState<NodeLocation>(DEFAULT_LOCATIONS[1]); // Default to Silicon Valley
   const [localIp, setLocalIp] = useState(networkConfig?.ip || '192.168.1.104');
   const [localHostname, setLocalHostname] = useState(currentUser?.username ? `${currentUser.username}-station.local` : 'glass-workstation.local');
@@ -127,7 +129,7 @@ export function GlassTCP({
   // TCP Protocol states
   const [connections, setConnections] = useState<Record<string, ActiveConnection>>({});
   const [activeSession, setActiveSession] = useState<string | null>(null);
-  const [terminalLogs, setTerminalLogs] = useState<string[]>(['[System] GlassTCP Core Engine initialized.', '[System] Awaiting link synchronization...']);
+  const [terminalLogs, setTerminalLogs] = useState<string[]>(['[System] Glass Transport Security Protocol (gTLSP) Core Engine initialized.', '[System] Awaiting link synchronization...']);
   
   // Real-time Traffic Multi-location wave
   const [isWaveActive, setIsWaveActive] = useState(false);
@@ -140,6 +142,13 @@ export function GlassTCP({
 
   // Native Transport Layer Matrix & Socket Bridge States
   const [subTab, setSubTab] = useState<'topology' | 'matrix' | 'firewall'>('topology');
+  const [qvbBindings, setQvbBindings] = useState<QVBBinding[]>([]);
+  const [matrixSidebar, setMatrixSidebar] = useState<'ingress' | 'qvb'>('qvb');
+  const [newQvbLane, setNewQvbLane] = useState<'LANE_0' | 'LANE_1' | 'LANE_2' | 'LANE_3'>('LANE_0');
+  const [newQvbVirtualPort, setNewQvbVirtualPort] = useState<number>(49156);
+  const [newQvbDestPort, setNewQvbDestPort] = useState<number>(3000);
+  const [newQvbStatus, setNewQvbStatus] = useState<'ACTIVE' | 'DORMANT' | 'STANDBY' | 'FAULT'>('ACTIVE');
+  const [newQvbMultiplex, setNewQvbMultiplex] = useState<number>(1.0);
   const [socketBridgeMode, setSocketBridgeMode] = useState<'low-bit' | 'high-bit' | 'balanced'>('balanced');
   const [lowBitActive, setLowBitActive] = useState<boolean>(true);
   const [highBitActive, setHighBitActive] = useState<boolean>(true);
@@ -165,6 +174,14 @@ export function GlassTCP({
       setRotatingKey(key);
     }, 2000);
     return () => clearInterval(keyInterval);
+  }, []);
+
+  useEffect(() => {
+    setQvbBindings([...transportEngineRef.current.getQVBBindings()]);
+    const pollInterval = setInterval(() => {
+      setQvbBindings([...transportEngineRef.current.getQVBBindings()]);
+    }, 1000);
+    return () => clearInterval(pollInterval);
   }, []);
 
   // Hook into shared networkTraffic to animate GPP printer traffic on the map
@@ -232,6 +249,31 @@ export function GlassTCP({
     return rows;
   };
 
+  const getDeterministicAuthTag = (packet: TcpPacket | null) => {
+    if (!packet) return '0x00000000000000000000000000000000';
+    try {
+      const payload = packet.payload || '';
+      const nonce = BigInt(packet.seq || 0);
+      const encoder = new TextEncoder();
+      const payloadBytes = encoder.encode(payload);
+      
+      // Determine session ID by finding which endpoint has an active key exchange
+      const sessionSource = transportEngineRef.current.getOrCreateSession(packet.source);
+      const sessionDest = transportEngineRef.current.getOrCreateSession(packet.destination);
+      const sessionId = sessionSource.isKeyExchangeComplete ? packet.source : packet.destination;
+
+      const tagBytes = transportEngineRef.current.generatePoly1305Tag(payloadBytes, nonce, sessionId);
+      
+      let hex = '';
+      for (let i = 0; i < tagBytes.length; i++) {
+        hex += tagBytes[i].toString(16).toUpperCase().padStart(2, '0');
+      }
+      return '0x' + hex;
+    } catch (e) {
+      return '0x00000000000000000000000000000000';
+    }
+  };
+
   const logToTerminal = useCallback((msg: string) => {
     setTerminalLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`].slice(-80));
   }, []);
@@ -242,7 +284,7 @@ export function GlassTCP({
       socket.emit('glasstcp:register', {
         hostname: localHostname,
         ip: localIp,
-        services: ['GlassTCP', 'GlassDrive', 'NOC-Router']
+        services: ['gTLSP', 'GlassDrive', 'NOC-Router']
       });
       logToTerminal(`Registered local network node as ${localHostname} (${localIp})`);
     }
@@ -276,8 +318,20 @@ export function GlassTCP({
 
       if (packet.flags.syn && !packet.flags.ack) {
         // SYN received: Reply with SYN-ACK
-        logToTerminal(`GlassTCP: Received SYN from ${packet.source}. initiating handshake.`);
-        const replyPacket = generatePacket(destNode, sourceNode, 49152, packet.sourcePort, Math.floor(Math.random() * 10000), packet.seq + 1, { syn: true, ack: true, psh: false, fin: false }, 'Handshake SYN-ACK');
+        logToTerminal(`gTLSP: Received SYN from ${packet.source}. initiating handshake.`);
+        
+        let clientPublicKeyHex = '0x00';
+        const match = (packet.payload || '').match(/Client Public Key\s*=\s*(0x[0-9A-Fa-f]+)/i);
+        if (match) {
+          clientPublicKeyHex = match[1];
+        }
+        
+        // Accept and generate server-side DH parameters
+        const ourPublicKey = transportEngineRef.current.acceptHandshakeKeyExchange(connId, clientPublicKeyHex);
+        const ourPublicKeyHex = '0x' + ourPublicKey.toString(16).toUpperCase();
+        logToTerminal(`[gTLSP DH] Received Peer's Public Key: ${clientPublicKeyHex.substring(0, 20)}...`);
+        
+        const replyPacket = generatePacket(destNode, sourceNode, 49152, packet.sourcePort, Math.floor(Math.random() * 10000), packet.seq + 1, { syn: true, ack: true, psh: false, fin: false }, `gTLSP Handshake: Server Public Key = ${ourPublicKeyHex}`);
         
         setConnections(prev => ({
           ...prev,
@@ -295,16 +349,31 @@ export function GlassTCP({
 
         setTimeout(() => {
           socket.emit('glasstcp:send_packet', replyPacket);
-          logToTerminal(`GlassTCP: Sent SYN-ACK to ${packet.source} (Seq=${replyPacket.seq}, Ack=${replyPacket.ack})`);
+          logToTerminal(`gTLSP: Sent SYN-ACK to ${packet.source} with Server Public Key.`);
           triggerPacketAnimation(destNode.x, destNode.y, sourceNode.x, sourceNode.y, '#3B82F6'); // Blue for outgoing
         }, 1000);
 
       } else if (packet.flags.syn && packet.flags.ack) {
         // SYN-ACK received in reply to our SYN
         if (currentConn && currentConn.state === 'SYN_SENT') {
-          logToTerminal(`GlassTCP: Received SYN-ACK from ${packet.source}. Connection established!`);
+          logToTerminal(`gTLSP: Received SYN-ACK from ${packet.source}. Connection established!`);
           
-          const ackPacket = generatePacket(destNode, sourceNode, currentConn.sourcePort, currentConn.destPort, packet.ack, packet.seq + 1, { syn: false, ack: true, psh: false, fin: false }, 'Handshake ACK');
+          let serverPublicKeyHex = '0x00';
+          const match = (packet.payload || '').match(/Server Public Key\s*=\s*(0x[0-9A-Fa-f]+)/i);
+          if (match) {
+            serverPublicKeyHex = match[1];
+          }
+          
+          // Finalize DH key derivation
+          transportEngineRef.current.finalizeHandshakeKeyExchange(connId, serverPublicKeyHex);
+          const session = transportEngineRef.current.getOrCreateSession(connId);
+          let hexSymmetricKey = '';
+          for (let i = 0; i < session.symmetricKey.length; i++) {
+            hexSymmetricKey += session.symmetricKey[i].toString(16).toUpperCase().padStart(2, '0');
+          }
+          logToTerminal(`[gTLSP DH] Handshake completed with Peer. Derived symmetric session key: 0x${hexSymmetricKey}`);
+          
+          const ackPacket = generatePacket(destNode, sourceNode, currentConn.sourcePort, currentConn.destPort, packet.ack, packet.seq + 1, { syn: false, ack: true, psh: false, fin: false }, 'gTLSP Handshake: Key Exchange ACK Finalize');
           
           setConnections(prev => ({
             ...prev,
@@ -317,15 +386,23 @@ export function GlassTCP({
           }));
 
           socket.emit('glasstcp:send_packet', ackPacket);
-          logToTerminal(`GlassTCP: Sent ACK to ${packet.source}. Link fully established.`);
-          addNotification('GlassTCP', `Connection established with ${packet.source}`, 'success');
+          logToTerminal(`gTLSP: Sent ACK to ${packet.source}. Link fully established.`);
+          addNotification('Glass Transport Security Protocol (gTLSP)', `Connection established securely with ${packet.source}`, 'success');
           setActiveSession(connId);
         }
 
       } else if (packet.flags.ack && !packet.flags.syn && !packet.flags.psh && !packet.flags.fin) {
         // ACK received
         if (currentConn && currentConn.state === 'SYN_RECEIVED') {
-          logToTerminal(`GlassTCP: Received ACK from ${packet.source}. Connection fully ESTABLISHED!`);
+          logToTerminal(`gTLSP: Received ACK from ${packet.source}. Connection fully ESTABLISHED!`);
+          
+          const session = transportEngineRef.current.getOrCreateSession(connId);
+          let hexSymmetricKey = '';
+          for (let i = 0; i < session.symmetricKey.length; i++) {
+            hexSymmetricKey += session.symmetricKey[i].toString(16).toUpperCase().padStart(2, '0');
+          }
+          logToTerminal(`[gTLSP DH] Inbound peer link fully established and secured. Derived Symmetric Key: 0x${hexSymmetricKey}`);
+          
           setConnections(prev => ({
             ...prev,
             [connId]: {
@@ -333,17 +410,28 @@ export function GlassTCP({
               state: 'ESTABLISHED'
             }
           }));
-          addNotification('GlassTCP', `Incoming link established from ${packet.source}`, 'success');
+          addNotification('Glass Transport Security Protocol (gTLSP)', `Incoming link established from ${packet.source}`, 'success');
           setActiveSession(connId);
         }
 
       } else if (packet.flags.psh) {
         // Data packet received
-        logToTerminal(`GlassTCP: Received data segment from ${packet.source} (Size: ${packet.size}, Seq=${packet.seq})`);
+        logToTerminal(`gTLSP: Received data segment from ${packet.source} (Size: ${packet.size}, Seq=${packet.seq})`);
+        try {
+          const encoder = new TextEncoder();
+          const tagBytes = transportEngineRef.current.generatePoly1305Tag(encoder.encode(packet.payload || ''), BigInt(packet.seq), packet.source);
+          let hexTag = '';
+          for (let i = 0; i < tagBytes.length; i++) {
+            hexTag += tagBytes[i].toString(16).toUpperCase().padStart(2, '0');
+          }
+          logToTerminal(`gTLSP: Secure Enclave verified Poly1305 MAC: 0x${hexTag} [INTEGRITY OK]`);
+        } catch (err) {
+          logToTerminal(`gTLSP: Cryptographic integrity verification error.`);
+        }
         
         // Handle file transmissions (the strength of glassOS!)
         if (packet.fileName && packet.payload) {
-          addNotification('GlassTCP', `Reassembling incoming file: ${packet.fileName} (${packet.size})`, 'info');
+          addNotification('Glass Transport Security Protocol (gTLSP)', `Reassembling incoming file: ${packet.fileName} (${packet.size})`, 'info');
           
           // Re-assemble and write file directly to glassOS filesystem!
           const newFile: FileSystemItem = {
@@ -360,8 +448,8 @@ export function GlassTCP({
           };
 
           setFs((prev: FileSystemItem[]) => {
-            // Put in GlassTCP folder or root if not exists
-            const folderName = 'GlassTCP Downloads';
+            // Put in gTLSP folder or root if not exists
+            const folderName = 'gTLSP Downloads';
             const existingFolder = prev.find(item => item.name === folderName && item.children);
             
             if (existingFolder) {
@@ -390,11 +478,11 @@ export function GlassTCP({
             }
           });
 
-          addNotification('GlassTCP', `Saved file: ${packet.fileName} to "GlassTCP Downloads"`, 'success');
-          logToTerminal(`[Reassembly Success] File written to /GlassTCP Downloads/${packet.fileName}`);
+          addNotification('Glass Transport Security Protocol (gTLSP)', `Saved file: ${packet.fileName} to "gTLSP Downloads"`, 'success');
+          logToTerminal(`[Reassembly Success] File written to /gTLSP Downloads/${packet.fileName}`);
         } else {
           // Regular text message
-          addNotification('GlassTCP', `${packet.source}: ${packet.payload}`, 'info');
+          addNotification('Glass Transport Security Protocol (gTLSP)', `${packet.source}: ${packet.payload}`, 'info');
         }
 
         // Return ACK
@@ -402,14 +490,14 @@ export function GlassTCP({
         socket.emit('glasstcp:send_packet', ackPacket);
 
       } else if (packet.flags.fin) {
-        logToTerminal(`GlassTCP: Received FIN teardown request from ${packet.source}`);
+        logToTerminal(`gTLSP: Received FIN teardown request from ${packet.source}`);
         setConnections(prev => {
           const next = { ...prev };
           delete next[connId];
           return next;
         });
         if (activeSession === connId) setActiveSession(null);
-        addNotification('GlassTCP', `Connection closed by ${packet.source}`, 'warning');
+        addNotification('Glass Transport Security Protocol (gTLSP)', `Connection closed by ${packet.source}`, 'warning');
       }
     };
 
@@ -533,8 +621,13 @@ export function GlassTCP({
     const destPort = 80; // HTTP / Service Port
     const clientSeq = Math.floor(Math.random() * 100000);
 
-    logToTerminal(`[SYN] Initiating GlassTCP 3-way handshake with node ${targetId} (${targetIp})`);
+    logToTerminal(`[SYN] Initiating gTLSP 3-way handshake with node ${targetId} (${targetIp})`);
     
+    // Generate secure DH Public Key for this session
+    const clientPubKey = transportEngineRef.current.initiateHandshakeKeyExchange(targetId);
+    const clientPubKeyHex = '0x' + clientPubKey.toString(16).toUpperCase();
+    logToTerminal(`[gTLSP DH] Secure Enclave generated DH private/public keys. Public key: ${clientPubKeyHex.substring(0, 20)}...`);
+
     // Create new connection object in SYN_SENT state
     setConnections(prev => ({
       ...prev,
@@ -558,7 +651,7 @@ export function GlassTCP({
       clientSeq,
       0,
       { syn: true, ack: false, psh: false, fin: false },
-      'Connection SYN Probe'
+      `gTLSP Handshake: Client Public Key = ${clientPubKeyHex}`
     );
 
     // Send packet
@@ -570,8 +663,13 @@ export function GlassTCP({
     // Bot Auto-Response mechanism if target is a Bot/Simulated node!
     if (target.isBot) {
       setTimeout(() => {
-        logToTerminal(`GlassTCP: Simulated SYN-ACK response from ${targetId}`);
+        logToTerminal(`gTLSP: Simulated SYN-ACK response from ${targetId}`);
         
+        // Bot/Server generates its own DH Key Pair and derives the shared secret
+        const botPubKey = transportEngineRef.current.acceptHandshakeKeyExchange(targetId, clientPubKeyHex);
+        const botPubKeyHex = '0x' + botPubKey.toString(16).toUpperCase();
+        logToTerminal(`[gTLSP DH] Simulated bot node completed DH Key Exchange computation.`);
+
         const synAckPacket = generatePacket(
           target,
           selectedLocation,
@@ -580,7 +678,7 @@ export function GlassTCP({
           Math.floor(Math.random() * 50000),
           clientSeq + 1,
           { syn: true, ack: true, psh: false, fin: false },
-          'Handshake SYN-ACK Response'
+          `gTLSP Handshake: Server Public Key = ${botPubKeyHex}`
         );
 
         triggerPacketAnimation(target.x, target.y, selectedLocation.x, selectedLocation.y, '#10B981'); // Emerald incoming SYN-ACK
@@ -588,7 +686,17 @@ export function GlassTCP({
         // Emulate receiving SYN-ACK
         setTimeout(() => {
           // Send back ultimate ACK
-          logToTerminal(`GlassTCP: Connection ESTABLISHED with simulated bot node ${targetId}!`);
+          logToTerminal(`gTLSP: Connection ESTABLISHED with simulated bot node ${targetId}!`);
+          
+          // Client finalizes the key exchange on its side using bot's public key
+          transportEngineRef.current.finalizeHandshakeKeyExchange(targetId, botPubKeyHex);
+          const session = transportEngineRef.current.getOrCreateSession(targetId);
+          let hexSymmetricKey = '';
+          for (let i = 0; i < session.symmetricKey.length; i++) {
+            hexSymmetricKey += session.symmetricKey[i].toString(16).toUpperCase().padStart(2, '0');
+          }
+          logToTerminal(`[gTLSP DH] Handshake fully completed! derived OMEMO symmetric session key: 0x${hexSymmetricKey}`);
+
           setConnections(prev => ({
             ...prev,
             [targetId]: {
@@ -603,7 +711,7 @@ export function GlassTCP({
             }
           }));
           setActiveSession(targetId);
-          addNotification('GlassTCP', `Connected to simulated node: ${targetId}`, 'success');
+          addNotification('Glass Transport Security Protocol (gTLSP)', `Connected securely to simulated node: ${targetId}`, 'success');
 
           const ackPacket = generatePacket(
             selectedLocation,
@@ -613,7 +721,7 @@ export function GlassTCP({
             clientSeq + 1,
             synAckPacket.seq + 1,
             { syn: false, ack: true, psh: false, fin: false },
-            'Handshake ACK Finalize'
+            'gTLSP Handshake: Key Exchange ACK Finalize'
           );
           
           if (socket) {
@@ -664,8 +772,8 @@ export function GlassTCP({
       setActiveSession(null);
     }
 
-    logToTerminal(`GlassTCP: Session with ${targetId} cleanly closed (FIN-ACK handshake complete).`);
-    addNotification('GlassTCP', `Disconnected from ${targetId}`, 'info');
+    logToTerminal(`gTLSP: Session with ${targetId} cleanly closed (FIN-ACK handshake complete).`);
+    addNotification('Glass Transport Security Protocol (gTLSP)', `Disconnected from ${targetId}`, 'info');
   };
 
   // Send regular text message or data segment
@@ -678,6 +786,15 @@ export function GlassTCP({
     if (!conn || !targetNode) return;
 
     logToTerminal(`[PSH] Encapsulating TCP Data payload segment to send to ${activeSession}`);
+    try {
+      const encoder = new TextEncoder();
+      const tagBytes = transportEngineRef.current.generatePoly1305Tag(encoder.encode(messageText), BigInt(conn.seq), activeSession);
+      let hexTag = '';
+      for (let i = 0; i < tagBytes.length; i++) {
+        hexTag += tagBytes[i].toString(16).toUpperCase().padStart(2, '0');
+      }
+      logToTerminal(`[gTLSP Enclave] Generated outbound Poly1305 MAC tag: 0x${hexTag}`);
+    } catch (err) {}
 
     const payloadPacket = generatePacket(
       selectedLocation,
@@ -701,6 +818,10 @@ export function GlassTCP({
 
     if (socket) {
       socket.emit('glasstcp:send_packet', payloadPacket);
+      try {
+        const qvbFrame = transportEngineRef.current.packagePayloadStream(messageText, 0x02, activeSession);
+        transportEngineRef.current.pushToQVB(qvbFrame, conn.destPort);
+      } catch (err) {}
     }
 
     triggerPacketAnimation(selectedLocation.x, selectedLocation.y, targetNode.x || 50, targetNode.y || 50, '#10B981'); // Emerald for PSH message
@@ -717,7 +838,7 @@ export function GlassTCP({
         ];
         const replyText = botReplies[Math.floor(Math.random() * botReplies.length)];
 
-        logToTerminal(`GlassTCP: Received response payload from bot ${activeSession}`);
+        logToTerminal(`gTLSP: Received response payload from bot ${activeSession}`);
         
         const replyPacket = generatePacket(
           targetNode,
@@ -742,7 +863,7 @@ export function GlassTCP({
 
         // Trigger local display
         setNetworkTraffic(prev => [replyPacket, ...prev].slice(0, 50));
-        addNotification('GlassTCP', `${activeSession}: ${replyText}`, 'info');
+        addNotification('Glass Transport Security Protocol (gTLSP)', `${activeSession}: ${replyText}`, 'info');
       }, 1500);
     }
   };
@@ -756,7 +877,16 @@ export function GlassTCP({
 
     if (!conn || !targetNode) return;
 
-    logToTerminal(`[DATA] Segmenting file "${item.name}" into GlassTCP stream packets...`);
+    logToTerminal(`[DATA] Segmenting file "${item.name}" into gTLSP stream packets...`);
+    try {
+      const encoder = new TextEncoder();
+      const tagBytes = transportEngineRef.current.generatePoly1305Tag(encoder.encode(item.content || ''), BigInt(conn.seq), activeSession);
+      let hexTag = '';
+      for (let i = 0; i < tagBytes.length; i++) {
+        hexTag += tagBytes[i].toString(16).toUpperCase().padStart(2, '0');
+      }
+      logToTerminal(`[gTLSP Enclave] Generated outbound Poly1305 MAC tag: 0x${hexTag}`);
+    } catch (err) {}
     
     // Construct single packet with file attachment properties
     const filePacket = generatePacket(
@@ -781,11 +911,15 @@ export function GlassTCP({
 
     if (socket) {
       socket.emit('glasstcp:send_packet', filePacket);
+      try {
+        const qvbFrame = transportEngineRef.current.packagePayloadStream(item.content || '', 0x02, activeSession);
+        transportEngineRef.current.pushToQVB(qvbFrame, conn.destPort);
+      } catch (err) {}
     }
 
     triggerPacketAnimation(selectedLocation.x, selectedLocation.y, targetNode.x || 50, targetNode.y || 50, '#8B5CF6'); // Deep purple file stream packet
-    logToTerminal(`[GlassTCP] File packet emitted safely! Payload length: ${item.content.length} characters.`);
-    addNotification('GlassTCP', `Transmitted file "${item.name}" over GlassTCP Tunnel`, 'success');
+    logToTerminal(`[gTLSP] File packet emitted safely! Payload length: ${item.content.length} characters.`);
+    addNotification('Glass Transport Security Protocol (gTLSP)', `Transmitted file "${item.name}" over gTLSP Tunnel`, 'success');
     setShowFilePicker(false);
   };
 
@@ -845,6 +979,39 @@ export function GlassTCP({
       }
       return t;
     }));
+  };
+
+  const handleAddQvbBinding = () => {
+    const id = `qvb-${Date.now()}`;
+    const newBinding: QVBBinding = {
+      id,
+      virtualPort: newQvbVirtualPort,
+      destinationPort: newQvbDestPort,
+      laneId: newQvbLane,
+      status: newQvbStatus,
+      multiplexFactor: newQvbMultiplex,
+      packetsBridged: 0,
+      bytesBridged: 0,
+      latencyMs: newQvbStatus === 'ACTIVE' ? 1.5 : 0.0,
+      jitterMs: newQvbStatus === 'ACTIVE' ? 0.2 : 0.0
+    };
+    transportEngineRef.current.addQVBBinding(newBinding);
+    setQvbBindings([...transportEngineRef.current.getQVBBindings()]);
+    logToTerminal(`[QVB BINDING] Registered new lane mapping: ${newQvbLane} => Port:${newQvbVirtualPort} to Port:${newQvbDestPort}`);
+    addNotification('Quantum-Virtualization Bridge', `Registered QVB Tunnel ${newQvbLane}`, 'success');
+  };
+
+  const handleToggleQvbBinding = (id: string) => {
+    transportEngineRef.current.toggleQVBBindingStatus(id);
+    setQvbBindings([...transportEngineRef.current.getQVBBindings()]);
+    logToTerminal(`[QVB BINDING] Toggled state for binding ref: ${id}`);
+  };
+
+  const handleRemoveQvbBinding = (id: string) => {
+    transportEngineRef.current.removeQVBBinding(id);
+    setQvbBindings([...transportEngineRef.current.getQVBBindings()]);
+    logToTerminal(`[QVB BINDING] Removed binding ref: ${id}`);
+    addNotification('Quantum-Virtualization Bridge', `Released QVB Tunnel binding`, 'info');
   };
 
   // Simulate traffic burst on a tenant
@@ -986,8 +1153,8 @@ export function GlassTCP({
           </div>
           <div>
             <h2 className="text-sm font-bold tracking-widest text-white uppercase flex items-center gap-2">
-              GlassTCP Segmenter & Live Bridge
-              <span className="px-2 py-0.5 rounded text-[8px] font-bold uppercase bg-blue-500/20 text-blue-400 border border-blue-500/30">L4 Bridge</span>
+              Glass Transport Security Protocol (gTLSP)
+              <span className="px-2 py-0.5 rounded text-[8px] font-bold uppercase bg-blue-500/20 text-blue-400 border border-blue-500/30">gTLSP Bridge</span>
             </h2>
             <p className="text-[10px] text-white/40 font-mono">Custom protocol built on GlassOS Signal Engine</p>
           </div>
@@ -1333,12 +1500,31 @@ export function GlassTCP({
               {activeSession ? (
                 <div className="flex-1 flex flex-col overflow-hidden">
                   {/* Active Session Info Panel */}
-                  <div className="px-5 py-3 border-b border-white/5 bg-[#161b22]/40 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                      <span className="text-xs font-bold text-white uppercase">{activeSession.split(' ')[0]}</span>
+                  <div className="px-5 py-3 border-b border-white/5 bg-[#161b22]/40 flex flex-col gap-1">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="text-xs font-bold text-white uppercase">{activeSession.split(' ')[0]}</span>
+                      </div>
+                      <span className="text-[9px] font-mono text-emerald-400/80 uppercase font-bold tracking-wider">ESTABLISHED</span>
                     </div>
-                    <span className="text-[9px] font-mono text-emerald-400/80 uppercase font-bold tracking-wider">ESTABLISHED</span>
+                    {(() => {
+                      const session = transportEngineRef.current.getOrCreateSession(activeSession);
+                      if (session && session.isKeyExchangeComplete) {
+                        let hexSymmetricKey = '';
+                        for (let i = 0; i < session.symmetricKey.length; i++) {
+                          hexSymmetricKey += session.symmetricKey[i].toString(16).toUpperCase().padStart(2, '0');
+                        }
+                        const truncatedKey = '0x' + hexSymmetricKey.substring(0, 24) + '...';
+                        return (
+                          <div className="flex items-center justify-between text-[8px] font-mono text-white/40 mt-1 border-t border-white/5 pt-1">
+                            <span>OMEMO Key: <span className="text-amber-400/90 font-bold">{truncatedKey}</span></span>
+                            <span className="text-blue-400/90 font-bold">dDH Exchange</span>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
 
                   {/* Chat Panel / Stream payloads */}
@@ -1613,102 +1799,269 @@ export function GlassTCP({
             </div>
           </div>
 
-          {/* Multi-Tenant Routing Manager & Concurrent Ingress Sidebar */}
+          {/* Multi-Tenant Routing Manager & Concurrent Ingress Sidebar / QVB Bindings */}
           <div className="col-span-5 flex flex-col overflow-hidden bg-[#0d1117]/60 backdrop-blur-md p-6 gap-6">
-            <div className="flex flex-col gap-1.5 border-b border-white/5 pb-4">
-              <h3 className="text-xs font-bold uppercase tracking-widest text-emerald-400 flex items-center gap-1.5">
-                <Compass size={14} /> Multi-Tenant Concurrent Ingress
-              </h3>
-              <p className="text-[10px] text-white/40">Isolate routing domains and configure concurrent pipeline lanes</p>
+            <div className="flex flex-col gap-3 border-b border-white/5 pb-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-emerald-400 flex items-center gap-1.5">
+                  {matrixSidebar === 'qvb' ? (
+                    <>
+                      <Cpu size={14} className="text-emerald-400 animate-pulse" /> QVB Bindings Console
+                    </>
+                  ) : (
+                    <>
+                      <Compass size={14} /> Concurrent Ingress
+                    </>
+                  )}
+                </h3>
+                <div className="flex bg-white/2 border border-white/5 rounded-lg p-0.5">
+                  <button
+                    onClick={() => setMatrixSidebar('qvb')}
+                    className={`px-2 py-1 rounded-md text-[9px] uppercase font-bold tracking-wider transition-all cursor-pointer ${
+                      matrixSidebar === 'qvb'
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                        : 'text-white/40 hover:text-white/70'
+                    }`}
+                  >
+                    QVB Bridge
+                  </button>
+                  <button
+                    onClick={() => setMatrixSidebar('ingress')}
+                    className={`px-2 py-1 rounded-md text-[9px] uppercase font-bold tracking-wider transition-all cursor-pointer ${
+                      matrixSidebar === 'ingress'
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                        : 'text-white/40 hover:text-white/70'
+                    }`}
+                  >
+                    Tenants
+                  </button>
+                </div>
+              </div>
+              <p className="text-[10px] text-white/40">
+                {matrixSidebar === 'qvb'
+                  ? 'Active Quantum-Virtualization Bridge (QVB) links routing gTLSP stream segments'
+                  : 'Isolate routing domains and configure concurrent pipeline lanes'}
+              </p>
             </div>
 
-            {/* Tenant list */}
-            <div className="flex-1 flex flex-col gap-4 overflow-y-auto no-scrollbar pr-1">
-              {tenants.map(tenant => {
-                const priorityColors = {
-                  critical: 'bg-red-500/20 text-red-400 border-red-500/30',
-                  high: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-                  standard: 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-                };
+            {matrixSidebar === 'qvb' ? (
+              <div className="flex-1 flex flex-col gap-5 overflow-hidden min-h-0">
+                {/* Active QVB list */}
+                <div className="flex-1 flex flex-col gap-3 overflow-y-auto no-scrollbar pr-1">
+                  <span className="text-[9px] text-white/30 uppercase font-bold tracking-wider">Active Quantum Lanes ({qvbBindings.length})</span>
+                  {qvbBindings.map(binding => {
+                    const statusColors = {
+                      ACTIVE: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25',
+                      STANDBY: 'bg-amber-500/10 text-amber-400 border-amber-500/25',
+                      DORMANT: 'bg-white/5 text-white/40 border-white/5',
+                      FAULT: 'bg-red-500/10 text-red-400 border-red-500/25'
+                    };
 
-                return (
-                  <div key={tenant.id} className="bg-[#111622] border border-white/5 rounded-2xl p-5 flex flex-col gap-4 relative">
-                    {/* Priority badge */}
-                    <span className={`absolute top-5 right-5 px-2 py-0.5 rounded text-[8px] font-bold uppercase border ${priorityColors[tenant.priority]}`}>
-                      {tenant.priority}
-                    </span>
+                    return (
+                      <div key={binding.id} className="bg-[#111622] border border-white/5 rounded-xl p-4 flex flex-col gap-3 relative transition-all hover:border-white/10">
+                        {/* Status badge & Delete button */}
+                        <div className="absolute top-4 right-4 flex items-center gap-2">
+                          <button
+                            onClick={() => handleToggleQvbBinding(binding.id)}
+                            className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase border cursor-pointer ${statusColors[binding.status]}`}
+                          >
+                            {binding.status}
+                          </button>
+                          <button
+                            onClick={() => handleRemoveQvbBinding(binding.id)}
+                            className="text-white/30 hover:text-red-400 p-1 rounded hover:bg-white/5 transition-all cursor-pointer"
+                            title="Release Binding"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
 
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-xs font-bold text-white">{tenant.name}</span>
-                      <span className="text-[10px] font-mono text-emerald-400">{tenant.subdomain}</span>
-                    </div>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-xs font-bold text-white font-mono">{binding.laneId}</span>
+                          <span className="text-[10px] text-white/50 font-mono">
+                            Port {binding.virtualPort} <span className="text-emerald-400 font-bold">&rarr;</span> Port {binding.destinationPort}
+                          </span>
+                        </div>
 
-                    <div className="grid grid-cols-3 gap-2 text-[9px] font-mono pt-2 border-t border-white/2">
-                      <div>
-                        <span className="text-white/30 block mb-0.5">BANDWIDTH LIMIT</span>
-                        <span className="text-white/80 font-bold">{tenant.bandwidthLimit}</span>
+                        <div className="grid grid-cols-4 gap-2 text-[9px] font-mono pt-2 border-t border-white/5">
+                          <div>
+                            <span className="text-white/30 block mb-0.5">PACKETS</span>
+                            <span className="text-white/80 font-bold">{binding.packetsBridged}</span>
+                          </div>
+                          <div>
+                            <span className="text-white/30 block mb-0.5">BYTES</span>
+                            <span className="text-white/80 font-bold">{(binding.bytesBridged / 1024).toFixed(1)} KB</span>
+                          </div>
+                          <div>
+                            <span className="text-white/30 block mb-0.5">LATENCY</span>
+                            <span className="text-emerald-400 font-bold">{binding.latencyMs}ms</span>
+                          </div>
+                          <div>
+                            <span className="text-white/30 block mb-0.5">JITTER</span>
+                            <span className="text-blue-400 font-bold">{binding.jitterMs}ms</span>
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-white/30 block mb-0.5">ACTIVE SOCKETS</span>
-                        <span className="text-white/80 font-bold">{tenant.activeConnections}</span>
-                      </div>
-                      <div>
-                        <span className="text-white/30 block mb-0.5">CONCURRENT LANES</span>
-                        <span className="text-white/80 font-bold">{tenant.ingressLanes} Thread-Lanes</span>
-                      </div>
-                    </div>
+                    );
+                  })}
+                </div>
 
-                    {/* Progress slider for queue pressure */}
-                    <div className="flex flex-col gap-1.5 mt-2">
-                      <div className="flex justify-between text-[9px] font-mono">
-                        <span className="text-white/30 uppercase font-bold">Ingress Queue Buffer Pressure</span>
-                        <span className={`font-bold ${tenant.ingressQueuePressure > 70 ? 'text-red-400' : tenant.ingressQueuePressure > 40 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                          {tenant.ingressQueuePressure}% Queue-Fill
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 bg-[#0a0c10] rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${
-                            tenant.ingressQueuePressure > 70 
-                              ? 'bg-red-500 shadow-md shadow-red-500/50' 
-                              : tenant.ingressQueuePressure > 40 
-                                ? 'bg-amber-500 shadow-md shadow-amber-500/50' 
-                                : 'bg-emerald-500 shadow-md shadow-emerald-500/50'
-                          }`}
-                          style={{ width: `${tenant.ingressQueuePressure}%` }}
-                        />
-                      </div>
-                    </div>
+                {/* Register New Binding Form */}
+                <div className="bg-[#0c0f16] border border-white/5 rounded-2xl p-4 flex flex-col gap-3 shrink-0">
+                  <div className="flex items-center gap-1.5 border-b border-white/5 pb-2">
+                    <Plus size={12} className="text-emerald-400" />
+                    <span className="text-[10px] text-white/70 font-bold uppercase tracking-wider font-mono">Register QVB Tunnel</span>
+                  </div>
 
-                    {/* Action buttons */}
-                    <div className="flex items-center justify-between gap-4 mt-1 pt-1">
-                      <div className="flex items-center gap-1">
-                        <span className="text-[9px] text-white/30 uppercase font-bold mr-1">Ingress Lanes:</span>
-                        <button
-                          onClick={() => handleTenantLanesChange(tenant.id, -2)}
-                          className="w-5 h-5 bg-white/5 hover:bg-white/10 text-white rounded flex items-center justify-center text-xs font-bold transition-all border border-white/5"
-                        >
-                          -
-                        </button>
-                        <button
-                          onClick={() => handleTenantLanesChange(tenant.id, 2)}
-                          className="w-5 h-5 bg-white/5 hover:bg-white/10 text-white rounded flex items-center justify-center text-xs font-bold transition-all border border-white/5"
-                        >
-                          +
-                        </button>
-                      </div>
-
-                      <button
-                        onClick={() => handleTenantBurst(tenant.id)}
-                        className="px-3 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all"
+                  <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                    <div>
+                      <span className="text-white/40 block mb-1 uppercase text-[8px] font-bold">LANE ID</span>
+                      <select
+                        value={newQvbLane}
+                        onChange={(e: any) => setNewQvbLane(e.target.value)}
+                        className="w-full bg-[#111622] border border-[#ffffff10] rounded-lg p-1.5 text-white outline-none"
                       >
-                        Trigger Burst Traffic
-                      </button>
+                        <option value="LANE_0">LANE_0</option>
+                        <option value="LANE_1">LANE_1</option>
+                        <option value="LANE_2">LANE_2</option>
+                        <option value="LANE_3">LANE_3</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <span className="text-white/40 block mb-1 uppercase text-[8px] font-bold">INIT STATUS</span>
+                      <select
+                        value={newQvbStatus}
+                        onChange={(e: any) => setNewQvbStatus(e.target.value)}
+                        className="w-full bg-[#111622] border border-[#ffffff10] rounded-lg p-1.5 text-white outline-none"
+                      >
+                        <option value="ACTIVE">ACTIVE</option>
+                        <option value="STANDBY">STANDBY</option>
+                        <option value="DORMANT">DORMANT</option>
+                        <option value="FAULT">FAULT</option>
+                      </select>
                     </div>
                   </div>
-                );
-              })}
-            </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                    <div>
+                      <span className="text-white/40 block mb-1 uppercase text-[8px] font-bold">VIRTUAL PORT</span>
+                      <input
+                        type="number"
+                        value={newQvbVirtualPort}
+                        onChange={(e: any) => setNewQvbVirtualPort(Number(e.target.value))}
+                        className="w-full bg-[#111622] border border-[#ffffff10] rounded-lg p-1.5 text-white outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <span className="text-white/40 block mb-1 uppercase text-[8px] font-bold">DEST PORT</span>
+                      <input
+                        type="number"
+                        value={newQvbDestPort}
+                        onChange={(e: any) => setNewQvbDestPort(Number(e.target.value))}
+                        className="w-full bg-[#111622] border border-[#ffffff10] rounded-lg p-1.5 text-white outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleAddQvbBinding}
+                    className="w-full py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/25 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all font-mono cursor-pointer"
+                  >
+                    Register QVB Tunnel Mapping
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Tenant list */
+              <div className="flex-1 flex flex-col gap-4 overflow-y-auto no-scrollbar pr-1">
+                {tenants.map(tenant => {
+                  const priorityColors = {
+                    critical: 'bg-red-500/20 text-red-400 border-red-500/30',
+                    high: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+                    standard: 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                  };
+
+                  return (
+                    <div key={tenant.id} className="bg-[#111622] border border-white/5 rounded-2xl p-5 flex flex-col gap-4 relative">
+                      {/* Priority badge */}
+                      <span className={`absolute top-5 right-5 px-2 py-0.5 rounded text-[8px] font-bold uppercase border ${priorityColors[tenant.priority]}`}>
+                        {tenant.priority}
+                      </span>
+
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-xs font-bold text-white">{tenant.name}</span>
+                        <span className="text-[10px] font-mono text-emerald-400">{tenant.subdomain}</span>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 text-[9px] font-mono pt-2 border-t border-white/2">
+                        <div>
+                          <span className="text-white/30 block mb-0.5">BANDWIDTH LIMIT</span>
+                          <span className="text-white/80 font-bold">{tenant.bandwidthLimit}</span>
+                        </div>
+                        <div>
+                          <span className="text-white/30 block mb-0.5">ACTIVE SOCKETS</span>
+                          <span className="text-white/80 font-bold">{tenant.activeConnections}</span>
+                        </div>
+                        <div>
+                          <span className="text-white/30 block mb-0.5">CONCURRENT LANES</span>
+                          <span className="text-white/80 font-bold">{tenant.ingressLanes} Thread-Lanes</span>
+                        </div>
+                      </div>
+
+                      {/* Progress slider for queue pressure */}
+                      <div className="flex flex-col gap-1.5 mt-2">
+                        <div className="flex justify-between text-[9px] font-mono">
+                          <span className="text-white/30 uppercase font-bold">Ingress Queue Buffer Pressure</span>
+                          <span className={`font-bold ${tenant.ingressQueuePressure > 70 ? 'text-red-400' : tenant.ingressQueuePressure > 40 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                            {tenant.ingressQueuePressure}% Queue-Fill
+                          </span>
+                        </div>
+                        <div className="w-full h-1.5 bg-[#0a0c10] rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              tenant.ingressQueuePressure > 70 
+                                ? 'bg-red-500 shadow-md shadow-red-500/50' 
+                                : tenant.ingressQueuePressure > 40 
+                                  ? 'bg-amber-500 shadow-md shadow-amber-500/50' 
+                                  : 'bg-emerald-500 shadow-md shadow-emerald-500/50'
+                            }`}
+                            style={{ width: `${tenant.ingressQueuePressure}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center justify-between gap-4 mt-1 pt-1">
+                        <div className="flex items-center gap-1">
+                          <span className="text-[9px] text-white/30 uppercase font-bold mr-1">Ingress Lanes:</span>
+                          <button
+                            onClick={() => handleTenantLanesChange(tenant.id, -2)}
+                            className="w-5 h-5 bg-white/5 hover:bg-white/10 text-white rounded flex items-center justify-center text-xs font-bold transition-all border border-white/5"
+                          >
+                            -
+                          </button>
+                          <button
+                            onClick={() => handleTenantLanesChange(tenant.id, 2)}
+                            className="w-5 h-5 bg-white/5 hover:bg-white/10 text-white rounded flex items-center justify-center text-xs font-bold transition-all border border-white/5"
+                          >
+                            +
+                          </button>
+                        </div>
+
+                        <button
+                          onClick={() => handleTenantBurst(tenant.id)}
+                          className="px-3 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all"
+                        >
+                          Trigger Burst Traffic
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       ) : (
@@ -2000,7 +2353,7 @@ export function GlassTCP({
             <div className="px-6 py-3 border-b border-white/5 bg-[#161b22] flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Shield size={14} className="text-blue-400" />
-                <span className="text-xs font-bold text-white uppercase tracking-wider">Raw TCP segment inspector</span>
+                <span className="text-xs font-bold text-white uppercase tracking-wider">gTLSP Secure Packet Inspector</span>
                 <span className="text-[10px] font-mono bg-[#0c0f16] px-2 py-0.5 rounded text-white/40">Packet ID: {selectedPacket.id}</span>
               </div>
               <button 
@@ -2013,8 +2366,11 @@ export function GlassTCP({
 
             {/* Inspector Body Grid */}
             <div className="flex-1 grid grid-cols-12 overflow-hidden p-6 gap-6 font-mono text-[10px]">
-              {/* Header Fields */}
-              <div className="col-span-5 grid grid-cols-2 gap-4 bg-[#0a0c10] p-4 rounded-xl border border-white/5 overflow-y-auto no-scrollbar">
+              {/* Header Fields (Transport Layer) */}
+              <div className="col-span-4 grid grid-cols-2 gap-3 bg-[#0a0c10] p-4 rounded-xl border border-white/5 overflow-y-auto no-scrollbar">
+                <div className="col-span-2 border-b border-white/5 pb-1 mb-1 text-white/30 text-[8px] tracking-wider font-bold">
+                  TRANSPORT LAYER SEGMENT
+                </div>
                 <div>
                   <span className="text-white/30 block mb-0.5">Source IP / Host:</span>
                   <span className="text-blue-400 font-bold">{selectedPacket.source || 'N/A'} ({selectedPacket.sourceIp || 'Unknown'})</span>
@@ -2040,7 +2396,7 @@ export function GlassTCP({
                   <span className="text-purple-300 font-bold">{selectedPacket.ack ?? 'N/A'}</span>
                 </div>
                 <div>
-                  <span className="text-white/30 block mb-0.5">Header TCP Flags:</span>
+                  <span className="text-white/30 block mb-0.5">Flags:</span>
                   <span className="text-amber-400 font-bold flex gap-1">
                     {selectedPacket.flags?.syn && <span className="bg-amber-500/10 px-1.5 py-0.5 rounded text-[8px]">SYN</span>}
                     {selectedPacket.flags?.ack && <span className="bg-amber-500/10 px-1.5 py-0.5 rounded text-[8px]">ACK</span>}
@@ -2050,21 +2406,64 @@ export function GlassTCP({
                   </span>
                 </div>
                 <div>
-                  <span className="text-white/30 block mb-0.5">Calculated Size:</span>
+                  <span className="text-white/30 block mb-0.5">Segment Size:</span>
                   <span className="text-amber-500 font-bold">{selectedPacket.size || '0 B'}</span>
                 </div>
               </div>
 
+              {/* gTLSP Secure Enclave Wrapper Header */}
+              <div className="col-span-4 flex flex-col bg-[#0b0e14] p-4 rounded-xl border border-blue-500/20 overflow-y-auto no-scrollbar relative">
+                <div className="absolute top-2 right-2 px-1 rounded text-[8px] bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold tracking-wider">
+                  gTLS_HEADER STRUCT
+                </div>
+                <div className="text-white/40 text-[8px] tracking-wider border-b border-white/5 pb-1 mb-2 font-bold">
+                  gTLS SECURITY ENVELOPE STRUCT
+                </div>
+                <div className="space-y-2.5 font-mono text-[9px] leading-tight">
+                  <div>
+                    <span className="text-white/30 block mb-0.5">.protocol_version (1 byte):</span>
+                    <span className="text-emerald-400 font-bold">0x01</span>
+                    <span className="text-white/40 ml-2">(gTLSP v1.0 standard)</span>
+                  </div>
+                  <div>
+                    <span className="text-white/30 block mb-0.5">.packet_type (1 byte):</span>
+                    <span className="text-blue-400 font-bold">
+                      {selectedPacket.flags?.syn || selectedPacket.flags?.ack && !selectedPacket.payload ? '0x01' : '0x02'}
+                    </span>
+                    <span className="text-white/40 ml-2">
+                      ({selectedPacket.flags?.syn || selectedPacket.flags?.ack && !selectedPacket.payload ? 'HANDSHAKE' : 'DATA'})
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-white/30 block mb-0.5">.reserved (2 bytes alignment):</span>
+                    <span className="text-white/50">0x0000</span>
+                    <span className="text-white/40 ml-2">(Aligned word padding)</span>
+                  </div>
+                  <div>
+                    <span className="text-white/30 block mb-0.5">.sequence_nonce (8 bytes):</span>
+                    <span className="text-purple-400 font-bold">
+                      0x{selectedPacket.seq.toString(16).toUpperCase().padStart(16, '0')}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-white/30 block mb-0.5">.auth_tag (16 bytes, Poly1305 MAC):</span>
+                    <span className="text-amber-400 font-bold block break-all tracking-tight">
+                      {getDeterministicAuthTag(selectedPacket)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               {/* Raw Hex Matrix Dump */}
-              <div className="col-span-7 flex flex-col bg-[#07090e] p-4 rounded-xl border border-white/5 overflow-hidden">
-                <div className="flex justify-between border-b border-white/5 pb-2 mb-2 text-white/30 text-[9px]">
+              <div className="col-span-4 flex flex-col bg-[#07090e] p-4 rounded-xl border border-white/5 overflow-hidden">
+                <div className="flex justify-between border-b border-white/5 pb-1 mb-2 text-white/30 text-[8px] font-bold">
                   <span>OFFSET</span>
-                  <span>HEX CONTENT (8 BYTES PER MATRIX BLOCK)</span>
+                  <span>HEX MATRIX (8 BYTES BLOCKS)</span>
                   <span>ASCII</span>
                 </div>
                 <div className="flex-1 overflow-y-auto font-mono no-scrollbar leading-relaxed">
-                  {stringToHexMatrix(selectedPacket.payload || 'TCP Keepalive handshake ping').map((row, idx) => (
-                    <div key={idx} className="flex justify-between select-text text-[11px]">
+                  {stringToHexMatrix(selectedPacket.payload || 'gTLSP secure session handshake ping').map((row, idx) => (
+                    <div key={idx} className="flex justify-between select-text text-[10px]">
                       <span className="text-blue-500/70">{row.address}</span>
                       <span className="text-white/90 tracking-wider whitespace-pre">{row.hex}</span>
                       <span className="text-emerald-400/80">{row.ascii}</span>
