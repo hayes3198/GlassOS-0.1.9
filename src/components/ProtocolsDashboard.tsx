@@ -71,7 +71,15 @@ export function ProtocolsDashboard({
     { name: 'SADF-Overflower', hash: '0x2C4B7E9A102D', severity: 'high', target: 'SADF', description: 'Bypasses pointer sandboxing to rewrite driver base addresses in live kernel space.', status: 'not_detected' },
     { name: 'HoloCrypt-Ransomware', hash: '0x7E1D88FF330A', severity: 'critical', target: 'MMU', description: 'Attempts to intercept Ring-0 secure enclaves and encrypt AuthService segment keys.', status: 'not_detected' },
     { name: 'ZeroCopy-Snooper', hash: '0x5C921AA0E87F', severity: 'medium', target: 'IPC', description: 'Monitors the memory bus during zero-copy page flips to leak active transaction buffers.', status: 'not_detected' },
-    { name: 'IRQ-Flooder', hash: '0x9A3B5C7D2E1F', severity: 'high', target: 'IPC', description: 'Triggers hardware interrupts sequentially at high frequencies, crashing the central scheduler.', status: 'not_detected' }
+    { name: 'IRQ-Flooder', hash: '0x9A3B5C7D2E1F', severity: 'high', target: 'IPC', description: 'Triggers hardware interrupts sequentially at high frequencies, crashing the central scheduler.', status: 'not_detected' },
+    { name: 'WannaCry-G', hash: '0x4A9B113F00DC', severity: 'critical', target: 'FS', description: 'Attempts a ransomware cipher-sweep across user document spaces and holds file handles hostage.', status: 'not_detected' },
+    { name: 'Heartbleed-S', hash: '0xBD4E22A78F21', severity: 'high', target: 'IPC', description: 'Triggers a buffer over-read on live IPC channels to leak raw system memory frames to unauthorised subprocesses.', status: 'not_detected' },
+    { name: 'Meltdown-X', hash: '0xD8F1C3E200AB', severity: 'critical', target: 'MMU', description: 'Exploits kernel speculative execution pipelines to bypass Virtual Page Boundary isolation and expose Ring-0 memory.', status: 'not_detected' },
+    { name: 'Spectre-V', hash: '0xAC3D99F21EBC', severity: 'high', target: 'MMU', description: 'Trains CPU branch predictors to speculatively execute out-of-bounds index references, exposing adjacent process cache segments.', status: 'not_detected' },
+    { name: 'Pegasus-L', hash: '0x1F2A77BC8E90', severity: 'critical', target: 'SADF', description: 'Silently hooks the primary input device driver (SADF) to eavesdrop on keystrokes and raw pointer event streams.', status: 'not_detected' },
+    { name: 'Mirai-Net-Worm', hash: '0xE4C28D0119BB', severity: 'medium', target: 'IPC', description: 'Propagates by scanning and brute-forcing open GlassTCP listening endpoints, co-opting execution threads for DDoS.', status: 'not_detected' },
+    { name: 'Rootkit-Vile-G', hash: '0x77BE23EFA0C1', severity: 'critical', target: 'SADF', description: 'Hooks the GlassOS Virtual File System (VFS) and System Call table (IDT) to hide its active process IDs from standard task diagnostics.', status: 'not_detected' },
+    { name: 'FS-Cloneworm', hash: '0x32A4B892CD1E', severity: 'medium', target: 'FS', description: 'Recursively replicates files across nested directories, bloating the filesystem inode allocation table.', status: 'not_detected' }
   ]);
 
   const [avScanStatus, setAvScanStatus] = useState<'idle' | 'scanning' | 'clean' | 'threat_detected'>('idle');

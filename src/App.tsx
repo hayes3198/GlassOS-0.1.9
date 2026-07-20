@@ -4818,6 +4818,12 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
   const [dragStartPos, setDragStartPos] = useState({ x: 0, y: 0 });
   const [isDraggingElement, setIsDraggingElement] = useState(false);
 
+  // Scaling / Resizing state engine variables
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeHandle, setResizeHandle] = useState<string | null>(null);
+  const [resizeStartElement, setResizeStartElement] = useState<any>(null);
+  const [resizeStartBounds, setResizeStartBounds] = useState<any>(null);
+
   // Polyline/polygon points
   const [polygonPoints, setPolygonPoints] = useState<{ x: number, y: number }[]>([]);
 
@@ -5010,6 +5016,31 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
     }
   };
 
+  const handleResizeStart = (e: React.MouseEvent<SVGRectElement>, handleName: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    
+    const selectedEl = elements.find(el => el.id === selectedId);
+    if (!selectedEl) return;
+    
+    const bounds = getElementBounds(selectedEl);
+    if (!bounds) return;
+
+    // We need raw coordinates of the click relative to SVG
+    const svg = e.currentTarget.ownerSVGElement;
+    if (!svg) return;
+    const CTM = svg.getScreenCTM();
+    if (!CTM) return;
+    const rawX = (e.clientX - CTM.e) / CTM.a;
+    const rawY = (e.clientY - CTM.f) / CTM.d;
+
+    setIsResizing(true);
+    setResizeHandle(handleName);
+    setResizeStartElement({ ...selectedEl });
+    setResizeStartBounds({ ...bounds });
+    setDragStartPos({ x: rawX, y: rawY });
+  };
+
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
     const svg = e.currentTarget;
     const CTM = svg.getScreenCTM();
@@ -5127,6 +5158,177 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
 
     setMousePos({ x: rawX, y: rawY });
 
+    if (isResizing && resizeHandle && resizeStartElement && resizeStartBounds) {
+      const dx = rawX - dragStartPos.x;
+      const dy = rawY - dragStartPos.y;
+
+      let snapDx = dx;
+      let snapDy = dy;
+      if (snapToGrid) {
+        snapDx = Math.round(dx / 16) * 16;
+        snapDy = Math.round(dy / 16) * 16;
+      }
+
+      const oldBounds = resizeStartBounds;
+      const newBounds = { ...oldBounds };
+
+      switch (resizeHandle) {
+        case 'se':
+          newBounds.width = Math.max(8, oldBounds.width + snapDx);
+          newBounds.height = Math.max(8, oldBounds.height + snapDy);
+          break;
+        case 'e':
+          newBounds.width = Math.max(8, oldBounds.width + snapDx);
+          break;
+        case 's':
+          newBounds.height = Math.max(8, oldBounds.height + snapDy);
+          break;
+        case 'nw': {
+          const targetX = oldBounds.x + snapDx;
+          const targetY = oldBounds.y + snapDy;
+          const limitX = oldBounds.x + oldBounds.width - 8;
+          const limitY = oldBounds.y + oldBounds.height - 8;
+          newBounds.x = Math.min(targetX, limitX);
+          newBounds.y = Math.min(targetY, limitY);
+          newBounds.width = oldBounds.x + oldBounds.width - newBounds.x;
+          newBounds.height = oldBounds.y + oldBounds.height - newBounds.y;
+          break;
+        }
+        case 'ne': {
+          const targetY = oldBounds.y + snapDy;
+          const limitY = oldBounds.y + oldBounds.height - 8;
+          newBounds.y = Math.min(targetY, limitY);
+          newBounds.height = oldBounds.y + oldBounds.height - newBounds.y;
+          newBounds.width = Math.max(8, oldBounds.width + snapDx);
+          break;
+        }
+        case 'sw': {
+          const targetX = oldBounds.x + snapDx;
+          const limitX = oldBounds.x + oldBounds.width - 8;
+          newBounds.x = Math.min(targetX, limitX);
+          newBounds.width = oldBounds.x + oldBounds.width - newBounds.x;
+          newBounds.height = Math.max(8, oldBounds.height + snapDy);
+          break;
+        }
+        case 'n': {
+          const targetY = oldBounds.y + snapDy;
+          const limitY = oldBounds.y + oldBounds.height - 8;
+          newBounds.y = Math.min(targetY, limitY);
+          newBounds.height = oldBounds.y + oldBounds.height - newBounds.y;
+          break;
+        }
+        case 'w': {
+          const targetX = oldBounds.x + snapDx;
+          const limitX = oldBounds.x + oldBounds.width - 8;
+          newBounds.x = Math.min(targetX, limitX);
+          newBounds.width = oldBounds.x + oldBounds.width - newBounds.x;
+          break;
+        }
+      }
+
+      const scaleElement = (el: any, ob: any, nb: any) => {
+        const sx = ob.width > 0 ? nb.width / ob.width : 1;
+        const sy = ob.height > 0 ? nb.height / ob.height : 1;
+
+        if (el.type === 'rect' || el.type === 'roundrect') {
+          return {
+            ...el,
+            x: nb.x,
+            y: nb.y,
+            width: nb.width,
+            height: nb.height
+          };
+        }
+        if (el.type === 'oval') {
+          return {
+            ...el,
+            x: nb.x,
+            y: nb.y,
+            rx: nb.width / 2,
+            ry: nb.height / 2
+          };
+        }
+        if (el.type === 'circle') {
+          const newRadius = Math.max(4, Math.min(nb.width, nb.height) / 2);
+          const px = (el.x - ob.x) / (ob.width || 1);
+          const py = (el.y - ob.y) / (ob.height || 1);
+          return {
+            ...el,
+            x: nb.x + px * nb.width,
+            y: nb.y + py * nb.height,
+            radius: newRadius
+          };
+        }
+        if (el.type === 'line') {
+          const px1 = (el.x - ob.x) / (ob.width || 1);
+          const py1 = (el.y - ob.y) / (ob.height || 1);
+          const px2 = (el.x2 - ob.x) / (ob.width || 1);
+          const py2 = (el.y2 - ob.y) / (ob.height || 1);
+          return {
+            ...el,
+            x: nb.x + px1 * nb.width,
+            y: nb.y + py1 * nb.height,
+            x2: nb.x + px2 * nb.width,
+            y2: nb.y + py2 * nb.height
+          };
+        }
+        if (el.type === 'arc') {
+          const px1 = (el.x - ob.x) / (ob.width || 1);
+          const py1 = (el.y - ob.y) / (ob.height || 1);
+          const px2 = (el.x2 - ob.x) / (ob.width || 1);
+          const py2 = (el.y2 - ob.y) / (ob.height || 1);
+          const pxc = (el.xc - ob.x) / (ob.width || 1);
+          const pyc = (el.yc - ob.y) / (ob.height || 1);
+          return {
+            ...el,
+            x: nb.x + px1 * nb.width,
+            y: nb.y + py1 * nb.height,
+            x2: nb.x + px2 * nb.width,
+            y2: nb.y + py2 * nb.height,
+            xc: nb.x + pxc * nb.width,
+            yc: nb.y + pyc * nb.height
+          };
+        }
+        if (el.type === 'pencil' || el.type === 'polygon') {
+          const nextPoints = (el.points || []).map((p: any) => {
+            const px = (p.x - ob.x) / (ob.width || 1);
+            const py = (p.y - ob.y) / (ob.height || 1);
+            return {
+              x: nb.x + px * nb.width,
+              y: nb.y + py * nb.height
+            };
+          });
+          return {
+            ...el,
+            points: nextPoints
+          };
+        }
+        if (el.type === 'text') {
+          const px = (el.x - ob.x) / (ob.width || 1);
+          const py = (el.y - ob.y) / (ob.height || 1);
+          const newX = nb.x + px * nb.width;
+          const newY = nb.y + py * nb.height;
+          const scaleF = (sx + sy) / 2;
+          const newFontSize = Math.max(6, Math.round((el.fontSize || 12) * scaleF));
+          return {
+            ...el,
+            x: newX,
+            y: newY,
+            fontSize: newFontSize
+          };
+        }
+        return el;
+      };
+
+      setElements(prev => prev.map(el => {
+        if (el.id === selectedId) {
+          return scaleElement(resizeStartElement, oldBounds, newBounds);
+        }
+        return el;
+      }));
+      return;
+    }
+
     if (tool === 'select') {
       if (isDraggingElement && selectedId) {
         const dx = rawX - dragStartPos.x;
@@ -5210,11 +5412,15 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
   };
 
   const handleMouseUp = () => {
-    if (isDrawing || isDraggingElement) {
+    if (isDrawing || isDraggingElement || isResizing) {
       saveStateToHistory(elements);
     }
     setIsDrawing(false);
     setIsDraggingElement(false);
+    setIsResizing(false);
+    setResizeHandle(null);
+    setResizeStartElement(null);
+    setResizeStartBounds(null);
   };
 
   const handleDoubleClick = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -6282,7 +6488,7 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
                     if (!bounds) return null;
                     const padding = 4;
                     return (
-                      <g className="pointer-events-none">
+                      <g>
                         <rect
                           x={bounds.x - padding}
                           y={bounds.y - padding}
@@ -6292,22 +6498,29 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
                           stroke="#3b82f6"
                           strokeWidth="1"
                           strokeDasharray="3 3"
+                          className="pointer-events-none"
                         />
                         {[
-                          { x: bounds.x - padding, y: bounds.y - padding },
-                          { x: bounds.x + bounds.width + padding, y: bounds.y - padding },
-                          { x: bounds.x - padding, y: bounds.y + bounds.height + padding },
-                          { x: bounds.x + bounds.width + padding, y: bounds.y + bounds.height + padding }
-                        ].map((pt, idx) => (
+                          { name: 'nw', x: bounds.x - padding, y: bounds.y - padding, cursor: 'cursor-nwse-resize' },
+                          { name: 'n', x: bounds.x + bounds.width / 2, y: bounds.y - padding, cursor: 'cursor-ns-resize' },
+                          { name: 'ne', x: bounds.x + bounds.width + padding, y: bounds.y - padding, cursor: 'cursor-nesw-resize' },
+                          { name: 'w', x: bounds.x - padding, y: bounds.y + bounds.height / 2, cursor: 'cursor-ew-resize' },
+                          { name: 'e', x: bounds.x + bounds.width + padding, y: bounds.y + bounds.height / 2, cursor: 'cursor-ew-resize' },
+                          { name: 'sw', x: bounds.x - padding, y: bounds.y + bounds.height + padding, cursor: 'cursor-nesw-resize' },
+                          { name: 's', x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height + padding, cursor: 'cursor-ns-resize' },
+                          { name: 'se', x: bounds.x + bounds.width + padding, y: bounds.y + bounds.height + padding, cursor: 'cursor-nwse-resize' }
+                        ].map((pt) => (
                           <rect
-                            key={idx}
-                            x={pt.x - 3}
-                            y={pt.y - 3}
-                            width="6"
-                            height="6"
+                            key={pt.name}
+                            x={pt.x - 4}
+                            y={pt.y - 4}
+                            width="8"
+                            height="8"
                             fill="#ffffff"
                             stroke="#3b82f6"
                             strokeWidth="1.5"
+                            className={cn(pt.cursor, "pointer-events-auto transition-transform hover:scale-125")}
+                            onMouseDown={(e) => handleResizeStart(e, pt.name)}
                           />
                         ))}
                       </g>
