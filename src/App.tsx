@@ -4807,6 +4807,8 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
   const [canvasHeight, setCanvasHeight] = useState(1000);
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [showPrefsModal, setShowPrefsModal] = useState(false);
+  const [showSvgSourceModal, setShowSvgSourceModal] = useState(false);
+  const [svgMarkup, setSvgMarkup] = useState('');
 
   // Element clipboard and history
   const [clipboard, setClipboard] = useState<any>(null);
@@ -4929,10 +4931,55 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
     openWindow('glassword', 'GlassWord Professional');
   };
 
+  const handleExportSvgCode = () => {
+    const svg = document.getElementById('draw-canvas');
+    if (!svg) return;
+    const serializer = new XMLSerializer();
+    let svgStr = serializer.serializeToString(svg);
+    // Format SVG elements nicely
+    svgStr = svgStr
+      .replace(/></g, '>\n<')
+      .replace(/<g/g, '  <g')
+      .replace(/<\/g/g, '  </g')
+      .replace(/<(rect|circle|ellipse|line|path|text|polygon)/g, '    <$1')
+      .replace(/<(defs|marker|pattern)/g, '  <$1');
+    setSvgMarkup(svgStr);
+    setShowSvgSourceModal(true);
+  };
+
+  const handleSaveSvgFile = () => {
+    try {
+      const fileName = saveName.endsWith('.gdraw') ? saveName.slice(0, -6) + '.svg' : 'drawing_export.svg';
+      const path = `/Documents/Drawings/${fileName}`;
+      fsLib.write(path, svgMarkup);
+      addNotification('GlassDraw', `Successfully saved vector SVG to VM filesystem: ${path}`, 'success');
+    } catch (e) {
+      addNotification('GlassDraw', 'Failed to save SVG file.', 'error');
+    }
+  };
+
   const applyFillColorToSelected = (color: string) => {
     setFillColor(color);
     if (selectedId) {
       const nextElements = elements.map(el => el.id === selectedId ? { ...el, fill: color } : el);
+      setElements(nextElements);
+      saveStateToHistory(nextElements);
+    }
+  };
+
+  const applyOpacityToSelected = (val: number) => {
+    setOpacity(val);
+    if (selectedId) {
+      const nextElements = elements.map(el => el.id === selectedId ? { ...el, opacity: val } : el);
+      setElements(nextElements);
+      saveStateToHistory(nextElements);
+    }
+  };
+
+  const applyBlurToSelected = (val: number) => {
+    setBlur(val);
+    if (selectedId) {
+      const nextElements = elements.map(el => el.id === selectedId ? { ...el, blur: val } : el);
       setElements(nextElements);
       saveStateToHistory(nextElements);
     }
@@ -5058,6 +5105,15 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
       if (id) {
         setIsDraggingElement(true);
         setDragStartPos({ x: rawX, y: rawY });
+        const el = elements.find(item => item.id === id);
+        if (el) {
+          setFillColor(el.fill || '#3b82f6');
+          setStrokeColor(el.stroke || '#000000');
+          setStrokeWidth(el.strokeWidth || 1);
+          setOpacity(el.opacity !== undefined ? el.opacity : 1.0);
+          setBlur(el.blur !== undefined ? el.blur : 0);
+          setActivePattern(el.pattern || 'solid');
+        }
       }
       return;
     }
@@ -5635,6 +5691,7 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
               <div className="border-t border-gray-300 my-1" />
               <button onClick={() => handleMenuAction(() => setShowOpenDialog(true))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">Import Paint Reference...</button>
               <button onClick={() => handleMenuAction(handleImportToWord)} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white text-blue-600 font-bold">Export to GlassWord</button>
+              <button onClick={() => handleMenuAction(handleExportSvgCode)} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white text-emerald-600 font-bold">View SVG Source XML...</button>
               <div className="border-t border-gray-300 my-1" />
               <button onClick={() => handleMenuAction(() => closeWindow('glassdraw'))} className="w-full text-left px-4 py-1 hover:bg-black hover:text-white">Close</button>
             </div>
@@ -6133,6 +6190,36 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
               ))}
             </div>
           </div>
+
+          <div className="h-6 w-[1px] bg-gray-300" />
+
+          {/* Opacity Slider */}
+          <div className="flex flex-col">
+            <span className="text-[8px] font-bold uppercase tracking-tight text-gray-500 mb-0.5">Opacity ({Math.round(opacity * 100)}%)</span>
+            <input 
+              type="range" 
+              min="0" 
+              max="1" 
+              step="0.05"
+              value={opacity} 
+              onChange={e => applyOpacityToSelected(parseFloat(e.target.value))}
+              className="w-16 h-5 accent-black cursor-ew-resize"
+            />
+          </div>
+
+          {/* Blur Slider */}
+          <div className="flex flex-col">
+            <span className="text-[8px] font-bold uppercase tracking-tight text-gray-500 mb-0.5">Blur ({blur}px)</span>
+            <input 
+              type="range" 
+              min="0" 
+              max="10" 
+              step="1"
+              value={blur} 
+              onChange={e => applyBlurToSelected(parseInt(e.target.value))}
+              className="w-16 h-5 accent-black cursor-ew-resize"
+            />
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -6349,7 +6436,7 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
                     const transform = `${rotateStr} ${scaleStr}`.trim() || undefined;
 
                     return (
-                      <g key={el.id} transform={transform}>
+                      <g key={el.id} transform={transform} style={{ filter: el.blur ? `blur(${el.blur}px)` : undefined }}>
                         {el.type === 'rect' && (
                           <rect 
                             x={el.x} y={el.y} width={el.width} height={el.height} 
@@ -6701,6 +6788,60 @@ function GlassDrawApp({ fs, setFs, fsLib, addNotification, setGlassWordContent, 
                     </div>
                   </button>
                 ))}
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showSvgSourceModal && (
+          <div className="absolute inset-0 z-[200] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              className="bg-[#ebebeb] p-5 rounded-lg w-full max-w-lg border-2 border-black shadow-[4px_4px_0px_#000000] text-black flex flex-col h-[75%] gap-3"
+            >
+              <div className="flex justify-between items-center border-b border-gray-400 pb-1.5">
+                <h3 className="text-xs font-bold uppercase tracking-wide flex items-center gap-1.5">
+                  📐 RAW SVG MARKUP CODE
+                </h3>
+                <span className="text-[10px] font-mono text-gray-500 bg-white/50 border border-gray-300 px-1 rounded">
+                  XML Vector Source
+                </span>
+              </div>
+
+              <div className="flex-1 flex flex-col gap-2 overflow-hidden">
+                <p className="text-[10px] text-gray-600">
+                  Below is the standard clean SVG source markup representing your vector canvas layers.
+                </p>
+                <textarea
+                  readOnly
+                  value={svgMarkup}
+                  className="w-full flex-1 border border-gray-400 bg-white font-mono text-[9px] p-2.5 rounded resize-none focus:outline-none overflow-auto"
+                />
+              </div>
+
+              <div className="flex gap-2.5">
+                <button 
+                  onClick={() => setShowSvgSourceModal(false)} 
+                  className="flex-1 py-1.5 rounded border border-gray-400 hover:bg-gray-200 text-xs font-bold transition-all"
+                >
+                  Close Viewer
+                </button>
+                <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(svgMarkup);
+                    addNotification('GlassDraw', 'SVG markup copied to clipboard!', 'success');
+                  }} 
+                  className="py-1.5 px-4 rounded border border-black bg-white hover:bg-black hover:text-white text-xs font-bold transition-all"
+                >
+                  Copy Code
+                </button>
+                <button 
+                  onClick={handleSaveSvgFile} 
+                  className="py-1.5 px-4 rounded border border-black bg-black text-white text-xs font-bold hover:opacity-90 transition-all shadow-[1px_1px_0px_#000000]"
+                >
+                  Save as .SVG
+                </button>
               </div>
             </motion.div>
           </div>
@@ -14134,6 +14275,7 @@ function Screensaver({ type, onDismiss }: { type: string, onDismiss: () => void 
 function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, openWindow, setPrintQueue, userName, glassWordContent, setGlassWordContent, activeFileInGlassWord, setActiveFileInGlassWord, runGlassScript, runBrainscript, handleOpenGlassChat }: any) {
   const [content, setContent] = useState(glassWordContent || DEFAULT_GLASSWORD_CONTENT);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState(new Date().toLocaleTimeString());
   const [activeFile, setActiveFile] = useState<{ name: string, path: string[] } | null>(activeFileInGlassWord);
   const [showOpenDialog, setShowOpenDialog] = useState(false);
@@ -14147,6 +14289,15 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
   const editorRef = useRef<HTMLDivElement>(null);
   const lastContent = useRef(content);
   const lastSelection = useRef('');
+
+  const [leftIndent, setLeftIndent] = useState(72); // pt (72pt = 96px = 1 inch)
+  const [rightIndent, setRightIndent] = useState(72); // pt
+  const [topMargin, setTopMargin] = useState(72); // pt
+  const [bottomMargin, setBottomMargin] = useState(72); // pt
+  const [tabSize, setTabSize] = useState(36.0); // pt (36pt = 0.5 inch)
+  const [showRuler, setShowRuler] = useState(false); // Default to hidden, toggled via menu
+  const [showPageLayoutModal, setShowPageLayoutModal] = useState(false);
+  const [layoutActiveTab, setLayoutActiveTab] = useState<'margins' | 'tabs'>('margins');
 
   useEffect(() => {
     const updateSelection = () => {
@@ -14478,6 +14629,10 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
         { label: 'Save', action: handleSave, shortcut: 'Cmd+S' },
         { label: 'Save As...', action: () => setShowSaveDialog(true) },
         { 
+          label: 'Page Layout', 
+          action: () => setShowPageLayoutModal(true) 
+        },
+        { 
           label: 'Import', 
           items: [
             { label: 'Import Image', action: () => { setImportCategory('image'); setShowImportPicker(true); } },
@@ -14498,6 +14653,7 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
         { label: 'Copy', action: () => document.execCommand('copy'), shortcut: 'Cmd+C' },
         { label: 'Paste', action: handlePaste, shortcut: 'Cmd+V' },
         { label: 'Clear', action: () => { setContent(''); } },
+        { label: showRuler ? '✓ Ruler' : 'Ruler', action: () => setShowRuler(prev => !prev) },
         { 
           label: 'Insert', 
           items: [
@@ -14575,7 +14731,10 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
         {menuItems.map((menu) => (
           <div key={menu.label} className="relative">
             <button
-              onClick={() => setActiveMenu(activeMenu === menu.label ? null : menu.label)}
+              onClick={() => {
+                setActiveMenu(activeMenu === menu.label ? null : menu.label);
+                setActiveSubmenu(null);
+              }}
               className={cn(
                 "px-3 py-1 text-xs font-medium transition-colors hover:bg-white/10",
                 activeMenu === menu.label ? "bg-white/10 text-white" : "text-white/60"
@@ -14594,15 +14753,19 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
         {menu.items.map((item: any) => (
           <div key={item.label} className="relative group/sub">
             <button
-              onClick={() => {
-                if (item.action) {
+              onClick={(e) => {
+                if (item.items) {
+                  e.stopPropagation();
+                  setActiveSubmenu(activeSubmenu === item.label ? null : item.label);
+                } else if (item.action) {
                   item.action();
                   setActiveMenu(null);
+                  setActiveSubmenu(null);
                 }
               }}
               className={cn(
                 "w-full text-left px-4 py-1.5 text-[11px] text-white/80 hover:bg-blue-500/50 transition-colors flex justify-between group",
-                item.items ? "cursor-default" : ""
+                item.items ? "cursor-pointer" : ""
               )}
             >
               <span className="flex items-center gap-2">
@@ -14612,13 +14775,17 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
               {item.shortcut && <span className="opacity-40 uppercase text-[9px] group-hover:text-white/50">{item.shortcut}</span>}
             </button>
             {item.items && (
-              <div className="absolute left-full top-0 w-48 bg-slate-900 border border-white/10 hidden group-hover/sub:block py-1 shadow-2xl rounded-lg -ml-1">
+              <div className={cn(
+                "absolute left-full top-0 w-48 bg-slate-900 border border-white/10 py-1 shadow-2xl rounded-lg -ml-1 z-[110]",
+                activeSubmenu === item.label ? "block" : "hidden group-hover/sub:block"
+              )}>
                 {item.items.map((subItem: any) => (
                   <button
                     key={subItem.label}
                     onClick={() => {
                       subItem.action();
                       setActiveMenu(null);
+                      setActiveSubmenu(null);
                     }}
                     className="w-full text-left px-4 py-1.5 text-[11px] text-white/80 hover:bg-blue-500/50 transition-colors"
                   >
@@ -14683,27 +14850,75 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
       </div>
 
       {/* Word 4.0 Style Ruler */}
-      <div className="h-6 flex items-center bg-white/5 border-b border-white/10 relative overflow-hidden select-none">
-        <div className="absolute inset-y-0 left-0 w-[40px] bg-white/5 border-r border-white/10 flex items-center justify-center">
-           <span className="text-[9px] text-white/40 uppercase font-bold tracking-tighter">In</span>
+      {showRuler && (
+        <div className="h-7 flex items-center bg-white/5 border-b border-white/10 relative overflow-hidden select-none">
+          <div className="absolute inset-y-0 left-0 w-[40px] bg-white/5 border-r border-white/10 flex items-center justify-center">
+             <span className="text-[9px] text-white/40 uppercase font-bold tracking-tighter">In</span>
+          </div>
+          <div className="flex-1 flex px-4">
+            {Array.from({ length: 20 }).map((_, i) => (
+              <div key={i} className="flex-1 border-l border-white/10 h-2 flex flex-col justify-end">
+                {i % 2 === 0 && <span className="text-[8px] text-white/20 -mb-4 -ml-1 select-none">{i}</span>}
+                <div className="h-1 w-px bg-white/20 self-center" />
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="flex-1 flex px-4">
-          {Array.from({ length: 20 }).map((_, i) => (
-            <div key={i} className="flex-1 border-l border-white/10 h-2 flex flex-col justify-end">
-              {i % 2 === 0 && <span className="text-[8px] text-white/20 -mb-4 -ml-1 select-none">{i}</span>}
-              <div className="h-1 w-px bg-white/20 self-center" />
-            </div>
-          ))}
-        </div>
-      </div>
+      )}
 
       {/* Main Content Area */}
-      <div className="flex-1 overflow-y-auto bg-black/20 p-8 flex justify-center custom-scrollbar" onClick={() => {
+      <div className="flex-1 overflow-y-auto bg-black/20 p-8 flex flex-col items-center custom-scrollbar" onClick={() => {
         if (editorRef.current) editorRef.current.focus();
         setActiveMenu(null);
       }}>
+        {showRuler && (
+          <div className="w-full max-w-[816px] h-9 bg-slate-900 border border-white/10 rounded-t-lg relative overflow-hidden select-none text-white/60 font-mono shadow-md flex flex-col justify-end mb-1">
+            {/* Shaded margin indicators */}
+            <div 
+              className="absolute left-0 top-0 bottom-0 bg-white/5 border-r border-white/10" 
+              style={{ width: `${leftIndent * (96 / 72)}px` }} 
+            />
+            <div 
+              className="absolute right-0 top-0 bottom-0 bg-white/5 border-l border-white/10" 
+              style={{ width: `${rightIndent * (96 / 72)}px` }} 
+            />
+
+            {/* Left/Right Margin Labels */}
+            <div className="absolute top-1 left-2 text-[8px] text-white/30 uppercase font-bold tracking-wider">
+              Left Margin: {leftIndent}pt
+            </div>
+            <div className="absolute top-1 right-2 text-[8px] text-white/30 uppercase font-bold tracking-wider text-right">
+              Right Margin: {rightIndent}pt
+            </div>
+
+            {/* Scale ticks */}
+            <div className="flex justify-between px-0 relative h-5 items-end">
+              {Array.from({ length: 18 }).map((_, i) => {
+                const ptValue = i * 36; // increments of 36 pt (0.5 inch)
+                const leftPx = ptValue * (96 / 72);
+                if (leftPx >= 816) return null;
+                const isInch = ptValue % 72 === 0;
+                return (
+                  <div 
+                    key={i} 
+                    className="absolute bottom-0 flex flex-col items-center" 
+                    style={{ left: `${leftPx}px` }}
+                  >
+                    {isInch && (
+                      <span className="text-[9px] text-white/60 -mt-4 font-bold">
+                        {ptValue / 72}"
+                      </span>
+                    )}
+                    <div className={isInch ? "h-3.5 w-[1.5px] bg-white/40" : "h-2 w-px bg-white/20"} />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div 
-          className="w-full max-w-[816px] min-h-[1056px] bg-white/95 text-slate-900 p-[96px] shadow-2xl transform transition-transform duration-300 hover:scale-[1.005] focus:outline-none ring-1 ring-white/50 relative cursor-text selection:bg-blue-100 selection:text-slate-900"
+          className="w-full max-w-[816px] min-h-[1056px] bg-white/95 text-slate-900 shadow-2xl transform transition-transform duration-300 hover:scale-[1.005] focus:outline-none ring-1 ring-white/50 relative cursor-text selection:bg-blue-100 selection:text-slate-900"
           contentEditable
           suppressContentEditableWarning
           ref={editorRef}
@@ -14717,7 +14932,12 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
             fontSize: '12pt',
             lineHeight: '1.6',
             boxShadow: '0 0 50px rgba(0,0,0,0.3)',
-            borderRadius: '2px'
+            borderRadius: showRuler ? '0 0 2px 2px' : '2px',
+            paddingTop: `${topMargin}pt`,
+            paddingBottom: `${bottomMargin}pt`,
+            paddingLeft: `${leftIndent}pt`,
+            paddingRight: `${rightIndent}pt`,
+            tabSize: `${tabSize}pt`
           }}
         />
       </div>
@@ -14836,6 +15056,297 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
               setShowImportPicker(false);
             }}
           />
+        )}
+
+        {showPageLayoutModal && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm shadow-2xl">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-md overflow-hidden text-white"
+            >
+              <div className="p-4 border-b border-white/10 flex justify-between items-center bg-white/5">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold uppercase tracking-wider text-white/80">Page Layout</span>
+                  <span className="text-[9px] bg-blue-500/20 text-blue-400 border border-blue-500/30 px-1.5 py-0.5 rounded uppercase font-bold tracking-tight">Point-Based (pt)</span>
+                </div>
+                <button onClick={() => setShowPageLayoutModal(false)} className="text-white/40 hover:text-white"><X size={16} /></button>
+              </div>
+
+              {/* Modal Tabs */}
+              <div className="flex border-b border-white/5 bg-slate-950/40">
+                <button 
+                  onClick={() => setLayoutActiveTab('margins')}
+                  className={`flex-1 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+                    layoutActiveTab === 'margins' 
+                      ? 'border-blue-500 text-blue-400 bg-white/5' 
+                      : 'border-transparent text-white/40 hover:text-white/60'
+                  }`}
+                >
+                  Page Margins
+                </button>
+                <button 
+                  onClick={() => setLayoutActiveTab('tabs')}
+                  className={`flex-1 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+                    layoutActiveTab === 'tabs' 
+                      ? 'border-blue-500 text-blue-400 bg-white/5' 
+                      : 'border-transparent text-white/40 hover:text-white/60'
+                  }`}
+                >
+                  Tab Stops & Indents
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                {layoutActiveTab === 'margins' ? (
+                  <div className="space-y-4">
+                    <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold block mb-1">Set document boundaries in points (72pt = 1 inch). Step increments: 0.5 pt</p>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Left Indent */}
+                      <div>
+                        <label className="text-[10px] font-bold text-white/60 uppercase tracking-wider mb-1 block">Left Indent (pt)</label>
+                        <div className="flex items-center">
+                          <input 
+                            type="number" 
+                            step="0.5" 
+                            min="0"
+                            max="300"
+                            className="w-full bg-white/5 border border-white/10 rounded-l-xl px-3 py-2 text-sm focus:border-blue-500/50 outline-none transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            value={leftIndent}
+                            onChange={(e) => setLeftIndent(Math.max(0, parseFloat(e.target.value) || 0))}
+                          />
+                          <div className="flex flex-col border-y border-r border-white/10 rounded-r-xl overflow-hidden">
+                            <button 
+                              onClick={() => setLeftIndent(prev => parseFloat((prev + 0.5).toFixed(1)))}
+                              className="px-2 py-0.5 bg-white/5 hover:bg-white/10 text-[9px] border-b border-white/10 font-bold"
+                            >
+                              ▲
+                            </button>
+                            <button 
+                              onClick={() => setLeftIndent(prev => Math.max(0, parseFloat((prev - 0.5).toFixed(1))))}
+                              className="px-2 py-0.5 bg-white/5 hover:bg-white/10 text-[9px] font-bold"
+                            >
+                              ▼
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right Indent */}
+                      <div>
+                        <label className="text-[10px] font-bold text-white/60 uppercase tracking-wider mb-1 block">Right Indent (pt)</label>
+                        <div className="flex items-center">
+                          <input 
+                            type="number" 
+                            step="0.5" 
+                            min="0"
+                            max="300"
+                            className="w-full bg-white/5 border border-white/10 rounded-l-xl px-3 py-2 text-sm focus:border-blue-500/50 outline-none transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            value={rightIndent}
+                            onChange={(e) => setRightIndent(Math.max(0, parseFloat(e.target.value) || 0))}
+                          />
+                          <div className="flex flex-col border-y border-r border-white/10 rounded-r-xl overflow-hidden">
+                            <button 
+                              onClick={() => setRightIndent(prev => parseFloat((prev + 0.5).toFixed(1)))}
+                              className="px-2 py-0.5 bg-white/5 hover:bg-white/10 text-[9px] border-b border-white/10 font-bold"
+                            >
+                              ▲
+                            </button>
+                            <button 
+                              onClick={() => setRightIndent(prev => Math.max(0, parseFloat((prev - 0.5).toFixed(1))))}
+                              className="px-2 py-0.5 bg-white/5 hover:bg-white/10 text-[9px] font-bold"
+                            >
+                              ▼
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Top Margin */}
+                      <div>
+                        <label className="text-[10px] font-bold text-white/60 uppercase tracking-wider mb-1 block">Top Margin (pt)</label>
+                        <div className="flex items-center">
+                          <input 
+                            type="number" 
+                            step="0.5" 
+                            min="0"
+                            max="300"
+                            className="w-full bg-white/5 border border-white/10 rounded-l-xl px-3 py-2 text-sm focus:border-blue-500/50 outline-none transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            value={topMargin}
+                            onChange={(e) => setTopMargin(Math.max(0, parseFloat(e.target.value) || 0))}
+                          />
+                          <div className="flex flex-col border-y border-r border-white/10 rounded-r-xl overflow-hidden">
+                            <button 
+                              onClick={() => setTopMargin(prev => parseFloat((prev + 0.5).toFixed(1)))}
+                              className="px-2 py-0.5 bg-white/5 hover:bg-white/10 text-[9px] border-b border-white/10 font-bold"
+                            >
+                              ▲
+                            </button>
+                            <button 
+                              onClick={() => setTopMargin(prev => Math.max(0, parseFloat((prev - 0.5).toFixed(1))))}
+                              className="px-2 py-0.5 bg-white/5 hover:bg-white/10 text-[9px] font-bold"
+                            >
+                              ▼
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Bottom Margin */}
+                      <div>
+                        <label className="text-[10px] font-bold text-white/60 uppercase tracking-wider mb-1 block">Bottom Margin (pt)</label>
+                        <div className="flex items-center">
+                          <input 
+                            type="number" 
+                            step="0.5" 
+                            min="0"
+                            max="300"
+                            className="w-full bg-white/5 border border-white/10 rounded-l-xl px-3 py-2 text-sm focus:border-blue-500/50 outline-none transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            value={bottomMargin}
+                            onChange={(e) => setBottomMargin(Math.max(0, parseFloat(e.target.value) || 0))}
+                          />
+                          <div className="flex flex-col border-y border-r border-white/10 rounded-r-xl overflow-hidden">
+                            <button 
+                              onClick={() => setBottomMargin(prev => parseFloat((prev + 0.5).toFixed(1)))}
+                              className="px-2 py-0.5 bg-white/5 hover:bg-white/10 text-[9px] border-b border-white/10 font-bold"
+                            >
+                              ▲
+                            </button>
+                            <button 
+                              onClick={() => setBottomMargin(prev => Math.max(0, parseFloat((prev - 0.5).toFixed(1))))}
+                              className="px-2 py-0.5 bg-white/5 hover:bg-white/10 text-[9px] font-bold"
+                            >
+                              ▼
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Pre-configured Presets for Margins */}
+                    <div className="pt-2 border-t border-white/5">
+                      <span className="text-[9px] font-bold text-white/30 uppercase tracking-wider mb-2 block">Margin Presets</span>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button 
+                          onClick={() => { setLeftIndent(54); setRightIndent(54); setTopMargin(54); setBottomMargin(54); }}
+                          className="py-1.5 px-2 bg-white/5 hover:bg-white/10 rounded-lg text-[10px] font-bold text-white/80 transition-all border border-white/5"
+                        >
+                          Narrow (54pt)
+                        </button>
+                        <button 
+                          onClick={() => { setLeftIndent(72); setRightIndent(72); setTopMargin(72); setBottomMargin(72); }}
+                          className="py-1.5 px-2 bg-white/5 hover:bg-white/10 rounded-lg text-[10px] font-bold text-white/80 transition-all border border-white/5"
+                        >
+                          Standard (72pt)
+                        </button>
+                        <button 
+                          onClick={() => { setLeftIndent(108); setRightIndent(108); setTopMargin(108); setBottomMargin(108); }}
+                          className="py-1.5 px-2 bg-white/5 hover:bg-white/10 rounded-lg text-[10px] font-bold text-white/80 transition-all border border-white/5"
+                        >
+                          Wide (108pt)
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold block mb-1">Configure default paragraph tab stop sizes. Step increments: 0.5 pt</p>
+                    
+                    {/* Default Tab Stop Size */}
+                    <div>
+                      <label className="text-[10px] font-bold text-white/60 uppercase tracking-wider mb-1 block">Default Tab Size (pt)</label>
+                      <div className="flex items-center">
+                        <input 
+                          type="number" 
+                          step="0.5" 
+                          min="5"
+                          max="150"
+                          className="w-full bg-white/5 border border-white/10 rounded-l-xl px-3 py-2 text-sm focus:border-blue-500/50 outline-none transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          value={tabSize}
+                          onChange={(e) => setTabSize(Math.max(5, parseFloat(e.target.value) || 5))}
+                        />
+                        <div className="flex flex-col border-y border-r border-white/10 rounded-r-xl overflow-hidden">
+                          <button 
+                            onClick={() => setTabSize(prev => parseFloat((prev + 0.5).toFixed(1)))}
+                            className="px-2 py-0.5 bg-white/5 hover:bg-white/10 text-[9px] border-b border-white/10 font-bold"
+                          >
+                            ▲
+                          </button>
+                          <button 
+                            onClick={() => setTabSize(prev => Math.max(5, parseFloat((prev - 0.5).toFixed(1))))}
+                            className="px-2 py-0.5 bg-white/5 hover:bg-white/10 text-[9px] font-bold"
+                          >
+                            ▼
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Pre-configured Presets for Tab Stops */}
+                    <div className="pt-2 border-t border-white/5">
+                      <span className="text-[9px] font-bold text-white/30 uppercase tracking-wider mb-2 block">Standard Tab Size Presets</span>
+                      <div className="grid grid-cols-4 gap-2">
+                        <button 
+                          onClick={() => setTabSize(18.0)}
+                          className={`py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all border ${
+                            tabSize === 18.0 
+                              ? 'bg-blue-600 border-blue-500 text-white' 
+                              : 'bg-white/5 hover:bg-white/10 border-white/5 text-white/80'
+                          }`}
+                        >
+                          18 pt (0.25")
+                        </button>
+                        <button 
+                          onClick={() => setTabSize(36.0)}
+                          className={`py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all border ${
+                            tabSize === 36.0 
+                              ? 'bg-blue-600 border-blue-500 text-white' 
+                              : 'bg-white/5 hover:bg-white/10 border-white/5 text-white/80'
+                          }`}
+                        >
+                          36 pt (0.50")
+                        </button>
+                        <button 
+                          onClick={() => setTabSize(54.0)}
+                          className={`py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all border ${
+                            tabSize === 54.0 
+                              ? 'bg-blue-600 border-blue-500 text-white' 
+                              : 'bg-white/5 hover:bg-white/10 border-white/5 text-white/80'
+                          }`}
+                        >
+                          54 pt (0.75")
+                        </button>
+                        <button 
+                          onClick={() => setTabSize(72.0)}
+                          className={`py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all border ${
+                            tabSize === 72.0 
+                              ? 'bg-blue-600 border-blue-500 text-white' 
+                              : 'bg-white/5 hover:bg-white/10 border-white/5 text-white/80'
+                          }`}
+                        >
+                          72 pt (1.00")
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <button 
+                  onClick={() => {
+                    addNotification('Page Layout', 'Page settings applied successfully.', 'success');
+                    setShowPageLayoutModal(false);
+                  }}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-900/20 active:scale-[0.98] mt-2"
+                >
+                  Apply Settings
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 

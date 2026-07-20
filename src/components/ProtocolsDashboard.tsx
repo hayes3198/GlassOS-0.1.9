@@ -269,6 +269,10 @@ export function ProtocolsDashboard({
   const [showDecompressPass, setShowDecompressPass] = useState<boolean>(false);
   const [decompressStatus, setDecompressStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
   const [decompressionReport, setDecompressionReport] = useState<any>(null);
+  const [decompressProgress, setDecompressProgress] = useState<number>(0);
+  const [decompressStep, setDecompressStep] = useState<'idle' | 'decrypting' | 'decompressing' | 'scanning_av' | 'complete' | 'failed'>('idle');
+  const [decompressStepMessage, setDecompressStepMessage] = useState<string>('');
+  const [decompressThreatsFound, setDecompressThreatsFound] = useState<SimulatedVirus[]>([]);
 
   // Load preselected files if passed from props and switch tab to compression
   useEffect(() => {
@@ -440,7 +444,7 @@ export function ProtocolsDashboard({
     }, 800);
   };
 
-  // Execute Decryption and decompression
+  // Execute Decryption and decompression with inline AV scan
   const handleDecompressFile = () => {
     if (!selectedDecompressFile || !decompressPassword) {
       addNotification('FCEP Core', 'Please select an archive and enter the decryption password.', 'warning');
@@ -448,13 +452,19 @@ export function ProtocolsDashboard({
     }
 
     setDecompressStatus('processing');
+    setDecompressStep('decrypting');
+    setDecompressProgress(10);
+    setDecompressStepMessage('Decrypting Ring-0 archive structures & validating credentials...');
+    setDecompressThreatsFound([]);
     setDecompressionReport(null);
 
+    // Step 1: Verify and decrypt headers
     setTimeout(() => {
       try {
         const rawArchive = fsLib.read(selectedDecompressFile);
         if (!rawArchive) {
           setDecompressStatus('error');
+          setDecompressStep('failed');
           addNotification('FCEP Core', 'Failed to read secure archive.', 'error');
           return;
         }
@@ -462,11 +472,12 @@ export function ProtocolsDashboard({
         const archive = JSON.parse(rawArchive);
         if (archive.header !== "GSC_SECURE_ARCHIVE_v1") {
           setDecompressStatus('error');
+          setDecompressStep('failed');
           addNotification('FCEP Core', 'Invalid secure archive format.', 'error');
           return;
         }
 
-        // 1. Password Verification
+        // Password Verification
         const encryptedVerify = decodeURIComponent(escape(atob(archive.verificationToken)));
         let decryptedVerify = '';
         for (let i = 0; i < encryptedVerify.length; i++) {
@@ -476,73 +487,153 @@ export function ProtocolsDashboard({
 
         if (decryptedVerify !== "GLASS_SECURE_COMPRESS_OK") {
           setDecompressStatus('error');
+          setDecompressStep('failed');
           addNotification('FCEP Core', 'INVALID PASSWORD: Hash verification token mismatch.', 'error');
           return;
         }
 
-        // 2. Decrypt encrypted payload using XOR
-        const encryptedPayload = decodeURIComponent(escape(atob(archive.payload)));
-        let decryptedText = '';
-        for (let i = 0; i < encryptedPayload.length; i++) {
-          const charCode = encryptedPayload.charCodeAt(i) ^ decompressPassword.charCodeAt(i % decompressPassword.length);
-          decryptedText += String.fromCharCode(charCode);
-        }
+        // Proceed to Step 2: Decompressing
+        setDecompressStep('decompressing');
+        setDecompressProgress(45);
+        setDecompressStepMessage('Reconstructing Huffman-dictionaries and byte streams...');
 
-        // 3. Decompress decrypted text
-        let decompressedContent = decryptedText;
-        if (archive.algorithm === 'GSC-Dict') {
-          for (const [word, token] of Object.entries(COMPRESSION_DICTIONARY)) {
-            decompressedContent = decompressedContent.replaceAll(token, word);
-          }
-        } else if (archive.algorithm === 'RLE-Fast') {
-          let restored = '';
-          let countStr = '';
-          for (let i = 0; i < decryptedText.length; i++) {
-            const char = decryptedText[i];
-            if (char >= '0' && char <= '9') {
-              countStr += char;
-            } else {
-              const count = countStr ? parseInt(countStr) : 1;
-              restored += char.repeat(count);
-              countStr = '';
+        setTimeout(() => {
+          try {
+            // Decrypt encrypted payload using XOR
+            const encryptedPayload = decodeURIComponent(escape(atob(archive.payload)));
+            let decryptedText = '';
+            for (let i = 0; i < encryptedPayload.length; i++) {
+              const charCode = encryptedPayload.charCodeAt(i) ^ decompressPassword.charCodeAt(i % decompressPassword.length);
+              decryptedText += String.fromCharCode(charCode);
             }
+
+            // Decompress decrypted text
+            let decompressedContent = decryptedText;
+            if (archive.algorithm === 'GSC-Dict') {
+              for (const [word, token] of Object.entries(COMPRESSION_DICTIONARY)) {
+                decompressedContent = decompressedContent.replaceAll(token, word);
+              }
+            } else if (archive.algorithm === 'RLE-Fast') {
+              let restored = '';
+              let countStr = '';
+              for (let i = 0; i < decryptedText.length; i++) {
+                const char = decryptedText[i];
+                if (char >= '0' && char <= '9') {
+                  countStr += char;
+                } else {
+                  const count = countStr ? parseInt(countStr) : 1;
+                  restored += char.repeat(count);
+                  countStr = '';
+                }
+              }
+              decompressedContent = restored;
+            }
+
+            // Restore file path calculations
+            const originalPath = selectedDecompressFile;
+            const dirParts = originalPath.split('/');
+            const originalName = dirParts.pop() || '';
+            const baseName = originalName.endsWith('.gsc') ? originalName.slice(0, -4) : originalName;
+            const dotIndex = baseName.lastIndexOf('.');
+            let restoredName = '';
+            if (dotIndex !== -1) {
+              restoredName = `${baseName.substring(0, dotIndex)}_extracted${baseName.substring(dotIndex)}`;
+            } else {
+              restoredName = `${baseName}_extracted`;
+            }
+
+            // Proceed to Step 3: AVPP Antivirus Scan on Decompressed File Content
+            setDecompressStep('scanning_av');
+            setDecompressProgress(75);
+            setDecompressStepMessage('AVPP Core: Executing Ring-0 Heuristics Signature Scan...');
+
+            setTimeout(() => {
+              try {
+                // Real-time scan logic for AVPP signatures inside the decompressed content
+                const found: SimulatedVirus[] = [];
+                viruses.forEach(virus => {
+                  // Check if content has the signature/hash or name
+                  const hasName = decompressedContent.toLowerCase().includes(virus.name.toLowerCase());
+                  const hasHash = decompressedContent.toLowerCase().includes(virus.hash.toLowerCase());
+                  
+                  if (hasName || hasHash) {
+                    found.push(virus);
+                  }
+                });
+
+                setDecompressThreatsFound(found);
+                
+                // Write decompressed content to filesystem
+                const destinationPath = [...dirParts, restoredName].join('/');
+                fsLib.write(destinationPath, decompressedContent);
+
+                // Handle threat triggers based on Active Shield status
+                let shieldStatusMessage = 'NOMINAL';
+                if (found.length > 0) {
+                  if (activeShieldActive) {
+                    // Quarantine threats
+                    setViruses(prev => prev.map(v => {
+                      const isMatched = found.some(f => f.name === v.name);
+                      return isMatched ? { ...v, status: 'quarantined' as const } : v;
+                    }));
+                    shieldStatusMessage = 'QUARANTINED';
+                    addNotification('Heuristics Shield', `AVPP successfully intercepted and quarantined ${found.length} threat(s) inside ${restoredName}!`, 'success');
+                  } else {
+                    // Infect system!
+                    setViruses(prev => prev.map(v => {
+                      const isMatched = found.some(f => f.name === v.name);
+                      return isMatched ? { ...v, status: 'active' as const } : v;
+                    }));
+                    shieldStatusMessage = 'INFECTED';
+                    addNotification('Kernel Warning', `SYSTEM INFECTED: ${found.map(f => f.name).join(', ')} payload bypassed sandbox and infected Ring-0!`, 'error');
+                  }
+                }
+
+                setDecompressionReport({
+                  src: selectedDecompressFile,
+                  dest: destinationPath,
+                  bytesRestored: decompressedContent.length,
+                  algorithm: archive.algorithm,
+                  cipher: archive.cipher,
+                  threatsFound: found,
+                  shieldStatus: activeShieldActive ? 'active' : 'inactive',
+                  statusMessage: shieldStatusMessage
+                });
+
+                setDecompressStatus('success');
+                setDecompressStep('complete');
+                setDecompressProgress(100);
+                setSelectedDecompressFile('');
+                setDecompressPassword('');
+                
+                if (found.length === 0) {
+                  addNotification('FCEP Core', `Successfully decrypted, decompressed, and scanned ${restoredName}. No threats found!`, 'success');
+                } else if (activeShieldActive) {
+                  addNotification('FCEP Core', `Archive extracted to ${restoredName}. WARNING: ${found.length} threats found and quarantined!`, 'warning');
+                } else {
+                  addNotification('FCEP Core', `Archive extracted to ${restoredName}. CRITICAL: system infected with ${found.length} active threats!`, 'error');
+                }
+
+              } catch (e) {
+                setDecompressStatus('error');
+                setDecompressStep('failed');
+                addNotification('FCEP Core', 'Antivirus scan failure during extraction.', 'error');
+              }
+            }, 700);
+
+          } catch (e) {
+            setDecompressStatus('error');
+            setDecompressStep('failed');
+            addNotification('FCEP Core', 'Decompression algorithm failure.', 'error');
           }
-          decompressedContent = restored;
-        }
+        }, 500);
 
-        // Restore file (remove .gsc, add _extracted suffix to prevent overwrite)
-        const originalPath = selectedDecompressFile;
-        const dirParts = originalPath.split('/');
-        const originalName = dirParts.pop() || '';
-        const baseName = originalName.endsWith('.gsc') ? originalName.slice(0, -4) : originalName;
-        const dotIndex = baseName.lastIndexOf('.');
-        let restoredName = '';
-        if (dotIndex !== -1) {
-          restoredName = `${baseName.substring(0, dotIndex)}_extracted${baseName.substring(dotIndex)}`;
-        } else {
-          restoredName = `${baseName}_extracted`;
-        }
-
-        const destinationPath = [...dirParts, restoredName].join('/');
-        fsLib.write(destinationPath, decompressedContent);
-
-        setDecompressionReport({
-          src: selectedDecompressFile,
-          dest: destinationPath,
-          bytesRestored: decompressedContent.length,
-          algorithm: archive.algorithm,
-          cipher: archive.cipher
-        });
-
-        setDecompressStatus('success');
-        setSelectedDecompressFile('');
-        setDecompressPassword('');
-        addNotification('FCEP Core', `Successfully decrypted and decompressed archive to ${restoredName}!`, 'success');
       } catch (e) {
         setDecompressStatus('error');
-        addNotification('FCEP Core', 'Integrity check failed. Payload corrupted or bad password.', 'error');
+        setDecompressStep('failed');
+        addNotification('FCEP Core', 'Decryption password check failed.', 'error');
       }
-    }, 800);
+    }, 400);
   };
 
   return (
@@ -1071,17 +1162,39 @@ export function ProtocolsDashboard({
                   </div>
                 </div>
 
+                {decompressStatus === 'processing' && (
+                  <div className="p-3 bg-[#0d1117] border border-white/5 rounded-2xl flex flex-col gap-2 font-mono text-[10px] mt-2">
+                    <div className="flex justify-between items-center text-white/50">
+                      <span className="text-blue-400 animate-pulse font-bold flex items-center gap-1.5">
+                        <Cpu size={11} className="animate-spin" />
+                        {decompressStepMessage}
+                      </span>
+                      <span className="text-white/40">{decompressProgress}%</span>
+                    </div>
+                    <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                      <motion.div 
+                        className={`h-full transition-all duration-300 ${
+                          decompressStep === 'scanning_av' 
+                            ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]' 
+                            : 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]'
+                        }`}
+                        style={{ width: `${decompressProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <button
                   onClick={handleDecompressFile}
                   disabled={decompressStatus === 'processing' || !selectedDecompressFile || !decompressPassword}
                   className={`w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 mt-2 transition-all ${
                     decompressStatus === 'processing'
-                      ? 'bg-blue-500/20 text-blue-400 cursor-wait'
+                      ? 'bg-blue-500/20 text-blue-400 cursor-not-allowed opacity-50'
                       : 'bg-blue-500 text-white hover:bg-blue-600 shadow-lg shadow-blue-500/10 hover:scale-[1.01]'
                   }`}
                 >
                   <Unlock size={14} />
-                  {decompressStatus === 'processing' ? 'Reversing Ring-0 Descriptors...' : 'Decrypt & Decompress File'}
+                  {decompressStatus === 'processing' ? 'Running Security & Extraction Pipeline...' : 'Decrypt & Decompress File'}
                 </button>
               </div>
 
@@ -1092,18 +1205,70 @@ export function ProtocolsDashboard({
                     initial={{ opacity: 0, y: 5 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0 }}
-                    className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl text-[11px] text-emerald-400 leading-relaxed flex flex-col gap-1.5 font-mono"
+                    className={`p-4 rounded-2xl text-[11px] leading-relaxed flex flex-col gap-1.5 font-mono ${
+                      decompressionReport.threatsFound && decompressionReport.threatsFound.length > 0
+                        ? decompressionReport.shieldStatus === 'active'
+                          ? 'bg-amber-500/5 border border-amber-500/20 text-amber-400'
+                          : 'bg-rose-500/5 border border-rose-500/20 text-rose-400'
+                        : 'bg-emerald-500/5 border border-emerald-500/20 text-emerald-400'
+                    }`}
                   >
-                    <div className="flex items-center gap-1 font-bold text-white uppercase text-[10px]">
-                      <Check size={12} className="text-emerald-400" />
-                      DECOMPRESSION REPORT GENERATED
+                    <div className="flex items-center justify-between font-bold text-white uppercase text-[10px] border-b border-white/5 pb-1.5 mb-1">
+                      <div className="flex items-center gap-1">
+                        <Check size={12} className={
+                          decompressionReport.threatsFound && decompressionReport.threatsFound.length > 0
+                            ? decompressionReport.shieldStatus === 'active' ? 'text-amber-400' : 'text-rose-400'
+                            : 'text-emerald-400'
+                        } />
+                        DECOMPRESSION REPORT GENERATED
+                      </div>
+                      <span className={`text-[8px] px-1.5 py-0.5 rounded font-mono font-bold ${
+                        decompressionReport.threatsFound && decompressionReport.threatsFound.length > 0
+                          ? decompressionReport.shieldStatus === 'active'
+                            ? 'bg-amber-500/20 text-amber-400'
+                            : 'bg-rose-500/20 text-rose-400'
+                          : 'bg-emerald-500/20 text-emerald-400'
+                      }`}>
+                        {decompressionReport.statusMessage}
+                      </span>
                     </div>
                     <div>Source Archive: <span className="text-white">{decompressionReport.src.split('/').pop()}</span></div>
                     <div>Restored File: <span className="text-white">{decompressionReport.dest.split('/').pop()}</span></div>
                     <div>Restored Size: <span className="text-white">{decompressionReport.bytesRestored} Bytes</span></div>
                     <div>Algorithm: <span className="text-white uppercase">{decompressionReport.algorithm}</span></div>
                     <div>Decryption: <span className="text-white uppercase">{decompressionReport.cipher} OK</span></div>
-                    <div className="text-[9px] text-emerald-400/50 mt-1 uppercase">INTEGRITY CHECK PASSED. FILE RESTORED SUCCESSFULLY.</div>
+                    
+                    {/* AV Scan Section */}
+                    <div className="border-t border-white/5 pt-1.5 mt-1 text-[10px]">
+                      {decompressionReport.threatsFound && decompressionReport.threatsFound.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          <span className="font-bold flex items-center gap-1">
+                            <Bug size={11} className={decompressionReport.shieldStatus === 'active' ? 'text-amber-400' : 'text-rose-400'} />
+                            AVPP Threat Scan: FOUND {decompressionReport.threatsFound.length} EXPLOITS
+                          </span>
+                          <div className="flex flex-col gap-1 pl-3 bg-[#0d1117]/50 p-2 rounded-xl border border-white/5 mt-1">
+                            {decompressionReport.threatsFound.map((threat: any) => (
+                              <div key={threat.name} className="flex justify-between items-center text-[9px]">
+                                <span className="text-white font-semibold">{threat.name} ({threat.target})</span>
+                                <span className={decompressionReport.shieldStatus === 'active' ? 'text-amber-400 font-bold' : 'text-rose-400 font-bold'}>
+                                  {decompressionReport.shieldStatus === 'active' ? 'QUARANTINED' : 'ACTIVE_INFECT'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          {decompressionReport.shieldStatus === 'active' ? (
+                            <span className="text-[9px] text-amber-400/60 mt-1 uppercase">🛡️ Heuristic Shield quarantined all signature segments inside the memory buffer.</span>
+                          ) : (
+                            <span className="text-[9px] text-rose-400/60 mt-1 uppercase animate-pulse">🚨 Ring-0 Compromised. Active Shield down. Malware payload executed inside active registers!</span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-bold">
+                          <ShieldCheck size={11} className="text-emerald-400" />
+                          <span>AVPP Threat Scan: 100% CLEAN (0 threat signatures matched)</span>
+                        </div>
+                      )}
+                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>
