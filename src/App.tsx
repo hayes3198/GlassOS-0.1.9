@@ -218,6 +218,8 @@ import { FileSystemLib } from './lib/FileSystem.lib';
 import { AuthLib } from './lib/Auth.lib';
 import { BridgeLib } from './lib/Bridge.lib';
 import { DisplayLib } from './lib/Display.lib';
+import { COMMON_WORDS } from './lib/dictionary';
+import { SpellCheck } from 'lucide-react';
 import { INITIAL_FS, DEFAULT_PERMISSIONS } from './components/constants/initialFs';
 import { FilePicker } from './components/FilePicker';
 import { GlassTCP } from './components/GlassTCP';
@@ -15547,6 +15549,183 @@ function SettingsApp(props: any) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState(userName);
   const [isConnecting, setIsConnecting] = useState(false);
+
+  // Sounds States
+  const [masterVolume, setMasterVolume] = useState<number>(() => {
+    const saved = localStorage.getItem('glassos_master_volume');
+    return saved ? parseInt(saved, 10) : 72;
+  });
+  const [selectedSound, setSelectedSound] = useState<string>(() => {
+    const saved = localStorage.getItem('glassos_selected_sound');
+    return saved || 'glass_chime';
+  });
+  const [systemSoundsEnabled, setSystemSoundsEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem('glassos_system_sounds_enabled');
+    return saved !== 'false';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('glassos_master_volume', masterVolume.toString());
+  }, [masterVolume]);
+
+  useEffect(() => {
+    localStorage.setItem('glassos_selected_sound', selectedSound);
+  }, [selectedSound]);
+
+  useEffect(() => {
+    localStorage.setItem('glassos_system_sounds_enabled', systemSoundsEnabled.toString());
+  }, [systemSoundsEnabled]);
+
+  const playSystemSound = (soundId: string, volumeLevel?: number) => {
+    const enabled = localStorage.getItem('glassos_system_sounds_enabled') !== 'false';
+    if (!enabled && volumeLevel === undefined) return;
+    
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      
+      const ctx = new AudioContextClass();
+      const vol = volumeLevel !== undefined ? volumeLevel : masterVolume;
+      if (vol === 0) return;
+      
+      const gainNode = ctx.createGain();
+      gainNode.gain.setValueAtTime((vol / 100) * 0.25, ctx.currentTime);
+      gainNode.connect(ctx.destination);
+      
+      const now = ctx.currentTime;
+      
+      if (soundId === 'glass_chime') {
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(880, now);
+        osc1.frequency.exponentialRampToValueAtTime(1760, now + 0.1);
+        
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(1320, now + 0.08);
+        osc2.frequency.exponentialRampToValueAtTime(2640, now + 0.2);
+        
+        const g1 = ctx.createGain();
+        g1.gain.setValueAtTime(0.7, now);
+        g1.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+        
+        const g2 = ctx.createGain();
+        g2.gain.setValueAtTime(0, now);
+        g2.gain.setValueAtTime(0.7, now + 0.08);
+        g2.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+        
+        osc1.connect(g1);
+        g1.connect(gainNode);
+        
+        osc2.connect(g2);
+        g2.connect(gainNode);
+        
+        osc1.start(now);
+        osc1.stop(now + 0.4);
+        
+        osc2.start(now + 0.08);
+        osc2.stop(now + 0.5);
+      } else if (soundId === 'retro_beep') {
+        const osc = ctx.createOscillator();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(950, now);
+        
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.5, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+        
+        osc.connect(g);
+        g.connect(gainNode);
+        
+        osc.start(now);
+        osc.stop(now + 0.15);
+      } else if (soundId === 'cyber_pulse') {
+        const osc = ctx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, now);
+        osc.frequency.exponentialRampToValueAtTime(400, now + 0.25);
+        
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.Q.setValueAtTime(6, now);
+        filter.frequency.setValueAtTime(1000, now);
+        filter.frequency.exponentialRampToValueAtTime(200, now + 0.25);
+        
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.8, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+        
+        osc.connect(filter);
+        filter.connect(g);
+        g.connect(gainNode);
+        
+        osc.start(now);
+        osc.stop(now + 0.3);
+      } else if (soundId === 'error_alert') {
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        
+        osc1.type = 'sawtooth';
+        osc1.frequency.setValueAtTime(120, now);
+        
+        osc2.type = 'sawtooth';
+        osc2.frequency.setValueAtTime(122, now);
+        
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.8, now);
+        g.gain.setValueAtTime(0.001, now + 0.1);
+        g.gain.setValueAtTime(0.8, now + 0.12);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+        
+        osc1.connect(g);
+        osc2.connect(g);
+        g.connect(gainNode);
+        
+        osc1.start(now);
+        osc2.start(now);
+        
+        osc1.stop(now + 0.25);
+        osc2.stop(now + 0.25);
+      } else if (soundId === 'success_bell') {
+        const notes = [523.25, 659.25, 783.99, 1046.50];
+        notes.forEach((freq, index) => {
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, now + index * 0.05);
+          
+          g.gain.setValueAtTime(0, now);
+          g.gain.setValueAtTime(0.5, now + index * 0.05);
+          g.gain.exponentialRampToValueAtTime(0.001, now + index * 0.05 + 0.35);
+          
+          osc.connect(g);
+          g.connect(gainNode);
+          
+          osc.start(now + index * 0.05);
+          osc.stop(now + index * 0.05 + 0.35);
+        });
+      } else if (soundId === 'ambient_breeze') {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(440, now);
+        osc.frequency.linearRampToValueAtTime(330, now + 0.4);
+        
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.6, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+        
+        osc.connect(g);
+        g.connect(gainNode);
+        
+        osc.start(now);
+        osc.stop(now + 0.4);
+      }
+    } catch (e) {
+      console.warn('AudioContext error:', e);
+    }
+  };
   
   // Memory Control Panel States
   const [memPhysicalTotal, setMemPhysicalTotal] = useState(16384); // in MB (16 GB)
@@ -16634,22 +16813,137 @@ function SettingsApp(props: any) {
                 )}
 
                 {activeControl === 'sounds' && (
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-medium border-b border-white/10 pb-2">Sound Controls</h3>
-                    <div className="space-y-6">
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-white/70">Master Volume</span>
-                          <span>72%</span>
-                        </div>
-                        <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                          <div className="h-full bg-amber-400 w-[72%]" />
-                        </div>
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                      <div className="flex items-center gap-2">
+                        <Volume2 className="text-amber-400 animate-pulse" size={18} />
+                        <h3 className="text-sm font-medium">Sound Controls</h3>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-white/70">System Sounds</span>
-                        <div className="w-8 h-4 bg-blue-500/40 rounded-full relative">
-                          <div className="absolute right-1 top-1 w-2 h-2 bg-white rounded-full" />
+                      <span className="text-[10px] bg-amber-500/10 border border-amber-500/20 text-amber-400 px-2 py-0.5 rounded font-mono font-bold uppercase tracking-wider">
+                        AUDIO ENGINE: ACTIVE
+                      </span>
+                    </div>
+
+                    <div className="space-y-6">
+                      {/* Master Volume with actual slider */}
+                      <div className="glass p-4 rounded-xl border border-white/5 space-y-3">
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2">
+                            {masterVolume === 0 ? (
+                              <VolumeX className="text-white/40" size={16} />
+                            ) : (
+                              <Volume2 className="text-amber-400" size={16} />
+                            )}
+                            <span className="text-xs font-bold text-white/90">Master Volume</span>
+                          </div>
+                          <span className="text-xs font-mono font-bold text-amber-400">{masterVolume}%</span>
+                        </div>
+                        
+                        <div className="flex items-center gap-3">
+                          <input 
+                            type="range" 
+                            min="0" 
+                            max="100" 
+                            step="1"
+                            value={masterVolume}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value, 10);
+                              setMasterVolume(val);
+                            }}
+                            onMouseUp={() => playSystemSound(selectedSound)}
+                            onTouchEnd={() => playSystemSound(selectedSound)}
+                            className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                          />
+                        </div>
+                        <p className="text-[9px] text-white/30 leading-relaxed">
+                          Drag the slider to adjust system-wide master output gain. A preview sound will play upon release.
+                        </p>
+                      </div>
+
+                      {/* System Sounds Toggle */}
+                      <div className="glass p-4 rounded-xl border border-white/5 flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-bold text-white/90">System Notification Sounds</p>
+                          <p className="text-[10px] text-white/30">Play sound effect for core OS events and confirmations</p>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            const next = !systemSoundsEnabled;
+                            setSystemSoundsEnabled(next);
+                            if (next) {
+                              playSystemSound(selectedSound, masterVolume);
+                            }
+                            addNotification('Sounds', `System sounds ${next ? 'enabled' : 'disabled'}`, 'info');
+                          }}
+                          className={cn(
+                            "w-10 h-5 rounded-full relative transition-all cursor-pointer",
+                            systemSoundsEnabled ? "bg-amber-500" : "bg-white/10"
+                          )}
+                        >
+                          <div className={cn(
+                            "absolute top-1 w-3 h-3 bg-white rounded-full transition-all",
+                            systemSoundsEnabled ? "left-6" : "left-1"
+                          )} />
+                        </button>
+                      </div>
+
+                      {/* Sound Selection List */}
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-white/40 uppercase tracking-wider px-1">
+                          System Alerts & Sound Schemes
+                        </label>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {[
+                            { id: 'glass_chime', name: 'Glass Chime', desc: 'Crystal-clear dual tone' },
+                            { id: 'success_bell', name: 'Success Bell', desc: 'Uplifting major chord' },
+                            { id: 'cyber_pulse', name: 'Cyber Pulse', desc: 'Deep filtered sweep' },
+                            { id: 'retro_beep', name: 'Retro Beep', desc: 'Classic square-wave beep' },
+                            { id: 'ambient_breeze', name: 'Ambient Breeze', desc: 'Gentle fading tone' },
+                            { id: 'error_alert', name: 'Error Alert', desc: 'Low caution buzz' },
+                          ].map(sound => (
+                            <div
+                              key={sound.id}
+                              onClick={() => {
+                                setSelectedSound(sound.id);
+                                playSystemSound(sound.id, masterVolume);
+                              }}
+                              className={cn(
+                                "p-3 rounded-xl border transition-all text-left flex items-center justify-between group cursor-pointer",
+                                selectedSound === sound.id 
+                                  ? "bg-amber-500/10 border-amber-500/30 text-white" 
+                                  : "bg-white/5 border-white/5 text-white/60 hover:bg-white/10 hover:border-white/10"
+                              )}
+                            >
+                              <div className="flex flex-col gap-0.5">
+                                <span className={cn(
+                                  "text-xs font-bold transition-colors",
+                                  selectedSound === sound.id ? "text-amber-400" : "group-hover:text-white"
+                                )}>
+                                  {sound.name}
+                                </span>
+                                <span className="text-[9px] text-white/30">{sound.desc}</span>
+                              </div>
+                              
+                              <div className="flex items-center gap-1.5">
+                                {selectedSound === sound.id ? (
+                                  <div className="p-1 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-400">
+                                    <Check size={10} />
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      playSystemSound(sound.id, masterVolume);
+                                    }}
+                                    className="p-1 rounded-full bg-white/5 hover:bg-white/15 text-white/40 hover:text-white transition-all opacity-0 group-hover:opacity-100"
+                                    title="Preview sound"
+                                  >
+                                    <Play size={10} fill="currentColor" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     </div>
@@ -17260,6 +17554,66 @@ function NotepadApp({
       setTempCustomText(notepadStyle?.customText || '#ffffff');
     }
   }, [showThemeDialog, notepadStyle]);
+
+  // Spell Check States & Handlers
+  const [showSpellCheckPane, setShowSpellCheckPane] = useState(false);
+  const [isSpellCheckEnabled, setIsSpellCheckEnabled] = useState(false);
+  const [customDictionary, setCustomDictionary] = useState<string[]>(() => {
+    const saved = localStorage.getItem('glassos_notepad_dict');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('glassos_notepad_dict', JSON.stringify(customDictionary));
+  }, [customDictionary]);
+
+  const misspelledWords = useMemo(() => {
+    if (!isSpellCheckEnabled || !notepadContent) return [];
+    const lines = notepadContent.split('\n');
+    const list: { word: string; line: number; index: number; globalIndex: number }[] = [];
+    
+    let charOffset = 0;
+    lines.forEach((lineText, lineIdx) => {
+      const wordRegex = /\b[a-zA-Z]+(?:'[a-zA-Z]+)?\b/g;
+      let match;
+      while ((match = wordRegex.exec(lineText)) !== null) {
+        const word = match[0];
+        const lowerWord = word.toLowerCase();
+        
+        if (!COMMON_WORDS.has(lowerWord) && !customDictionary.includes(lowerWord)) {
+          list.push({
+            word,
+            line: lineIdx + 1,
+            index: match.index,
+            globalIndex: charOffset + match.index
+          });
+        }
+      }
+      charOffset += lineText.length + 1; // +1 for newline character
+    });
+    return list;
+  }, [notepadContent, isSpellCheckEnabled, customDictionary]);
+
+  const handleSelectMisspelledWord = (globalIndex: number, wordLength: number, lineNum: number) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.focus();
+    textarea.setSelectionRange(globalIndex, globalIndex + wordLength);
+    
+    const lines = notepadContent.split('\n');
+    const approxLineHeight = textarea.scrollHeight / Math.max(1, lines.length);
+    textarea.scrollTop = Math.max(0, (lineNum - 5) * approxLineHeight);
+    
+    addNotification('Notepad', `Focused word: "${notepadContent.substring(globalIndex, globalIndex + wordLength)}" at line ${lineNum}`, 'info');
+  };
+
+  const handleAddToDictionary = (word: string) => {
+    const lowerWord = word.toLowerCase();
+    if (!customDictionary.includes(lowerWord)) {
+      setCustomDictionary(prev => [...prev, lowerWord]);
+      addNotification('Notepad', `Added "${word}" to custom dictionary`, 'success');
+    }
+  };
 
   const gutterRef = useRef<HTMLDivElement>(null);
   const previewGutterRef = useRef<HTMLDivElement>(null);
@@ -18720,6 +19074,21 @@ console.log("Grouped Animals:", grouped);`;
 
                 <div className="h-px bg-white/10 my-1 mx-2" />
                 <MenuButton 
+                  icon={isSpellCheckEnabled ? <Check size={14} className="text-blue-400" /> : <div className="w-3.5" />} 
+                  label="Enable Spell Check" 
+                  onClick={() => { 
+                    setIsSpellCheckEnabled(!isSpellCheckEnabled); 
+                    if (!isSpellCheckEnabled) setShowSpellCheckPane(true);
+                    setActiveMenu(null); 
+                  }} 
+                />
+                <MenuButton 
+                  icon={showSpellCheckPane ? <Check size={14} className="text-blue-400" /> : <div className="w-3.5" />} 
+                  label="Spell Checker Pane" 
+                  onClick={() => { setShowSpellCheckPane(!showSpellCheckPane); setActiveMenu(null); }} 
+                />
+                <div className="h-px bg-white/10 my-1 mx-2" />
+                <MenuButton 
                   icon={<Info size={14} />} 
                   label="Document Stats" 
                   onClick={() => { setShowStats(true); setActiveMenu(null); }} 
@@ -18987,6 +19356,29 @@ console.log("Grouped Animals:", grouped);`;
               </button>
             )}
             <span>UTF-8 • {notepadContent.length} chars • {notepadContent.trim().split(/\s+/).filter(Boolean).length} words</span>
+            <button
+              onClick={() => {
+                if (!isSpellCheckEnabled) {
+                  setIsSpellCheckEnabled(true);
+                  setShowSpellCheckPane(true);
+                } else {
+                  setShowSpellCheckPane(!showSpellCheckPane);
+                }
+              }}
+              className={cn(
+                "px-2 py-0.5 rounded transition-all flex items-center gap-1 border cursor-pointer text-[8px] tracking-normal normal-case",
+                isSpellCheckEnabled 
+                  ? (misspelledWords.length > 0 ? "bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25" : "bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25")
+                  : "bg-white/5 border border-white/10 text-white/40 hover:text-white"
+              )}
+            >
+              <SpellCheck size={10} className={cn(isSpellCheckEnabled && "animate-pulse")} />
+              <span>
+                {isSpellCheckEnabled 
+                  ? (misspelledWords.length > 0 ? `Spelling: ${misspelledWords.length}` : "Spelling: Clean")
+                  : "Spell Check Off"}
+              </span>
+            </button>
           </div>
         </div>
       )}
@@ -19033,6 +19425,7 @@ console.log("Grouped Animals:", grouped);`;
                   ref={textareaRef}
                   onScroll={handlePreviewScroll}
                   onKeyDown={handleKeyDown}
+                  spellCheck={isSpellCheckEnabled}
                   style={{ 
                     fontSize: notepadStyle?.fontSize || '14px', 
                     fontWeight: notepadStyle?.fontWeight || 'normal', 
@@ -19059,53 +19452,156 @@ console.log("Grouped Animals:", grouped);`;
           </div>
         ) : (
           <div className="flex-1 flex overflow-hidden relative">
-            {showLineNumbers && (
-              <div 
-                ref={gutterRef}
-                onWheel={handleGutterWheel}
-                style={notepadStyle?.theme === 'custom' ? {
+            <div className="flex-1 flex overflow-hidden relative">
+              {showLineNumbers && (
+                <div 
+                  ref={gutterRef}
+                  onWheel={handleGutterWheel}
+                  style={notepadStyle?.theme === 'custom' ? {
+                    fontSize: notepadStyle?.fontSize || '14px', 
+                    fontFamily: getFontFamilyValue(notepadStyle?.fontFamily),
+                    paddingTop: '1.5rem',
+                    paddingBottom: '1.5rem',
+                    lineHeight: '1.625',
+                    borderColor: `${notepadStyle?.customText || '#ffffff'}15`,
+                    backgroundColor: 'rgba(0,0,0,0.15)',
+                    color: `${notepadStyle?.customText || '#ffffff'}60`,
+                  } : {
+                    fontSize: notepadStyle?.fontSize || '14px', 
+                    fontFamily: getFontFamilyValue(notepadStyle?.fontFamily),
+                    paddingTop: '1.5rem',
+                    paddingBottom: '1.5rem',
+                    lineHeight: '1.625',
+                  }}
+                  className={cn("w-12 select-none text-right pr-3 border-r overflow-hidden font-mono text-[11px] shrink-0", getGutterClasses())}
+                >
+                  {Array.from({ length: Math.max(1, notepadContent.split('\n').length) }).map((_, i) => (
+                    <div key={i} className="h-[1.625em]">{i + 1}</div>
+                  ))}
+                </div>
+              )}
+              <textarea 
+                ref={textareaRef}
+                onScroll={handleNormalScroll}
+                onKeyDown={handleKeyDown}
+                spellCheck={isSpellCheckEnabled}
+                style={{ 
                   fontSize: notepadStyle?.fontSize || '14px', 
+                  fontWeight: notepadStyle?.fontWeight || 'normal', 
+                  textAlign: notepadStyle?.textAlign || 'left',
                   fontFamily: getFontFamilyValue(notepadStyle?.fontFamily),
-                  paddingTop: '1.5rem',
-                  paddingBottom: '1.5rem',
-                  lineHeight: '1.625',
-                  borderColor: `${notepadStyle?.customText || '#ffffff'}15`,
-                  backgroundColor: 'rgba(0,0,0,0.15)',
-                  color: `${notepadStyle?.customText || '#ffffff'}60`,
-                } : {
-                  fontSize: notepadStyle?.fontSize || '14px', 
-                  fontFamily: getFontFamilyValue(notepadStyle?.fontFamily),
-                  paddingTop: '1.5rem',
-                  paddingBottom: '1.5rem',
-                  lineHeight: '1.625',
+                  whiteSpace: notepadStyle?.wordWrap === false ? 'pre' : 'pre-wrap',
+                  color: notepadStyle?.color || (notepadStyle?.theme === 'custom' ? (notepadStyle?.customText || '#ffffff') : undefined),
+                  fontStyle: notepadStyle?.fontStyle || 'normal',
+                  textDecoration: notepadStyle?.textDecoration || 'none',
+                  textTransform: notepadStyle?.textTransform || 'none',
                 }}
-                className={cn("w-12 select-none text-right pr-3 border-r overflow-hidden font-mono text-[11px] shrink-0", getGutterClasses())}
-              >
-                {Array.from({ length: Math.max(1, notepadContent.split('\n').length) }).map((_, i) => (
-                  <div key={i} className="h-[1.625em]">{i + 1}</div>
-                ))}
+                className="flex-1 bg-transparent py-6 pr-6 pl-4 outline-none resize-none leading-relaxed transition-all duration-300 overflow-auto"
+                placeholder="Start typing your thoughts..."
+                value={notepadContent}
+                onChange={(e) => setNotepadContent(e.target.value)}
+              />
+            </div>
+            {showSpellCheckPane && (
+              <div className="w-72 border-l border-white/10 bg-white/[0.03] backdrop-blur-md flex flex-col h-full shrink-0 select-none">
+                <div className="p-3 border-b border-white/10 flex items-center justify-between">
+                  <span className="font-bold text-xs flex items-center gap-2">
+                    <SpellCheck size={14} className="text-blue-400 animate-pulse" />
+                    <span>Spell Checker</span>
+                  </span>
+                  <button 
+                    onClick={() => setShowSpellCheckPane(false)}
+                    className="text-white/40 hover:text-white transition-colors p-1 hover:bg-white/5 rounded"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                  {!isSpellCheckEnabled ? (
+                    <div className="h-full flex flex-col items-center justify-center text-center p-4">
+                      <SpellCheck size={32} className="text-white/25 mb-2 animate-bounce" />
+                      <p className="text-xs font-semibold text-white/60 mb-1">Spell Check is Disabled</p>
+                      <p className="text-[10px] text-white/40 mb-3 max-w-[180px]">Enable spell checking to highlight and list misspelled words.</p>
+                      <button
+                        onClick={() => setIsSpellCheckEnabled(true)}
+                        className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+                      >
+                        Enable Now
+                      </button>
+                    </div>
+                  ) : misspelledWords.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-center p-4">
+                      <CheckCircle2 size={32} className="text-emerald-500/50 mb-2" />
+                      <p className="text-xs font-semibold text-white/60">No errors found!</p>
+                      <p className="text-[10px] text-white/40 mt-1">Your spelling is clean.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="text-[10px] text-white/40 font-semibold uppercase tracking-wider mb-2">
+                        Detected Misspellings ({misspelledWords.length})
+                      </div>
+                      <div className="space-y-1.5 max-h-[calc(100vh-250px)] overflow-y-auto pr-1">
+                        {misspelledWords.map((item, idx) => (
+                          <div 
+                            key={`${item.word}-${idx}`} 
+                            className="bg-white/5 border border-white/10 rounded-lg p-2.5 hover:border-white/20 hover:bg-white/[0.08] transition-all flex flex-col gap-1.5 group cursor-pointer"
+                            onClick={() => handleSelectMisspelledWord(item.globalIndex, item.word.length, item.line)}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span 
+                                className="font-bold text-xs underline decoration-wavy decoration-red-500 text-red-400 group-hover:text-red-300 transition-colors"
+                              >
+                                {item.word}
+                              </span>
+                              <span className="text-[9px] text-white/40 bg-white/5 px-1.5 py-0.5 rounded font-mono">
+                                Line {item.line}
+                              </span>
+                            </div>
+                            
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSelectMisspelledWord(item.globalIndex, item.word.length, item.line);
+                                }}
+                                className="px-2 py-0.5 bg-blue-500/20 hover:bg-blue-500/40 border border-blue-500/30 text-blue-300 text-[9px] font-semibold rounded transition-all cursor-pointer"
+                              >
+                                Find
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAddToDictionary(item.word);
+                                }}
+                                className="px-2 py-0.5 bg-emerald-500/20 hover:bg-emerald-500/40 border border-emerald-500/30 text-emerald-300 text-[9px] font-semibold rounded transition-all cursor-pointer"
+                              >
+                                Learn
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+                
+                {isSpellCheckEnabled && customDictionary.length > 0 && (
+                  <div className="p-3 border-t border-white/10 bg-black/10 text-[10px] text-white/50 flex items-center justify-between">
+                    <span>{customDictionary.length} learned words</span>
+                    <button 
+                      onClick={() => {
+                        setCustomDictionary([]);
+                        addNotification('Notepad', 'Cleared custom dictionary', 'info');
+                      }}
+                      className="text-red-400 hover:text-red-300 transition-colors underline cursor-pointer"
+                    >
+                      Reset Dict
+                    </button>
+                  </div>
+                )}
               </div>
             )}
-            <textarea 
-              ref={textareaRef}
-              onScroll={handleNormalScroll}
-              onKeyDown={handleKeyDown}
-              style={{ 
-                fontSize: notepadStyle?.fontSize || '14px', 
-                fontWeight: notepadStyle?.fontWeight || 'normal', 
-                textAlign: notepadStyle?.textAlign || 'left',
-                fontFamily: getFontFamilyValue(notepadStyle?.fontFamily),
-                whiteSpace: notepadStyle?.wordWrap === false ? 'pre' : 'pre-wrap',
-                color: notepadStyle?.color || (notepadStyle?.theme === 'custom' ? (notepadStyle?.customText || '#ffffff') : undefined),
-                fontStyle: notepadStyle?.fontStyle || 'normal',
-                textDecoration: notepadStyle?.textDecoration || 'none',
-                textTransform: notepadStyle?.textTransform || 'none',
-              }}
-              className="flex-1 bg-transparent py-6 pr-6 pl-4 outline-none resize-none leading-relaxed transition-all duration-300 overflow-auto"
-              placeholder="Start typing your thoughts..."
-              value={notepadContent}
-              onChange={(e) => setNotepadContent(e.target.value)}
-            />
           </div>
         )}
       </div>
