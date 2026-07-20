@@ -245,6 +245,8 @@ import {
   PrintJob
 } from './types';
 
+import { TEMPLATES } from './templates';
+
 // --- Local Interfaces ---
 interface OAuthToken {
   nodeId: string;
@@ -14298,6 +14300,8 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
   const [showRuler, setShowRuler] = useState(false); // Default to hidden, toggled via menu
   const [showPageLayoutModal, setShowPageLayoutModal] = useState(false);
   const [layoutActiveTab, setLayoutActiveTab] = useState<'margins' | 'tabs'>('margins');
+  const [showTemplatesModal, setShowTemplatesModal] = useState(false);
+  const [selectedTemplateCategory, setSelectedTemplateCategory] = useState<string>('All');
 
   useEffect(() => {
     const updateSelection = () => {
@@ -14625,6 +14629,7 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
       label: 'File', 
       items: [
         { label: 'New', action: () => { setContent(''); setActiveFile(null); setGlassWordContent(''); setActiveFileInGlassWord(null); } },
+        { label: 'New from Template...', action: () => setShowTemplatesModal(true) },
         { label: 'Open...', action: () => setShowOpenDialog(true) },
         { label: 'Save', action: handleSave, shortcut: 'Cmd+S' },
         { label: 'Save As...', action: () => setShowSaveDialog(true) },
@@ -14918,7 +14923,7 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
         )}
 
         <div 
-          className="w-full max-w-[816px] min-h-[1056px] bg-white/95 text-slate-900 shadow-2xl transform transition-transform duration-300 hover:scale-[1.005] focus:outline-none ring-1 ring-white/50 relative cursor-text selection:bg-blue-100 selection:text-slate-900"
+          className="w-full max-w-[816px] min-h-[1056px] h-auto shrink-0 bg-white/95 text-slate-900 shadow-2xl transform transition-transform duration-300 hover:scale-[1.005] focus:outline-none ring-1 ring-white/50 relative cursor-text selection:bg-blue-100 selection:text-slate-900"
           contentEditable
           suppressContentEditableWarning
           ref={editorRef}
@@ -14931,6 +14936,8 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
             fontFamily: 'Inter, sans-serif',
             fontSize: '12pt',
             lineHeight: '1.6',
+            minHeight: '1056px',
+            height: 'auto',
             boxShadow: '0 0 50px rgba(0,0,0,0.3)',
             borderRadius: showRuler ? '0 0 2px 2px' : '2px',
             paddingTop: `${topMargin}pt`,
@@ -14940,6 +14947,8 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
             tabSize: `${tabSize}pt`
           }}
         />
+        {/* Scrollable Spacer to ensure padding is respected at the bottom */}
+        <div className="h-16 shrink-0 w-full" />
       </div>
 
       {/* Dialogs */}
@@ -15344,6 +15353,103 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
                 >
                   Apply Settings
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showTemplatesModal && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50 backdrop-blur-md shadow-2xl">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-950/90 border border-white/15 rounded-2xl w-full max-w-4xl h-[80vh] flex flex-col overflow-hidden text-white shadow-2xl"
+              style={{ fontFamily: 'Inter, sans-serif' }}
+            >
+              {/* Header */}
+              <div className="p-4 border-b border-white/10 flex justify-between items-center bg-white/5">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold uppercase tracking-wider text-white/90">Document Templates</span>
+                  <span className="text-[9px] bg-blue-500/20 text-blue-400 border border-blue-500/30 px-1.5 py-0.5 rounded uppercase font-bold tracking-tight font-sans">Frosted Presets</span>
+                </div>
+                <button onClick={() => setShowTemplatesModal(false)} className="text-white/40 hover:text-white transition-colors"><X size={16} /></button>
+              </div>
+
+              {/* Body Split */}
+              <div className="flex-1 flex overflow-hidden">
+                {/* Category Sidebar */}
+                <div className="w-48 bg-black/20 border-r border-white/10 p-3 space-y-1 overflow-y-auto">
+                  <span className="text-[9px] font-bold text-white/30 uppercase tracking-widest px-2.5 mb-2 block">Categories</span>
+                  {['All', 'Professional', 'Publications', 'Financial', 'Legal'].map(category => (
+                    <button
+                      key={category}
+                      onClick={() => setSelectedTemplateCategory(category)}
+                      className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                        selectedTemplateCategory === category
+                          ? 'bg-blue-600 text-white shadow-md'
+                          : 'text-white/60 hover:bg-white/5 hover:text-white'
+                      }`}
+                    >
+                      {category}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Templates Grid */}
+                <div className="flex-1 p-6 overflow-y-auto custom-scrollbar bg-slate-950/40">
+                  <div className="grid grid-cols-2 gap-4">
+                    {TEMPLATES.filter(t => selectedTemplateCategory === 'All' || t.category === selectedTemplateCategory).map(template => (
+                      <div 
+                        key={template.id}
+                        className="border border-white/5 rounded-xl bg-white/5 p-4 flex flex-col justify-between hover:border-blue-500/30 hover:bg-white/10 transition-all duration-300 group cursor-pointer"
+                        onClick={() => {
+                          setContent(template.content);
+                          if (template.suggestedMargins) {
+                            setLeftIndent(template.suggestedMargins.left);
+                            setRightIndent(template.suggestedMargins.right);
+                            setTopMargin(template.suggestedMargins.top);
+                            setBottomMargin(template.suggestedMargins.bottom);
+                          }
+                          setActiveFile(null);
+                          setActiveFileInGlassWord(null);
+                          addNotification('GlassWord', `Applied ${template.name} preset template`, 'success');
+                          setShowTemplatesModal(false);
+                        }}
+                      >
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-start">
+                            <h4 className="text-sm font-bold text-white/95 group-hover:text-blue-400 transition-colors">{template.name}</h4>
+                            <span className="text-[8px] bg-white/10 text-white/60 border border-white/10 px-1.5 py-0.5 rounded font-bold uppercase tracking-tight">{template.category}</span>
+                          </div>
+                          <p className="text-xs text-white/50 leading-relaxed font-normal">{template.description}</p>
+                          
+                          {/* Mini Visual Preview Card */}
+                          <div className="w-full h-24 bg-slate-950 border border-white/5 rounded-lg overflow-hidden p-2 opacity-60 group-hover:opacity-100 group-hover:border-blue-500/20 transition-all flex flex-col justify-between">
+                            <div className="w-full border-b border-white/10 pb-1 flex justify-between items-center scale-90 origin-top-left">
+                              <div className="w-12 h-1 bg-white/30 rounded"></div>
+                              <div className="w-6 h-1 bg-white/10 rounded"></div>
+                            </div>
+                            <div className="space-y-1.5 py-1">
+                              <div className="w-5/6 h-1 bg-white/20 rounded"></div>
+                              <div className="w-4/6 h-1 bg-white/20 rounded"></div>
+                              <div className="w-full h-1 bg-white/10 rounded"></div>
+                            </div>
+                            <div className="w-full pt-1 border-t border-white/5 flex justify-end">
+                              <div className="w-8 h-1.5 bg-blue-500/50 rounded"></div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button 
+                          className="w-full mt-4 py-2 bg-blue-600/80 group-hover:bg-blue-600 text-white rounded-lg text-xs font-bold transition-all shadow-md group-hover:shadow-blue-950/50"
+                        >
+                          Use Template
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </motion.div>
           </div>
