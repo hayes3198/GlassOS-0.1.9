@@ -391,6 +391,14 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [isLockScreen, setIsLockScreen] = useState(true);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [systemPowerState, setSystemPowerState] = useState<'booting' | 'running' | 'shutting-down' | 'powered-off'>('booting');
+  const [bootProgress, setBootProgress] = useState(0);
+  const [bootStatusText, setBootStatusText] = useState('Initializing microkernel loader...');
+  const [bootLogs, setBootLogs] = useState<string[]>([]);
+  const [shutdownProgress, setShutdownProgress] = useState(0);
+  const [shutdownLogs, setShutdownLogs] = useState<string[]>([]);
+  const [isRestarting, setIsRestarting] = useState(false);
+  const [isPowerMenuOpen, setIsPowerMenuOpen] = useState(false);
   const [printQueue, setPrintQueue] = useState<PrintJob[]>([]);
   const [networkConfig, setNetworkConfig] = useState<NetworkConfig>({
     ip: '192.168.1.104',
@@ -548,6 +556,15 @@ export default function App() {
   const [isStartMenuOpen, setIsStartMenuOpen] = useState(false);
   const [startSearch, setStartSearch] = useState('');
   const [activeScreensaver, setActiveScreensaver] = useState<string | null>(null);
+  const [screensaverTimeout, setScreensaverTimeout] = useState<number>(() => {
+    const saved = localStorage.getItem('glassos_screensaver_timeout');
+    return saved ? parseInt(saved, 10) : 5; // Default to 5 minutes
+  });
+  const lastActivityRef = useRef<number>(Date.now());
+
+  useEffect(() => {
+    localStorage.setItem('glassos_screensaver_timeout', screensaverTimeout.toString());
+  }, [screensaverTimeout]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [notificationHistory, setNotificationHistory] = useState<Notification[]>([]);
   const [isNotificationSidebarOpen, setIsNotificationSidebarOpen] = useState(false);
@@ -1047,6 +1064,51 @@ export default function App() {
     return () => clearInterval(interval);
   }, [tasks]);
 
+  // Global Interaction Listeners for Screensaver Idle Timer
+  useEffect(() => {
+    const handleActivity = () => {
+      lastActivityRef.current = Date.now();
+    };
+
+    window.addEventListener('mousemove', handleActivity);
+    window.addEventListener('keydown', handleActivity, { capture: true });
+    window.addEventListener('click', handleActivity, { capture: true });
+    window.addEventListener('scroll', handleActivity, { capture: true });
+    window.addEventListener('touchstart', handleActivity, { capture: true });
+
+    return () => {
+      window.removeEventListener('mousemove', handleActivity);
+      window.removeEventListener('keydown', handleActivity, { capture: true });
+      window.removeEventListener('click', handleActivity, { capture: true });
+      window.removeEventListener('scroll', handleActivity, { capture: true });
+      window.removeEventListener('touchstart', handleActivity, { capture: true });
+    };
+  }, []);
+
+  // Idle Timer check loop
+  useEffect(() => {
+    if (screensaverTimeout <= 0) return;
+
+    const interval = setInterval(() => {
+      // If system is locked or screensaver is already running, refresh the last activity
+      if (isLockScreen || activeScreensaver) {
+        lastActivityRef.current = Date.now();
+        return;
+      }
+
+      const idleDuration = Date.now() - lastActivityRef.current;
+      const timeoutMs = screensaverTimeout * 60 * 1000;
+
+      if (idleDuration >= timeoutMs) {
+        const savedScreensaver = localStorage.getItem('glassos_selected_screensaver') || 'Matrix Rain';
+        setActiveScreensaver(savedScreensaver);
+        addNotification('Screensaver', `System idle for ${screensaverTimeout}m. Launching screensaver...`, 'info');
+      }
+    }, 2000); // Check every 2 seconds for high responsiveness
+
+    return () => clearInterval(interval);
+  }, [screensaverTimeout, isLockScreen, activeScreensaver]);
+
   // Global Keyboard Listeners (Keyboard Shortcut Manager)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1397,6 +1459,122 @@ export default function App() {
     }, 2000);
   };
 
+  const DEFAULT_BOOT_CALLS = useMemo(() => [
+    { id: 'b1', service: 'kernel', method: 'initialize_vm', status: 'success' as const, timestamp: new Date().toLocaleTimeString(), latency: 42 },
+    { id: 'b2', service: 'fs', method: 'mount_vfs', status: 'success' as const, timestamp: new Date().toLocaleTimeString(), latency: 15 },
+    { id: 'b3', service: 'display', method: 'init_compositor', status: 'success' as const, timestamp: new Date().toLocaleTimeString(), latency: 110 },
+    { id: 'b4', service: 'network', method: 'dhcp_handshake', status: 'success' as const, timestamp: new Date().toLocaleTimeString(), latency: 95 },
+    { id: 'b5', service: 'security', method: 'load_policy_rules', status: 'success' as const, timestamp: new Date().toLocaleTimeString(), latency: 16 },
+    { id: 'b6', service: 'audio', method: 'start_synth_engine', status: 'success' as const, timestamp: new Date().toLocaleTimeString(), latency: 25 },
+  ], []);
+
+  // Startup Boot Sequence Effect
+  useEffect(() => {
+    if (systemPowerState !== 'booting') return;
+
+    setBootProgress(0);
+    setBootLogs([]);
+    setBootStatusText('Initializing microkernel loader...');
+
+    const logMessages = [
+      { prg: 10, msg: 'Loading GlassOS microkernel v4.2.1-lts...', log: '[ OK ] Kernel loaded successfully.' },
+      { prg: 25, msg: 'Mounting virtual file system (IndexedDB)...', log: '[ OK ] Virtual VFS mounted under /root.' },
+      { prg: 45, msg: 'Allocating virtual memory page-tables (16GB physical)...', log: '[ OK ] VM allocator ready.' },
+      { prg: 65, msg: 'Initializing premium audio synthesizer engine...', log: '[ OK ] Audio synthesizer, EQ & wave visualizers active.' },
+      { prg: 80, msg: 'Establishing DHCP handshake with Gateway 192.168.1.104...', log: '[ OK ] IP bound: 192.168.1.104 (1.2 Gbps connection speed).' },
+      { prg: 95, msg: 'Spawning background UI shell compositor & server nodes...', log: '[ OK ] Display server connected and ready.' },
+      { prg: 100, msg: 'Boot completed. Loading system credentials...', log: '[ OK ] GlassOS initialized successfully.' }
+    ];
+
+    const interval = setInterval(() => {
+      setBootProgress(prev => {
+        const next = Math.min(prev + 5, 100);
+        
+        // Find if we should update status message and log
+        const step = logMessages.find(s => prev < s.prg && next >= s.prg);
+        if (step) {
+          setBootStatusText(step.msg);
+          setBootLogs(logs => [...logs, step.log]);
+        }
+
+        if (next === 100) {
+          clearInterval(interval);
+          setTimeout(() => {
+            setSystemPowerState('running');
+            setIsLockScreen(true);
+            setKernelCalls(DEFAULT_BOOT_CALLS);
+          }, 600);
+        }
+        return next;
+      });
+    }, 150);
+
+    return () => clearInterval(interval);
+  }, [systemPowerState, DEFAULT_BOOT_CALLS]);
+
+  // Shutdown OS Action
+  const performShutdown = useCallback((restart = false) => {
+    setSystemPowerState('shutting-down');
+    setIsRestarting(restart);
+    setShutdownProgress(0);
+    setShutdownLogs(['[ INFO ] Initiating secure OS shutdown sequence...']);
+
+    // 1. Shut down running apps/windows gracefully
+    setWindows([]);
+
+    // 2. Autosave notepad content if not empty
+    if (notepadContent && notepadContent.trim()) {
+      try {
+        fsLib.write('/Documents/autosave_notepad.txt', notepadContent);
+      } catch (e) {
+        console.warn('Autosave error:', e);
+      }
+    }
+
+    // 3. Autosave glassword content if not empty
+    if (glassWordContent && glassWordContent.trim()) {
+      try {
+        fsLib.write('/Documents/autosave_glassword.txt', glassWordContent);
+      } catch (e) {
+        console.warn('Autosave error:', e);
+      }
+    }
+
+    // Sequence of shutdown phases
+    const steps = [
+      { prg: 15, log: '[ OK ] Terminating active application processes gracefully.' },
+      { prg: 35, log: (notepadContent && notepadContent.trim()) 
+          ? '[ OK ] Autosaved active Notepad document to /Documents/autosave_notepad.txt.' 
+          : '[ INFO ] Notepad document empty. Autosave bypassed.' },
+      { prg: 55, log: (glassWordContent && glassWordContent.trim()) 
+          ? '[ OK ] Autosaved active GlassWord document to /Documents/autosave_glassword.txt.' 
+          : '[ INFO ] GlassWord document empty. Autosave bypassed.' },
+      { prg: 75, log: '[ OK ] Flushing virtual memory cache & resetting CPU state registers.' },
+      { prg: 90, log: '[ OK ] System event registers flushed back to default kernel status.' },
+      { prg: 100, log: '[ OK ] Kernel halted safely. GlassOS is now powered down.' }
+    ];
+
+    let currentStep = 0;
+    const interval = setInterval(() => {
+      if (currentStep < steps.length) {
+        const nextStep = steps[currentStep];
+        setShutdownProgress(nextStep.prg);
+        setShutdownLogs(prev => [...prev, nextStep.log]);
+        currentStep++;
+      } else {
+        clearInterval(interval);
+        setTimeout(() => {
+          if (restart) {
+            setSystemPowerState('booting');
+          } else {
+            setSystemPowerState('powered-off');
+            setCurrentUser(null);
+          }
+        }, 800);
+      }
+    }, 600);
+  }, [notepadContent, glassWordContent, fsLib]);
+
   useEffect(() => {
     const checkTasks = setInterval(() => {
       const now = new Date();
@@ -1426,6 +1604,127 @@ export default function App() {
 
     return () => clearInterval(checkTasks);
   }, [tasks]);
+
+  if (systemPowerState === 'booting') {
+    return (
+      <div className="fixed inset-0 bg-[#070913] flex flex-col items-center justify-center z-[9999] overflow-hidden select-none">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(29,78,216,0.15),transparent_60%)] pointer-events-none" />
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          className="text-center flex flex-col items-center max-w-md w-full px-6"
+        >
+          <div className="relative w-32 h-32 flex items-center justify-center mb-8">
+            <div className="absolute inset-0 bg-blue-500/20 rounded-full blur-2xl animate-pulse" />
+            <div className="w-24 h-24 rounded-full border-2 border-white/25 bg-gradient-to-tr from-white/5 to-white/15 backdrop-blur-xl flex items-center justify-center shadow-2xl relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-b from-white/10 to-transparent pointer-events-none" />
+              <Monitor size={48} className="text-white animate-pulse" />
+            </div>
+          </div>
+
+          <h1 className="text-3xl font-light tracking-widest text-white uppercase mb-1">
+            GLASS<span className="text-blue-400 font-medium">OS</span>
+          </h1>
+          <p className="text-xs text-white/50 font-mono tracking-wide h-4 overflow-hidden text-ellipsis">
+            {bootStatusText}
+          </p>
+
+          <div className="w-64 h-1.5 bg-white/10 rounded-full overflow-hidden mt-6 relative">
+            <motion.div 
+              animate={{ width: `${bootProgress}%` }}
+              transition={{ duration: 0.1 }}
+              className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 shadow-[0_0_10px_#3b82f6]"
+            />
+          </div>
+
+          <div className="mt-8 text-left w-full bg-black/60 border border-white/5 p-4 rounded-xl font-mono text-[10px] text-emerald-400/80 leading-relaxed overflow-hidden h-36 flex flex-col justify-end">
+            <div className="space-y-1 overflow-y-auto">
+              {bootLogs.map((log, index) => (
+                <div key={index} className="truncate">
+                  {log}
+                </div>
+              ))}
+              <div className="animate-pulse text-white/40 inline-block">_</div>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (systemPowerState === 'shutting-down') {
+    return (
+      <div className="fixed inset-0 bg-[#0d0707] flex flex-col items-center justify-center z-[9999] overflow-hidden select-none">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(220,38,38,0.1),transparent_60%)] pointer-events-none" />
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          className="text-center flex flex-col items-center max-w-md w-full px-6"
+        >
+          <div className="relative w-32 h-32 flex items-center justify-center mb-8">
+            <div className="absolute inset-0 bg-red-500/10 rounded-full blur-2xl animate-pulse" />
+            <div className="w-24 h-24 rounded-full border-2 border-white/20 bg-gradient-to-tr from-white/5 to-white/10 backdrop-blur-xl flex items-center justify-center shadow-2xl relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-b from-white/10 to-transparent pointer-events-none" />
+              <Power size={48} className="text-red-400 animate-pulse" />
+            </div>
+          </div>
+
+          <h1 className="text-3xl font-light tracking-widest text-white uppercase mb-1">
+            GLASS<span className="text-red-400 font-medium">OS</span>
+          </h1>
+          <p className="text-xs text-white/50 font-mono tracking-wide">
+            {isRestarting ? 'Restarting workstation safely...' : 'Shutting down workstation safely...'}
+          </p>
+
+          <div className="w-64 h-1.5 bg-white/10 rounded-full overflow-hidden mt-6 relative">
+            <div 
+              style={{ width: `${shutdownProgress}%`, transition: 'width 0.4s ease-out' }}
+              className="h-full bg-gradient-to-r from-red-500 to-pink-500 shadow-[0_0_10px_#ef4444]"
+            />
+          </div>
+
+          <div className="mt-8 text-left w-full bg-black/60 border border-white/5 p-4 rounded-xl font-mono text-[10px] text-red-300/80 leading-relaxed overflow-hidden h-36 flex flex-col justify-end">
+            <div className="space-y-1 overflow-y-auto">
+              {shutdownLogs.map((log, index) => (
+                <div key={index} className="truncate">
+                  {log}
+                </div>
+              ))}
+              <div className="animate-pulse text-white/40 inline-block">_</div>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (systemPowerState === 'powered-off') {
+    return (
+      <div className="fixed inset-0 bg-[#030303] flex flex-col items-center justify-center z-[9999] overflow-hidden select-none">
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 1.5 }}
+          className="text-center flex flex-col items-center animate-pulse"
+        >
+          <button 
+            onClick={() => setSystemPowerState('booting')}
+            className="w-28 h-28 rounded-full bg-neutral-950 border border-neutral-900 shadow-[inset_0_2px_8px_rgba(255,255,255,0.02),0_10px_30px_rgba(0,0,0,0.8)] flex items-center justify-center hover:border-blue-500/40 hover:shadow-[0_0_40px_rgba(59,130,246,0.25)] transition-all duration-700 cursor-pointer group active:scale-95"
+          >
+            <Power size={36} className="text-neutral-800 group-hover:text-blue-400 transition-colors duration-700 animate-pulse" />
+          </button>
+          <span className="mt-8 font-mono text-xs uppercase tracking-[0.3em] text-neutral-600">
+            GlassOS Workstation
+          </span>
+          <span className="mt-3 font-mono text-[9px] text-neutral-800 uppercase tracking-widest">
+            System Suspended. Tap power button to boot.
+          </span>
+        </motion.div>
+      </div>
+    );
+  }
 
   if (isLoggingOut) {
     return (
@@ -1487,6 +1786,8 @@ export default function App() {
               addNotification('System', `Welcome back, ${user.username}!`, 'success');
             }} 
             addNotification={addNotification}
+            onShutdown={() => performShutdown(false)}
+            onRestart={() => performShutdown(true)}
           />
         ) : (
           <motion.div
@@ -1602,6 +1903,7 @@ export default function App() {
                     authorizedTokens, setAuthorizedTokens,
                     isAdmin, setIsAdmin, isSandboxed, setIsSandboxed, requestSudo,
                     socket: socketRef.current,
+                    screensaverTimeout, setScreensaverTimeout,
                   })}
                 </Window>
               ))}
@@ -1986,12 +2288,64 @@ export default function App() {
                   >
                     <SettingsIcon size={18} />
                   </button>
-                  <button 
-                    onClick={handleLogout}
-                    className="p-2 hover:bg-red-500/20 rounded-lg transition-colors text-white/60 hover:text-red-400"
-                  >
-                    <Power size={18} />
-                  </button>
+                  <div className="relative">
+                    <button 
+                      onClick={() => setIsPowerMenuOpen(!isPowerMenuOpen)}
+                      className={cn(
+                        "p-2 rounded-lg transition-colors text-white/60 hover:text-red-400 cursor-pointer",
+                        isPowerMenuOpen ? "bg-red-500/20 text-red-400" : "hover:bg-red-500/20"
+                      )}
+                      title="Power Options"
+                    >
+                      <Power size={18} />
+                    </button>
+                    
+                    {isPowerMenuOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setIsPowerMenuOpen(false)} />
+                        <motion.div 
+                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          className="absolute bottom-12 right-0 w-44 glass-dark border border-white/10 rounded-xl p-1.5 shadow-2xl z-50 flex flex-col gap-0.5"
+                        >
+                          <button
+                            onClick={() => {
+                              setIsPowerMenuOpen(false);
+                              setIsStartMenuOpen(false);
+                              handleLogout();
+                            }}
+                            className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-white/10 text-white/80 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
+                          >
+                            <Shield size={12} className="text-blue-400" />
+                            <span>Lock Session</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setIsPowerMenuOpen(false);
+                              setIsStartMenuOpen(false);
+                              performShutdown(true);
+                            }}
+                            className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-white/10 text-white/80 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
+                          >
+                            <RefreshCw size={12} className="text-amber-400" />
+                            <span>Restart OS</span>
+                          </button>
+                          <div className="h-px bg-white/5 my-1" />
+                          <button
+                            onClick={() => {
+                              setIsPowerMenuOpen(false);
+                              setIsStartMenuOpen(false);
+                              performShutdown(false);
+                            }}
+                            className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-red-500/10 text-red-400 hover:text-red-300 flex items-center gap-2 transition-colors cursor-pointer"
+                          >
+                            <Power size={12} />
+                            <span className="font-semibold">Shut Down</span>
+                          </button>
+                        </motion.div>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -2770,12 +3124,13 @@ function AltTabSwitcher({
   );
 }
 
-function LoginScreen({ users, onLogin, addNotification }: any) {
+function LoginScreen({ users, onLogin, addNotification, onShutdown, onRestart }: any) {
   const [selectedUser, setSelectedUser] = useState<UserAccount>(users[0]);
   const [password, setPassword] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [error, setError] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [isLocalPowerMenuOpen, setIsLocalPowerMenuOpen] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -2887,19 +3242,55 @@ function LoginScreen({ users, onLogin, addNotification }: any) {
         </div>
       </div>
 
-      <div className="absolute bottom-10 flex gap-12">
-        <button className="flex flex-col items-center gap-2 group">
+      <div className="absolute bottom-10 flex gap-12 z-50">
+        <button className="flex flex-col items-center gap-2 group cursor-pointer">
           <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/40 group-hover:bg-white/10 group-hover:text-white transition-all">
             <Wifi size={18} />
           </div>
-          <span className="text-[10px] uppercase tracking-tighter text-white/20">Wifi</span>
+          <span className="text-[10px] uppercase tracking-tighter text-white/30">Wifi</span>
         </button>
-        <button className="flex flex-col items-center gap-2 group">
-          <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/40 group-hover:bg-white/10 group-hover:text-white transition-all">
+        <div className="relative flex flex-col items-center gap-2 group">
+          <button 
+            onClick={() => setIsLocalPowerMenuOpen(!isLocalPowerMenuOpen)}
+            className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/40 hover:bg-red-500/10 hover:text-red-400 transition-all cursor-pointer"
+          >
             <Power size={18} />
-          </div>
-          <span className="text-[10px] uppercase tracking-tighter text-white/20">Sleep</span>
-        </button>
+          </button>
+          <span className="text-[10px] uppercase tracking-tighter text-white/30">Power</span>
+
+          {isLocalPowerMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setIsLocalPowerMenuOpen(false)} />
+              <motion.div
+                initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                className="absolute bottom-14 left-1/2 -translate-x-1/2 w-36 glass-dark border border-white/10 rounded-xl p-1.5 shadow-2xl z-50 flex flex-col gap-0.5"
+              >
+                <button
+                  onClick={() => {
+                    setIsLocalPowerMenuOpen(false);
+                    onRestart();
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-white/10 text-white/80 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
+                >
+                  <RefreshCw size={12} className="text-amber-400 animate-spin-slow" />
+                  <span>Restart</span>
+                </button>
+                <div className="h-px bg-white/5 my-0.5" />
+                <button
+                  onClick={() => {
+                    setIsLocalPowerMenuOpen(false);
+                    onShutdown();
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-red-500/10 text-red-400 hover:text-red-300 flex items-center gap-2 transition-colors cursor-pointer"
+                >
+                  <Power size={12} />
+                  <span className="font-semibold">Shut Down</span>
+                </button>
+              </motion.div>
+            </>
+          )}
+        </div>
       </div>
     </motion.div>
   );
@@ -15526,6 +15917,7 @@ function SettingsApp(props: any) {
     networkNodes, setNetworkNodes,
     isAdmin, setIsAdmin, isSandboxed, setIsSandboxed, requestSudo,
     activeSettingsTab,
+    screensaverTimeout, setScreensaverTimeout,
   } = props;
   const [view, setView] = useState<'main' | 'personalization' | 'network' | 'control-panel' | 'extensions' | 'accounts' | 'hardware'>('main');
 
@@ -15545,7 +15937,9 @@ function SettingsApp(props: any) {
     { id: 'mail-ext', name: 'GlassMail Extension', version: '1.0.0', enabled: true, description: 'Client for the secure GlassOS mail protocol.' },
     { id: 'msg-ext', name: 'Comms Extension', version: '1.0.0', enabled: true, description: 'Unified messaging layer for GlassOS users.' },
   ]);
-  const [selectedScreensaver, setSelectedScreensaver] = useState('Matrix Rain');
+  const [selectedScreensaver, setSelectedScreensaver] = useState(() => {
+    return localStorage.getItem('glassos_selected_screensaver') || 'Matrix Rain';
+  });
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState(userName);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -16547,29 +16941,105 @@ function SettingsApp(props: any) {
                         RUN NOW
                       </button>
                     </div>
-                    <div className="grid grid-cols-1 gap-3">
-                      {['Matrix Rain', 'Starfield', 'Floating Bubbles'].map(opt => (
-                        <button 
-                          key={opt} 
-                          onClick={() => {
-                            setSelectedScreensaver(opt);
-                            addNotification('Screensaver', `Selected ${opt}`, 'info');
-                          }}
-                          className={cn(
-                            "w-full text-left p-3 rounded-lg border transition-all text-xs flex items-center justify-between",
-                            selectedScreensaver === opt ? "bg-white/10 border-pink-500/50" : "bg-white/5 border-white/5 hover:bg-white/10"
-                          )}
-                        >
-                          {opt}
-                          <div className={cn(
-                            "w-4 h-4 rounded-full border transition-all flex items-center justify-center",
-                            selectedScreensaver === opt ? "border-pink-400" : "border-white/20"
-                          )}>
-                            {selectedScreensaver === opt && <div className="w-2 h-2 rounded-full bg-pink-400" />}
-                          </div>
-                        </button>
-                      ))}
+
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-white/40 uppercase tracking-wider px-1">
+                        Select Theme
+                      </label>
+                      <div className="grid grid-cols-1 gap-3">
+                        {['Matrix Rain', 'Starfield', 'Floating Bubbles'].map(opt => (
+                          <button 
+                            key={opt} 
+                            onClick={() => {
+                              setSelectedScreensaver(opt);
+                              localStorage.setItem('glassos_selected_screensaver', opt);
+                              addNotification('Screensaver', `Selected ${opt}`, 'info');
+                            }}
+                            className={cn(
+                              "w-full text-left p-3 rounded-lg border transition-all text-xs flex items-center justify-between cursor-pointer",
+                              selectedScreensaver === opt ? "bg-white/10 border-pink-500/50" : "bg-white/5 border-white/5 hover:bg-white/10"
+                            )}
+                          >
+                            {opt}
+                            <div className={cn(
+                              "w-4 h-4 rounded-full border transition-all flex items-center justify-center",
+                              selectedScreensaver === opt ? "border-pink-400" : "border-white/20"
+                            )}>
+                              {selectedScreensaver === opt && <div className="w-2 h-2 rounded-full bg-pink-400" />}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
                     </div>
+
+                    {/* Idle Timer Selection Panel */}
+                    <div className="glass p-4 rounded-xl border border-white/5 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-2 text-white/90">
+                          <Clock size={16} className="text-pink-400" />
+                          <span className="text-xs font-bold">Idle Start Timeout</span>
+                        </div>
+                        <span className="text-xs font-mono font-bold text-pink-400">
+                          {screensaverTimeout === 0 ? 'Disabled' : `${screensaverTimeout} min`}
+                        </span>
+                      </div>
+                      
+                      <div className="grid grid-cols-4 gap-2">
+                        {[
+                          { value: 0, label: 'Never' },
+                          { value: 1, label: '1 Min' },
+                          { value: 5, label: '5 Min' },
+                          { value: 15, label: '15 Min' }
+                        ].map(item => (
+                          <button
+                            key={item.value}
+                            onClick={() => {
+                              setScreensaverTimeout(item.value);
+                              addNotification(
+                                'Screensaver', 
+                                item.value === 0 
+                                  ? 'Screensaver idle timer disabled.' 
+                                  : `Idle timer set to ${item.value} minute(s).`, 
+                                'info'
+                              );
+                            }}
+                            className={cn(
+                              "px-2 py-1.5 rounded-lg border text-[10px] font-semibold text-center transition-all cursor-pointer",
+                              screensaverTimeout === item.value
+                                ? "bg-pink-500/10 border-pink-500/30 text-pink-400"
+                                : "bg-white/5 border-white/5 text-white/60 hover:bg-white/10 hover:border-white/10"
+                            )}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Custom input range slider */}
+                      <div className="space-y-1 pt-1">
+                        <div className="flex justify-between text-[9px] text-white/40">
+                          <span>Custom Delay: {screensaverTimeout} min</span>
+                          <span>60m</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="60"
+                          step="1"
+                          value={screensaverTimeout}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            setScreensaverTimeout(val);
+                          }}
+                          className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-pink-500"
+                        />
+                      </div>
+
+                      <p className="text-[9px] text-white/30 leading-relaxed">
+                        Specify how long the workstation remains idle before displaying the screensaver.
+                      </p>
+                    </div>
+
                     <div className="p-4 bg-white/5 rounded-xl border border-white/10">
                       <p className="text-[10px] text-white/40 leading-relaxed">
                         Tip: You can schedule screensavers to run automatically using the Task Scheduler app.
