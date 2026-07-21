@@ -5,6 +5,7 @@ import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import { WebSocketServer, WebSocket } from 'ws';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -228,6 +229,228 @@ async function startServer() {
   const activeSlaves = new Map<string, any>();
   let masterSocketId: string | null = null;
 
+  // --- Raw WebSocket Server (Host Node Bridge) ---
+  const ttyClients = new Map<number, WebSocket>();
+  const commandBuffers = new Map<number, string>();
+  let nextTtyId = 1;
+
+  function sendToTerminalClient(ttyId: number, data: any) {
+    const ws = ttyClients.get(ttyId);
+    if (ws && ws.readyState === 1 /* OPEN */) {
+      let output = '';
+      
+      if (data.isTopActive) {
+        output = '\x1b[2J\x1b[H'; // Clear screen
+        output += '\x1b[1;35m=== MAPPED PROCESS MONITOR (TOP) ===\x1b[0m\r\n';
+        output += 'Active Core: 100% MAPPED\r\n\r\n';
+        output += '\x1b[1mPID     PROCESS                 CPU%    MEM     TTY\x1b[0m\r\n';
+        
+        if (data.topData && Array.isArray(data.topData)) {
+          data.topData.forEach((p: any) => {
+            const pid = String(p.pid).padEnd(8);
+            const proc = String(p.proc).padEnd(24);
+            const cpu = String(p.cpu).padEnd(8);
+            const mem = String(p.mem).padEnd(8);
+            const tty = String(p.tty || `pts/${ttyId}`);
+            output += `${pid}${proc}${cpu}${mem}${tty}\r\n`;
+          });
+        }
+        output += '\r\n\x1b[5;31mPress Ctrl+C or type "quit" to exit process monitor.\x1b[0m\r\n';
+      } else {
+        output = '\x1b[2J\x1b[H'; // Clear screen & home cursor
+        output += '\x1b[1;36m=== GlassOS Distributed Terminal Client v1.0 ===\x1b[0m\r\n';
+        output += `Allocated TTY: /dev/tty${ttyId} (Shell PID: ${ttyId + 100})\r\n\r\n`;
+        
+        if (data.history && Array.isArray(data.history)) {
+          data.history.forEach((line: string) => {
+            let formattedLine = line;
+            if (line.includes('✅') || line.includes('🟢')) {
+              formattedLine = `\x1b[32m${line}\x1b[0m`;
+            } else if (line.includes('⚠️')) {
+              formattedLine = `\x1b[33m${line}\x1b[0m`;
+            } else if (line.includes('❌') || line.includes('error') || line.includes('ERROR')) {
+              formattedLine = `\x1b[31m${line}\x1b[0m`;
+            }
+            output += formattedLine.replace(/\r?\n/g, '\r\n') + '\r\n';
+          });
+        }
+        
+        const pathString = '/' + (data.currentPath || []).join('/');
+        output += `\r\n\x1b[1;32m${data.username || 'guest'}@glass-os:${pathString}$\x1b[0m `;
+      }
+
+      ws.send(JSON.stringify({
+        type: 'TTY_OUTPUT',
+        tty: ttyId,
+        data: output
+      }));
+    }
+  }
+
+  function sendTrapToTerminalClient(ttyId: number, trapType: string, trapMessage: string) {
+    const ws = ttyClients.get(ttyId);
+    if (ws && ws.readyState === 1 /* OPEN */) {
+      let output = '\x1b[2J\x1b[H'; // Clear screen
+      output += '\x1b[1;31m======================================================================\x1b[0m\r\n';
+      output += '\x1b[1;5;31m           ⚠️  RING-0 CPU INTERRUPT EXCEPTION DETECTED ⚠️  \x1b[0m\r\n';
+      output += '\x1b[1;31m======================================================================\x1b[0m\r\n\r\n';
+      output += `\x1b[1;33mVECTOR FAULT:\x1b[0m \x1b[31;1m${trapType || 'SYS_HALT'}\x1b[0m\r\n`;
+      output += `\x1b[1;33mIP REGISTERS DUMP:\x1b[0m\r\n`;
+      output += `  EAX=00000003  EBX=002010A4  ECX=FFFFA340  EDX=00000000\r\n`;
+      output += `  ESI=00201B4C  EDI=00201201  EBP=FFFFFF0C  ESP=001FA840\r\n`;
+      output += `  EIP=001B0243  EFLAGS=00010246  CR0=80000011  CR2=00000000\r\n\r\n`;
+      output += `\x1b[1;33mException details:\x1b[0m\r\n`;
+      output += `  \x1b[3m${trapMessage || 'Manual CPU instruction halt called by GlassOS master.'}\x1b[0m\r\n\r\n`;
+      output += `\x1b[1;5;31m[ SYSTEM QUARANTINE ACTIVE ]\x1b[0m\r\n`;
+      output += `Keyboard and peripheral I/O mapping have been suspended to prevent stack overflow.\r\n`;
+      output += `Awaiting recovery vector instruction from master controller...\r\n`;
+      
+      ws.send(JSON.stringify({
+        type: 'TTY_OUTPUT',
+        tty: ttyId,
+        data: output
+      }));
+    }
+  }
+
+  function handleTerminalWSConnection(ws: WebSocket, remoteIp: string) {
+    let clientTty: number | null = null;
+    let username = 'slave_user';
+
+    ws.on('message', (message) => {
+      try {
+        const frame = JSON.parse(message.toString());
+
+        if (frame.type === 'CONNECT_REQ') {
+          clientTty = nextTtyId++;
+          username = frame.username || 'slave_user';
+          ttyClients.set(clientTty, ws);
+          commandBuffers.set(clientTty, '');
+
+          activeSlaves.set(`ws-${clientTty}`, {
+            id: `ws-${clientTty}`,
+            hostname: username,
+            ip: remoteIp || '127.0.0.1',
+            tty: `pts/${clientTty}`,
+            connectedAt: new Date().toISOString(),
+            userAgent: 'WebSocket LAN Terminal',
+            isTrapped: false,
+            isWs: true
+          });
+
+          if (masterSocketId) {
+            io.to(masterSocketId).emit('bridge:slaves-list', Array.from(activeSlaves.values()));
+          }
+
+          ws.send(JSON.stringify({
+            type: 'CONNECT_ACK',
+            tty: clientTty,
+            pid: clientTty + 100,
+            welcomeMsg: `GlassOS Intranet Kernel Node\r\nLogged in as ${username}.\r\nType 'help' for available commands.\r\n\r\n$ `
+          }));
+
+          console.log(`[Master WS]: Slave registered on /dev/tty${clientTty}`);
+        }
+
+        if (frame.type === 'TTY_INPUT') {
+          if (clientTty !== null) {
+            const slaveEntry = activeSlaves.get(`ws-${clientTty}`);
+            if (slaveEntry && slaveEntry.isTrapped) {
+              ws.send(JSON.stringify({
+                type: 'TTY_OUTPUT',
+                tty: clientTty,
+                data: '\x07' // ASCII Beep
+              }));
+              return;
+            }
+
+            let buffer = commandBuffers.get(clientTty) || '';
+            const data = frame.data;
+
+            if (data === '\r' || data === '\n') {
+              const cmd = buffer;
+              commandBuffers.set(clientTty, '');
+              
+              ws.send(JSON.stringify({
+                type: 'TTY_OUTPUT',
+                tty: clientTty,
+                data: '\r\n'
+              }));
+
+              if (masterSocketId) {
+                io.to(masterSocketId).emit('bridge:slave-input', {
+                  slaveId: `ws-${clientTty}`,
+                  input: cmd,
+                  key: 'Enter'
+                });
+              }
+            } else if (data === '\x7f' || data === '\x08') {
+              if (buffer.length > 0) {
+                buffer = buffer.slice(0, -1);
+                commandBuffers.set(clientTty, buffer);
+                ws.send(JSON.stringify({
+                  type: 'TTY_OUTPUT',
+                  tty: clientTty,
+                  data: '\b \b'
+                }));
+              }
+            } else {
+              buffer += data;
+              commandBuffers.set(clientTty, buffer);
+              ws.send(JSON.stringify({
+                type: 'TTY_OUTPUT',
+                tty: clientTty,
+                data: data
+              }));
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Error handling WebSocket frame:', e);
+      }
+    });
+
+    ws.on('close', () => {
+      if (clientTty !== null) {
+        ttyClients.delete(clientTty);
+        commandBuffers.delete(clientTty);
+        activeSlaves.delete(`ws-${clientTty}`);
+        
+        if (masterSocketId) {
+          io.to(masterSocketId).emit('bridge:slaves-list', Array.from(activeSlaves.values()));
+        }
+        console.log(`[Master WS]: Slave disconnected from /dev/tty${clientTty}`);
+      }
+    });
+  }
+
+  // Set up both 3000 (NoServer upgrading) and 8080 (Direct port)
+  const wss3000 = new WebSocketServer({ noServer: true });
+  wss3000.on('connection', (ws, req) => {
+    handleTerminalWSConnection(ws, req.socket.remoteAddress || '127.0.0.1');
+  });
+
+  httpServer.on('upgrade', (request, socket, head) => {
+    if (request.url && !request.url.includes('socket.io')) {
+      wss3000.handleUpgrade(request, socket, head, (ws) => {
+        wss3000.emit('connection', ws, request);
+      });
+    }
+  });
+
+  try {
+    const wss8080 = new WebSocketServer({ port: 8080 });
+    wss8080.on('error', (err: any) => {
+      console.warn('Could not launch WebSocket on port 8080 (EADDRINUSE or other error):', err.message);
+    });
+    wss8080.on('connection', (ws, req) => {
+      handleTerminalWSConnection(ws, req.socket.remoteAddress || '127.0.0.1');
+    });
+    console.log('[GlassOS Master Relay]: WebSocket listening on port 8080...');
+  } catch (err: any) {
+    console.warn('Could not launch WebSocket on port 8080:', err.message);
+  }
+
   // Socket.io Connection Handling
   io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
@@ -275,33 +498,68 @@ async function startServer() {
     // Render updates from Master Node to Slave Node
     socket.on('bridge:master-render', (data) => {
       if (data.slaveId) {
-        io.to(data.slaveId).emit('bridge:slave-render', {
-          history: data.history,
-          currentPath: data.currentPath,
-          username: data.username,
-          tty: data.tty,
-          isTopActive: data.isTopActive,
-          topData: data.topData,
-          isTrapped: data.isTrapped,
-          trapDetails: data.trapDetails
-        });
+        if (typeof data.slaveId === 'string' && data.slaveId.startsWith('ws-')) {
+          const ttyId = parseInt(data.slaveId.replace('ws-', ''), 10);
+          sendToTerminalClient(ttyId, data);
+        } else {
+          io.to(data.slaveId).emit('bridge:slave-render', {
+            history: data.history,
+            currentPath: data.currentPath,
+            username: data.username,
+            tty: data.tty,
+            isTopActive: data.isTopActive,
+            topData: data.topData,
+            isTrapped: data.isTrapped,
+            trapDetails: data.trapDetails
+          });
+        }
       }
     });
 
     // Trigger Trap Exception from Master to Slave
     socket.on('bridge:trigger-trap', (data) => {
       if (data.slaveId) {
-        io.to(data.slaveId).emit('bridge:trap-triggered', {
-          trapType: data.trapType,
-          trapMessage: data.trapMessage
-        });
+        if (typeof data.slaveId === 'string' && data.slaveId.startsWith('ws-')) {
+          const ttyId = parseInt(data.slaveId.replace('ws-', ''), 10);
+          const slaveEntry = activeSlaves.get(data.slaveId);
+          if (slaveEntry) {
+            slaveEntry.isTrapped = true;
+            slaveEntry.trapDetails = {
+              trapType: data.trapType,
+              trapMessage: data.trapMessage
+            };
+          }
+          sendTrapToTerminalClient(ttyId, data.trapType, data.trapMessage);
+        } else {
+          io.to(data.slaveId).emit('bridge:trap-triggered', {
+            trapType: data.trapType,
+            trapMessage: data.trapMessage
+          });
+        }
       }
     });
 
     // Resolve Trap Exception from Master to Slave
     socket.on('bridge:resolve-trap', (data) => {
       if (data.slaveId) {
-        io.to(data.slaveId).emit('bridge:trap-resolved');
+        if (typeof data.slaveId === 'string' && data.slaveId.startsWith('ws-')) {
+          const ttyId = parseInt(data.slaveId.replace('ws-', ''), 10);
+          const slaveEntry = activeSlaves.get(data.slaveId);
+          if (slaveEntry) {
+            slaveEntry.isTrapped = false;
+            slaveEntry.trapDetails = null;
+          }
+          const ws = ttyClients.get(ttyId);
+          if (ws && ws.readyState === 1) {
+            ws.send(JSON.stringify({
+              type: 'TTY_OUTPUT',
+              tty: ttyId,
+              data: '\r\n\x1b[1;32m🟢 SYSTEM RECOVERY EXCEPTION VECTOR DISPATCHED. State quarantine lifted.\x1b[0m\r\n'
+            }));
+          }
+        } else {
+          io.to(data.slaveId).emit('bridge:trap-resolved');
+        }
       }
     });
 

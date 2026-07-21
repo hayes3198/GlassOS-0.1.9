@@ -480,7 +480,7 @@ export function ThemeCreator({ accentColor, setAccentColor, addNotification }: T
               {allThemesList.map((t) => {
                 const isActive = activeThemeId === t.id;
                 return (
-                  <button 
+                  <div 
                     key={t.id}
                     onClick={() => handleSelectTheme(t)}
                     className={cn(
@@ -526,7 +526,7 @@ export function ThemeCreator({ accentColor, setAccentColor, addNotification }: T
                         </button>
                       )}
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>

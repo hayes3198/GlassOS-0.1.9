@@ -1,361 +1,362 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
 import { 
-  Terminal, Wifi, WifiOff, RefreshCw, Cpu, ShieldAlert, Zap, 
-  HelpCircle, Monitor, ArrowLeft, Key, UserCheck, Settings, Globe
+  ArrowLeft, Monitor, Wifi, WifiOff, Terminal as TerminalIcon, 
+  Cpu, Activity, Radio, ChevronRight, User, Globe, AlertOctagon 
 } from 'lucide-react';
+import '@xterm/xterm/css/xterm.css';
+
+function cn(...classes: any[]) {
+  return classes.filter(Boolean).join(' ');
+}
 
 interface SlaveTerminalProps {
   socket: any;
   onExit: () => void;
 }
 
-interface SlaveRenderState {
-  history: string[];
-  currentPath: string[];
-  username: string;
-  tty: string;
-  isTopActive: boolean;
-  topData: any[];
-  isTrapped: boolean;
-  trapDetails?: {
-    trapType: string;
-    trapMessage: string;
-  } | null;
-}
-
 export function SlaveTerminal({ socket, onExit }: SlaveTerminalProps) {
-  const [isConnected, setIsConnected] = useState(false);
-  const [slaveId, setSlaveId] = useState('');
-  const [ttyName, setTtyName] = useState('tty2');
-  const [inputVal, setInputVal] = useState('');
-  const [terminalHistory, setTerminalHistory] = useState<string[]>([
-    'Initializing remote Intranet Slave Terminal...',
-    'Awaiting master handshake over WebSocket bridge...'
-  ]);
-  const [currentPath, setCurrentPath] = useState<string[]>([]);
-  const [username, setUsername] = useState('guest');
-  const [isTopActive, setIsTopActive] = useState(false);
-  const [topData, setTopData] = useState<any[]>([]);
-  const [isTrapped, setIsTrapped] = useState(false);
-  const [trapDetails, setTrapDetails] = useState<any>(null);
-  const [keystrokesCount, setKeystrokesCount] = useState(0);
+  const terminalRef = useRef<HTMLDivElement>(null);
+  const xtermRef = useRef<Terminal | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  // Connection settings
+  const [isConfigured, setIsConfigured] = useState(false);
+  const [masterHostIp, setMasterHostIp] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.location.host; // Auto-detect current port 3000 host
+    }
+    return 'localhost:3000';
+  });
+  const [username, setUsername] = useState('slave_user');
 
-  // Initialize socket connection and handshakes
+  // Terminal state
+  const [connectionStatus, setConnectionStatus] = useState<'DISCONNECTED' | 'CONNECTING' | 'CONNECTED'>('DISCONNECTED');
+  const [assignedTTY, setAssignedTTY] = useState<number | null>(null);
+  const [assignedPID, setAssignedPID] = useState<number | null>(null);
+  const [packetsSent, setPacketsSent] = useState(0);
+  const [packetsReceived, setPacketsReceived] = useState(0);
+
+  // Initialize and build Xterm.js when configured and mounted
   useEffect(() => {
-    if (!socket) {
-      setTerminalHistory(prev => [
-        ...prev,
-        '⚠️ [BRIDGE ERROR] Local WebSocket stack unavailable. Open GlassOS on the host first.'
-      ]);
-      return;
-    }
+    if (!isConfigured || !terminalRef.current) return;
 
-    // Set connection state if already connected
-    setIsConnected(socket.connected);
+    // 1. Initialize Xterm.js with GlassOS Retro-Modern Styling
+    const term = new Terminal({
+      cursorBlink: true,
+      cursorStyle: 'block',
+      fontFamily: 'Fira Code, JetBrains Mono, Menlo, Monaco, "Courier New", monospace',
+      fontSize: 13,
+      lineHeight: 1.3,
+      theme: {
+        background: '#0d1117',
+        foreground: '#c9d1d9',
+        cursor: '#10b981', // emerald-500
+        cursorAccent: '#0d1117',
+        selectionBackground: '#1f6feb',
+        black: '#484f58',
+        red: '#ff7b72',
+        green: '#3fb950',
+        yellow: '#d29922',
+        blue: '#58a6ff',
+        magenta: '#bc8cff',
+        cyan: '#39c5cf',
+        white: '#b1bac4',
+      },
+    });
 
-    const handleConnect = () => {
-      setIsConnected(true);
-      // Register as slave with a randomized TTY pts name
-      const randomTty = `pts/${Math.floor(Math.random() * 8) + 1}`;
-      setTtyName(randomTty);
-      socket.emit('bridge:register-slave', {
-        hostname: `slave-${socket.id?.slice(0, 4) || 'node'}`,
-        tty: randomTty,
-        userAgent: navigator.userAgent
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(terminalRef.current);
+    
+    // Tiny delay to ensure layout is fully updated before fitting
+    setTimeout(() => {
+      try {
+        fitAddon.fit();
+      } catch (e) {
+        console.warn('Initial terminal fit failed:', e);
+      }
+    }, 100);
+
+    xtermRef.current = term;
+    fitAddonRef.current = fitAddon;
+
+    term.writeln('\x1b[1;36m=== GlassOS Distributed Terminal Client v1.0 ===\x1b[0m');
+    term.writeln(`Initiating handshake with Master Host at \x1b[33mws://${masterHostIp}\x1b[0m...`);
+
+    // Determine secure WebSocket protocol based on page environment
+    const isSecure = typeof window !== 'undefined' && window.location.protocol === 'https:';
+    const wsUrl = `${isSecure ? 'wss' : 'ws'}://${masterHostIp}`;
+
+    setConnectionStatus('CONNECTING');
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setConnectionStatus('CONNECTED');
+      setPacketsSent(p => p + 1);
+      
+      // Request TTY allocation from Master Node Kernel
+      const connectReq = JSON.stringify({
+        type: 'CONNECT_REQ',
+        username,
       });
+      ws.send(connectReq);
     };
 
-    const handleDisconnect = () => {
-      setIsConnected(false);
-      setTerminalHistory(prev => [...prev, '❌ Link offline. Disconnected from Master Node.']);
+    ws.onmessage = (event) => {
+      setPacketsReceived(p => p + 1);
+      try {
+        const frame = JSON.parse(event.data);
+
+        switch (frame.type) {
+          case 'CONNECT_ACK':
+            setAssignedTTY(frame.tty);
+            setAssignedPID(frame.pid);
+            term.writeln(`\x1b[1;32m[+] Connected! Allocated TTY: /dev/tty${frame.tty} (Shell PID: ${frame.pid})\x1b[0m\r\n`);
+            term.write(frame.welcomeMsg || '');
+            break;
+
+          case 'TTY_OUTPUT':
+            term.write(frame.data);
+            break;
+
+          default:
+            break;
+        }
+      } catch (err) {
+        // Fallback for raw text streaming
+        term.write(event.data);
+      }
     };
 
-    const handleRegistered = (data: { id: string; masterOnline: boolean }) => {
-      setSlaveId(data.id);
-      setIsConnected(true);
-      setTerminalHistory(prev => [
-        ...prev,
-        `✅ Connected to Master Node [Socket ID: ${data.id}].`,
-        `Mapped virtual terminal to session address: /dev/${ttyName}`,
-        data.masterOnline 
-          ? '🟢 Master node link active. Interactive terminal session ready.' 
-          : '⚠️ Master node is offline. Awaiting Master activation in LAN Bridge app...'
-      ]);
+    ws.onclose = () => {
+      setConnectionStatus('DISCONNECTED');
+      term.writeln('\r\n\x1b[1;31m[!] Connection to Master Host lost. Please retry or verify router settings.\x1b[0m');
     };
 
-    const handleSlaveRender = (data: SlaveRenderState) => {
-      setTerminalHistory(data.history || []);
-      setCurrentPath(data.currentPath || []);
-      setUsername(data.username || 'guest');
-      setTtyName(data.tty || ttyName);
-      setIsTopActive(!!data.isTopActive);
-      setTopData(data.topData || []);
-      setIsTrapped(!!data.isTrapped);
-      setTrapDetails(data.trapDetails || null);
+    // Capture Local Keyboard Input and Stream to Host Scheduler
+    term.onData((data) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        setPacketsSent(p => p + 1);
+        ws.send(JSON.stringify({
+          type: 'TTY_INPUT',
+          tty: assignedTTY || 0,
+          data: data,
+        }));
+      }
+    });
+
+    // Handle Window Resizing
+    const handleResize = () => {
+      try {
+        fitAddon.fit();
+        if (ws.readyState === WebSocket.OPEN && assignedTTY !== null) {
+          setPacketsSent(p => p + 1);
+          ws.send(JSON.stringify({
+            type: 'RESIZE',
+            tty: assignedTTY,
+            cols: term.cols,
+            rows: term.rows,
+          }));
+        }
+      } catch (e) {
+        console.error(e);
+      }
     };
 
-    const handleTrapTriggered = (data: { trapType: string; trapMessage: string }) => {
-      setIsTrapped(true);
-      setTrapDetails(data);
-    };
-
-    const handleTrapResolved = () => {
-      setIsTrapped(false);
-      setTrapDetails(null);
-      setTerminalHistory(prev => [
-        ...prev,
-        '🟢 SYSTEM RECOVERY EXCEPTION VECTOR DISPATCHED. State quarantine lifted.'
-      ]);
-    };
-
-    socket.on('connect', handleConnect);
-    socket.on('disconnect', handleDisconnect);
-    socket.on('bridge:registered', handleRegistered);
-    socket.on('bridge:slave-render', handleSlaveRender);
-    socket.on('bridge:trap-triggered', handleTrapTriggered);
-    socket.on('bridge:trap-resolved', handleTrapResolved);
-
-    // Trigger registration if already connected on mount
-    if (socket.connected) {
-      handleConnect();
-    }
+    window.addEventListener('resize', handleResize);
 
     return () => {
-      socket.off('connect', handleConnect);
-      socket.off('disconnect', handleDisconnect);
-      socket.off('bridge:registered', handleRegistered);
-      socket.off('bridge:slave-render', handleSlaveRender);
-      socket.off('bridge:trap-triggered', handleTrapTriggered);
-      socket.off('bridge:trap-resolved', handleTrapResolved);
+      window.removeEventListener('resize', handleResize);
+      ws.close();
+      term.dispose();
     };
-  }, [socket, ttyName]);
+  }, [isConfigured, masterHostIp, username, assignedTTY]);
 
-  // Keep terminal scrolled to bottom
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  // Handle local disconnection & re-open configuration
+  const handleDisconnect = () => {
+    if (wsRef.current) {
+      wsRef.current.close();
     }
-  }, [terminalHistory, isTopActive]);
-
-  // Refocus input bar
-  const focusInput = () => {
-    if (!isTrapped && inputRef.current) {
-      inputRef.current.focus();
-    }
+    setConnectionStatus('DISCONNECTED');
+    setAssignedTTY(null);
+    setAssignedPID(null);
+    setIsConfigured(false);
   };
-
-  useEffect(() => {
-    focusInput();
-  }, [isTrapped]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (isTrapped || !isConnected || !socket) return;
-    
-    const command = inputVal.trim();
-    if (!command) return;
-
-    // Send the command directly over the relay bridge
-    socket.emit('bridge:slave-input', { input: command });
-    setKeystrokesCount(k => k + 1);
-    setInputVal('');
-  };
-
-  // Route individual keystrokes to let master log telemetry (optional but fun!)
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (isTrapped || !isConnected || !socket) return;
-    if (e.key !== 'Enter') {
-      socket.emit('bridge:slave-input', { key: e.key });
-      setKeystrokesCount(k => k + 1);
-    }
-  };
-
-  const pathString = '/' + currentPath.join('/');
 
   return (
-    <div 
-      className="fixed inset-0 bg-neutral-950 text-emerald-400 font-mono text-sm overflow-hidden flex flex-col z-[99999] select-none"
-      onClick={focusInput}
-    >
-      {/* Dynamic Scanlines Overlay */}
-      <div className="pointer-events-none absolute inset-0 z-50 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_4px,3px_100%] opacity-40" />
+    <div className="fixed inset-0 bg-neutral-950 text-neutral-100 font-sans select-none overflow-hidden flex flex-col z-[99999]">
+      
+      {/* Configuration View / Pairing Screen */}
+      {!isConfigured ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-6 relative bg-gradient-to-b from-neutral-900 via-neutral-950 to-neutral-950">
+          {/* Subtle grid pattern background */}
+          <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:24px_24px] opacity-10" />
 
-      {/* Connection and telemetry top-bar */}
-      <div className="px-4 py-2 border-b border-emerald-950 bg-black/40 flex items-center justify-between text-xs font-semibold uppercase tracking-wider select-none z-10">
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={onExit}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-950/20 hover:bg-emerald-950/40 border border-emerald-800/30 text-emerald-400 transition-colors"
-          >
-            <ArrowLeft size={12} />
-            Exit Terminal
-          </button>
-          
-          <div className="h-4 w-px bg-emerald-950/60" />
-          
-          <div className="flex items-center gap-1.5">
-            <Monitor size={14} className="text-emerald-500 animate-pulse" />
-            <span>GLASS_TTY://DEV/{ttyName}</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-4 text-emerald-500/80">
-          <div className="hidden sm:flex items-center gap-2">
-            <Key size={12} />
-            <span>TX Keystrokes: {keystrokesCount}</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {isConnected ? (
-              <Wifi size={14} className="text-emerald-400" />
-            ) : (
-              <WifiOff size={14} className="text-rose-500" />
-            )}
-            <span className={isConnected ? 'text-emerald-400' : 'text-rose-500'}>
-              {isConnected ? 'RELAY_LINK_UP' : 'RELAY_LINK_DOWN'}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Screen area */}
-      <div className="flex-1 p-4 relative flex flex-col justify-between overflow-hidden">
-        
-        {/* Trapped State Ring-0 exception screen */}
-        <AnimatePresence>
-          {isTrapped && (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-red-950/95 text-rose-300 z-40 p-8 flex flex-col justify-center items-center select-text overflow-y-auto"
-            >
-              <div className="p-4 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 mb-6 animate-pulse">
-                <ShieldAlert size={48} />
+          {/* GlassOS Aesthetic Login/Connection Card */}
+          <div className="w-full max-w-md bg-neutral-900/60 border border-neutral-800 p-8 rounded-2xl shadow-2xl backdrop-blur-md relative z-10 flex flex-col gap-6">
+            <div className="flex flex-col items-center gap-3 text-center">
+              <div className="p-3.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.1)]">
+                <TerminalIcon size={28} className="animate-pulse" />
               </div>
-              
-              <h2 className="text-lg font-extrabold tracking-wider text-rose-400 uppercase text-center max-w-xl">
-                ⚠️ RING-0 CPU INTERRUPT EXCEPTION DETECTED ⚠️
+              <h2 className="text-sm font-extrabold tracking-tight uppercase text-neutral-100">
+                GlassOS Terminal Client
               </h2>
-              
-              <div className="w-full max-w-2xl bg-black/60 border border-rose-900/40 p-4 rounded-xl font-mono text-xs text-rose-400/90 shadow-2xl space-y-3 mt-4">
-                <div className="font-bold border-b border-rose-900/30 pb-2 flex justify-between">
-                  <span>VECTOR FAULT: {trapDetails?.trapType || 'SYS_HALT'}</span>
-                  <span>IP REGISTERS DUMP</span>
-                </div>
-                
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] leading-relaxed select-all">
-                  <div>EAX=00000003</div>
-                  <div>EBX=002010A4</div>
-                  <div>ECX=FFFFA340</div>
-                  <div>EDX=00000000</div>
-                  <div>ESI=00201B4C</div>
-                  <div>EDI=00201201</div>
-                  <div>EBP=FFFFFF0C</div>
-                  <div>ESP=001FA840</div>
-                  <div>EIP=001B0243</div>
-                  <div>EFLAGS=00010246</div>
-                  <div>CR0=80000011</div>
-                  <div>CR2=00000000</div>
-                </div>
-
-                <div className="text-[11px] border-t border-rose-900/30 pt-3 space-y-1">
-                  <p className="text-rose-300 font-bold">Exception details:</p>
-                  <p className="italic text-rose-400/80">{trapDetails?.trapMessage || 'Manual CPU instruction halt called by GlassOS master host supervisor.'}</p>
-                </div>
-              </div>
-
-              <div className="mt-8 text-center space-y-2 max-w-md">
-                <p className="text-xs uppercase tracking-widest text-rose-400 animate-pulse font-bold">
-                  SYSTEM QUARANTINE ACTIVE
-                </p>
-                <p className="text-xs text-rose-400/60 leading-relaxed">
-                  Keyboard and peripheral I/O mapping have been suspended to prevent stack overflow. Awaiting recovery vector instruction from master controller.
-                </p>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Top output viewport */}
-        <div 
-          ref={scrollRef}
-          className="flex-1 overflow-y-auto space-y-1.5 pr-2 no-scrollbar font-mono text-sm leading-relaxed"
-        >
-          {isTopActive ? (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between text-xs border-b border-emerald-950 pb-2">
-                <span>TTY MAPPED PROCESS MONITOR (TOP)</span>
-                <span>Active Core: 100% MAPPED</span>
-              </div>
-              <div className="space-y-1 text-xs">
-                <div className="grid grid-cols-6 font-bold border-b border-emerald-950/60 pb-1 mb-1 text-emerald-300">
-                  <span>PID</span>
-                  <span className="col-span-2">PROCESS</span>
-                  <span>CPU%</span>
-                  <span>MEM</span>
-                  <span>TTY</span>
-                </div>
-                {topData.map((p, idx) => (
-                  <div key={idx} className="grid grid-cols-6 hover:bg-emerald-950/10">
-                    <span>{p.pid}</span>
-                    <span className="col-span-2 text-emerald-200">{p.proc}</span>
-                    <span>{p.cpu}</span>
-                    <span>{p.mem}</span>
-                    <span className="text-amber-400 font-bold">{p.tty || ttyName}</span>
-                  </div>
-                ))}
-              </div>
-              <p className="text-[10px] text-emerald-500/60 animate-pulse mt-4">
-                Press Ctrl+C or type "quit" to exit process monitor.
+              <p className="text-xs text-neutral-400">
+                Pair secondary device shells cleanly into your active LAN bridge
               </p>
             </div>
-          ) : (
-            <>
-              {terminalHistory.map((line, idx) => {
-                let color = 'text-emerald-400';
-                if (line.includes('✅') || line.includes('🟢')) color = 'text-emerald-300';
-                if (line.includes('⚠️')) color = 'text-amber-400';
-                if (line.includes('❌') || line.includes('⚠️ [BRIDGE ERROR]')) color = 'text-rose-400';
-                if (line.startsWith('/') || line.includes('$ ')) color = 'text-emerald-200 font-bold';
 
-                return (
-                  <div key={idx} className={`${color} whitespace-pre-wrap break-all select-text`}>
-                    {line}
-                  </div>
-                );
-              })}
-            </>
-          )}
+            <div className="space-y-4">
+              {/* Username Input */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1">
+                  <User size={12} className="text-neutral-500" />
+                  Operator Username
+                </label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="px-3.5 py-2 rounded-xl bg-neutral-950/80 border border-neutral-800 text-sm text-neutral-200 focus:border-emerald-500/40 outline-none font-mono transition-colors"
+                  placeholder="e.g. phone_user"
+                />
+              </div>
+
+              {/* Master Node LAN IP */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1">
+                  <Globe size={12} className="text-neutral-500" />
+                  Master Host Address (IP:Port)
+                </label>
+                <input
+                  type="text"
+                  value={masterHostIp}
+                  onChange={(e) => setMasterHostIp(e.target.value)}
+                  className="px-3.5 py-2 rounded-xl bg-neutral-950/80 border border-neutral-800 text-sm text-neutral-200 focus:border-emerald-500/40 outline-none font-mono transition-colors"
+                  placeholder="e.g. 192.168.1.50:8080"
+                />
+              </div>
+
+              {/* Presets */}
+              <div className="flex flex-col gap-2">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-neutral-500">Quick Host Presets</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => {
+                      if (typeof window !== 'undefined') {
+                        setMasterHostIp(window.location.host);
+                      }
+                    }}
+                    className="p-1.5 rounded-lg border border-neutral-800 hover:border-neutral-700 bg-neutral-950/40 text-[10px] text-neutral-400 font-medium transition-all"
+                  >
+                    Auto-Detected Port 3000
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (typeof window !== 'undefined') {
+                        setMasterHostIp(`${window.location.hostname}:8080`);
+                      } else {
+                        setMasterHostIp('localhost:8080');
+                      }
+                    }}
+                    className="p-1.5 rounded-lg border border-neutral-800 hover:border-neutral-700 bg-neutral-950/40 text-[10px] text-neutral-400 font-medium transition-all"
+                  >
+                    Default Port 8080
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-2">
+              <button
+                onClick={onExit}
+                className="flex-1 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 text-neutral-300 cursor-pointer"
+              >
+                <ArrowLeft size={14} />
+                Exit Client
+              </button>
+              <button
+                onClick={() => setIsConfigured(true)}
+                className="flex-1 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 font-bold text-xs text-neutral-950 transition-colors flex items-center justify-center gap-1 hover:shadow-[0_0_15px_rgba(16,185,129,0.2)] cursor-pointer"
+              >
+                Connect Shell
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
         </div>
+      ) : (
+        /* Terminal Execution View */
+        <div className="flex-1 flex flex-col h-full w-full bg-[#0d1117]">
+          {/* Status and Action header */}
+          <header className="flex items-center justify-between px-4 py-2.5 bg-neutral-900 border-b border-neutral-800 relative z-20">
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={handleDisconnect}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-xs font-semibold text-neutral-300 transition-colors cursor-pointer"
+              >
+                <ArrowLeft size={12} />
+                Disconnect
+              </button>
+              <div className="h-4 w-px bg-neutral-800" />
+              <div className="flex items-center gap-2">
+                <Monitor size={14} className="text-emerald-500" />
+                <span className="text-xs font-mono text-neutral-400">
+                  GlassOS Terminal — {username}@{masterHostIp}
+                </span>
+              </div>
+            </div>
 
-        {/* Input line */}
-        {!isTopActive && (
-          <form 
-            onSubmit={handleSubmit}
-            className="mt-4 flex items-center gap-1.5 border-t border-emerald-950 pt-3 select-none"
-          >
-            <span className="text-emerald-300 font-bold select-none shrink-0">
-              {username}@glass-os:{pathString}$
-            </span>
-            <input
-              ref={inputRef}
-              type="text"
-              value={inputVal}
-              onChange={(e) => setInputVal(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={isTrapped || !isConnected}
-              className="flex-1 bg-transparent border-none outline-none text-emerald-200 font-mono caret-emerald-400 select-text disabled:opacity-40"
-              autoFocus
-              placeholder={isTrapped ? "System suspended..." : "Enter remote command..."}
-            />
-          </form>
-        )}
-      </div>
+            <div className="flex items-center space-x-4 text-xs font-mono">
+              {/* Telemetry Stats */}
+              <div className="hidden md:flex items-center space-x-4 text-neutral-500 text-[11px]">
+                <span className="flex items-center gap-1">
+                  <Activity size={11} />
+                  TX: {packetsSent}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Radio size={11} />
+                  RX: {packetsReceived}
+                </span>
+              </div>
+
+              {/* Status Indicator */}
+              <span className="flex items-center space-x-1.5">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    connectionStatus === 'CONNECTED'
+                      ? 'bg-emerald-400 animate-pulse'
+                      : connectionStatus === 'CONNECTING'
+                      ? 'bg-amber-400 animate-pulse'
+                      : 'bg-rose-500'
+                  }`}
+                />
+                <span className="text-neutral-300 uppercase tracking-wider text-[10px] font-bold">{connectionStatus}</span>
+              </span>
+
+              {assignedTTY !== null && (
+                <span className="px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 border border-neutral-700 text-[10px]">
+                  TTY: /dev/tty{assignedTTY}
+                </span>
+              )}
+              {assignedPID !== null && (
+                <span className="px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 border border-neutral-700 text-[10px]">
+                  PID: {assignedPID}
+                </span>
+              )}
+            </div>
+          </header>
+
+          {/* Terminal Viewport */}
+          <main className="flex-1 p-3 bg-[#0d1117] overflow-hidden relative">
+            <div ref={terminalRef} className="h-full w-full" />
+          </main>
+        </div>
+      )}
     </div>
   );
 }
