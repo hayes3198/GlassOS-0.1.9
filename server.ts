@@ -225,11 +225,86 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }));
 
   const activeNodes = new Map<string, any>();
+  const activeSlaves = new Map<string, any>();
+  let masterSocketId: string | null = null;
 
   // Socket.io Connection Handling
   io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
     
+    // Relay Bridge Master Registration
+    socket.on('bridge:register-master', () => {
+      masterSocketId = socket.id;
+      console.log(`Master Node registered: ${socket.id}`);
+      socket.emit('bridge:master-status', { online: true });
+      socket.emit('bridge:slaves-list', Array.from(activeSlaves.values()));
+      io.emit('bridge:master-changed', { masterId: socket.id, online: true });
+    });
+
+    // Relay Bridge Slave Registration
+    socket.on('bridge:register-slave', (slaveData) => {
+      activeSlaves.set(socket.id, {
+        id: socket.id,
+        hostname: slaveData.hostname || `slave-${socket.id.slice(0, 4)}`,
+        ip: socket.handshake.address || '127.0.0.1',
+        tty: slaveData.tty || 'pts/1',
+        connectedAt: new Date().toISOString(),
+        userAgent: slaveData.userAgent || 'Unknown Browser'
+      });
+      console.log(`Slave Node registered: ${socket.id}`);
+      
+      // Notify Master about new slave list
+      if (masterSocketId) {
+        io.to(masterSocketId).emit('bridge:slaves-list', Array.from(activeSlaves.values()));
+      }
+      
+      socket.emit('bridge:registered', { id: socket.id, masterOnline: !!masterSocketId });
+    });
+
+    // Keyboard inputs from Slave Node
+    socket.on('bridge:slave-input', (data) => {
+      if (masterSocketId) {
+        io.to(masterSocketId).emit('bridge:slave-input', {
+          slaveId: socket.id,
+          input: data.input,
+          key: data.key
+        });
+      }
+    });
+
+    // Render updates from Master Node to Slave Node
+    socket.on('bridge:master-render', (data) => {
+      if (data.slaveId) {
+        io.to(data.slaveId).emit('bridge:slave-render', {
+          history: data.history,
+          currentPath: data.currentPath,
+          username: data.username,
+          tty: data.tty,
+          isTopActive: data.isTopActive,
+          topData: data.topData,
+          isTrapped: data.isTrapped,
+          trapDetails: data.trapDetails
+        });
+      }
+    });
+
+    // Trigger Trap Exception from Master to Slave
+    socket.on('bridge:trigger-trap', (data) => {
+      if (data.slaveId) {
+        io.to(data.slaveId).emit('bridge:trap-triggered', {
+          trapType: data.trapType,
+          trapMessage: data.trapMessage
+        });
+      }
+    });
+
+    // Resolve Trap Exception from Master to Slave
+    socket.on('bridge:resolve-trap', (data) => {
+      if (data.slaveId) {
+        io.to(data.slaveId).emit('bridge:trap-resolved');
+      }
+    });
+
     socket.on('glasstcp:register', (nodeData) => {
       activeNodes.set(socket.id, {
         id: socket.id,
@@ -257,6 +332,18 @@ async function startServer() {
       console.log(`User disconnected: ${socket.id}`);
       activeNodes.delete(socket.id);
       io.emit('glasstcp:nodes', Array.from(activeNodes.values()));
+
+      if (activeSlaves.has(socket.id)) {
+        activeSlaves.delete(socket.id);
+        if (masterSocketId) {
+          io.to(masterSocketId).emit('bridge:slaves-list', Array.from(activeSlaves.values()));
+        }
+      }
+      
+      if (socket.id === masterSocketId) {
+        masterSocketId = null;
+        io.emit('bridge:master-changed', { masterId: null, online: false });
+      }
     });
   });
 

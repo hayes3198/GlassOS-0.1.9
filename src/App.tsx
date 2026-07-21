@@ -224,6 +224,10 @@ import { INITIAL_FS, DEFAULT_PERMISSIONS } from './components/constants/initialF
 import { FilePicker } from './components/FilePicker';
 import { GlassTCP } from './components/GlassTCP';
 import { GlassKernel } from './components/GlassKernel';
+import { LANBridgeApp } from './components/LANBridgeApp';
+import { SlaveTerminal } from './components/SlaveTerminal';
+import { ThemeCreator } from './components/ThemeCreator';
+import { themeStorage } from './services/themeStorageService';
 import { ProtocolsDashboard } from './components/ProtocolsDashboard';
 import ClockApp from './components/ClockApp';
 import TimerApp from './components/TimerApp';
@@ -374,6 +378,13 @@ export const findItemByPath = (items: FileSystemItem[], path: string[]): FileSys
 // --- Components ---
 
 export default function App() {
+  const [isSlaveMode, setIsSlaveMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('mode') === 'slave' || params.get('slave') === 'true';
+    }
+    return false;
+  });
   const [fs, setFs] = useState<FileSystemItem[]>(INITIAL_FS);
   const fsLib = useMemo(() => new FileSystemLib(fs, setFs), [fs, setFs]);
   const [windows, setWindows] = useState<WindowState[]>([]);
@@ -389,6 +400,20 @@ export default function App() {
     { id: '2', username: 'Engineer', avatar: 'https://cdn-icons-png.flaticon.com/512/219/219983.png', isAdmin: false },
   ]);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
+  const [sessions, setSessions] = useState<any[]>([
+    {
+      id: '1',
+      title: 'bash',
+      history: ['Welcome to GlassOS Terminal', 'Type "help" for a list of commands.'],
+      currentPath: [],
+      isTopActive: false,
+      topData: [],
+      tty: 'tty1',
+      uid: 1000,
+      username: 'Administrator'
+    }
+  ]);
+  const [activeSessionId, setActiveSessionId] = useState('1');
   const [isLockScreen, setIsLockScreen] = useState(true);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [systemPowerState, setSystemPowerState] = useState<'booting' | 'running' | 'shutting-down' | 'powered-off'>('booting');
@@ -584,6 +609,7 @@ export default function App() {
   const getAppDetails = (id: string) => {
     switch (id) {
       case 'terminal': return { label: 'Terminal', desc: 'Command line terminal interface' };
+      case 'lanbridge': return { label: 'Relay LAN Bridge', desc: 'Map local physical hardware devices as dumb terminal shells' };
       case 'settings': return { label: 'Settings', desc: 'System configuration and preferences' };
       case 'notepad': return { label: 'Notepad', desc: 'Simple text file editor' };
       case 'browser': return { label: 'Web Browser', desc: 'Surfing the web and online portals' };
@@ -924,6 +950,33 @@ export default function App() {
       await storage.init();
       const localFs = await storage.loadFS();
       if (localFs) setFs(localFs);
+
+      // Restore custom glassmorphism theme from IndexedDB or presets
+      try {
+        const savedThemeId = localStorage.getItem('glassos_active_theme_id');
+        if (savedThemeId) {
+          const savedThemes = await themeStorage.loadThemes();
+          const PRESET_THEMES = [
+            { id: 'preset-default', name: 'Default Glass', bgColor: 'rgba(255, 255, 255, 0.1)', borderColor: 'rgba(255, 255, 255, 0.2)', blur: 12, textColor: '#ffffff', accentColor: '#3b82f6', shadowColor: 'rgba(31, 38, 135, 0.37)' },
+            { id: 'preset-aurora', name: 'Aurora Borealis', bgColor: 'rgba(16, 185, 129, 0.15)', borderColor: 'rgba(52, 211, 153, 0.3)', blur: 16, textColor: '#ecfdf5', accentColor: '#10b981', shadowColor: 'rgba(16, 185, 129, 0.25)' },
+            { id: 'preset-cyberpunk', name: 'Cyberpunk Neon', bgColor: 'rgba(15, 10, 25, 0.5)', borderColor: 'rgba(236, 72, 153, 0.4)', blur: 8, textColor: '#fdf2f8', accentColor: '#ec4899', shadowColor: 'rgba(236, 72, 153, 0.3)' },
+            { id: 'preset-slate', name: 'Monochrome Slate', bgColor: 'rgba(30, 41, 59, 0.45)', borderColor: 'rgba(255, 255, 255, 0.08)', blur: 24, textColor: '#f8fafc', accentColor: '#ffffff', shadowColor: 'rgba(0, 0, 0, 0.5)' },
+            { id: 'preset-sunset', name: 'Sunset Glow', bgColor: 'rgba(244, 63, 94, 0.15)', borderColor: 'rgba(251, 146, 60, 0.3)', blur: 14, textColor: '#fff1f2', accentColor: '#f43f5e', shadowColor: 'rgba(244, 63, 94, 0.25)' }
+          ];
+          const found = [...PRESET_THEMES, ...savedThemes].find(t => t.id === savedThemeId);
+          if (found) {
+            const root = document.documentElement;
+            root.style.setProperty('--glass-bg', found.bgColor);
+            root.style.setProperty('--glass-blur', `${found.blur}px`);
+            root.style.setProperty('--glass-border', found.borderColor);
+            root.style.setProperty('--glass-shadow', `0 8px 32px 0 ${found.shadowColor}`);
+            root.style.setProperty('--glass-text', found.textColor);
+            setAccentColor(found.accentColor);
+          }
+        }
+      } catch (err) {
+        console.error("Error restoring custom theme on boot:", err);
+      }
 
       // 2. Server Sync
       const success = await loadFromCloud();
@@ -1726,6 +1779,21 @@ export default function App() {
     );
   }
 
+  if (isSlaveMode) {
+    return (
+      <SlaveTerminal 
+        socket={socketRef.current} 
+        onExit={() => {
+          setIsSlaveMode(false);
+          if (typeof window !== 'undefined') {
+            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.history.pushState({ path: newUrl }, '', newUrl);
+          }
+        }} 
+      />
+    );
+  }
+
   if (isLoggingOut) {
     return (
       <div className="fixed inset-0 bg-black flex flex-col items-center justify-center z-[9999]">
@@ -1902,6 +1970,7 @@ export default function App() {
                     networkNodes, setNetworkNodes, kernelCalls, setKernelCalls, networkTraffic, setNetworkTraffic,
                     authorizedTokens, setAuthorizedTokens,
                     isAdmin, setIsAdmin, isSandboxed, setIsSandboxed, requestSudo,
+                    sessions, setSessions, activeSessionId, setActiveSessionId,
                     socket: socketRef.current,
                     screensaverTimeout, setScreensaverTimeout,
                   })}
@@ -2118,6 +2187,7 @@ export default function App() {
                       <div className="grid grid-cols-4 gap-3">
                         {[
                           { id: 'terminal', label: 'Terminal', color: 'bg-blue-500/20 text-blue-400' },
+                          { id: 'lanbridge', label: 'LAN Bridge', color: 'bg-emerald-500/20 text-emerald-400' },
                           { id: 'files', label: 'Files', color: 'bg-yellow-500/20 text-yellow-400' },
                           { id: 'browser', label: 'Browser', color: 'bg-green-500/20 text-green-400' },
                           { id: 'codestudio', label: 'Code', color: 'bg-purple-500/20 text-purple-400' },
@@ -2866,6 +2936,7 @@ function GlobalSearch({
 }) {
   const allApps = [
     { id: 'terminal', label: 'Terminal', icon: <TerminalIcon size={18} /> },
+    { id: 'lanbridge', label: 'Relay LAN Bridge', icon: <Network size={18} className="text-emerald-400" /> },
     { id: 'files', label: 'File Explorer', icon: <Folder size={18} /> },
     { id: 'browser', label: 'Web Browser', icon: <Globe size={18} /> },
     { id: 'photos', label: 'Photos', icon: <ImageIcon size={18} /> },
@@ -3383,6 +3454,7 @@ function QuickSettings({
 function getAppIcon(id: AppId, size: number, color?: string) {
   switch (id) {
     case 'terminal': return <TerminalIcon size={size} />;
+    case 'lanbridge': return <Network size={size} className="text-emerald-400" />;
     case 'settings': return <SettingsIcon size={size} />;
     case 'files': return <Folder size={size} style={{ color: color }} />;
     case 'browser': return <Globe size={size} />;
@@ -11217,6 +11289,7 @@ function renderApp(id: AppId, props: any) {
     case 'timer': return <TimerApp {...props} />;
     case 'calculator': return <CalculatorApp {...props} />;
     case 'unitconverter': return <UnitConverterApp {...props} />;
+    case 'lanbridge': return <LANBridgeApp {...props} />;
     default: return <div className="p-4">App not found</div>;
   }
 }
@@ -11441,7 +11514,7 @@ function SystemMonitorApp(props: any) {
     networkNodes, authorizedTokens, networkConfig,
     socket, fs, setFs, addNotification, currentUser,
     setNetworkNodes, setNetworkTraffic, openWindow,
-    windows, closeWindow
+    windows, closeWindow, sessions
   } = props;
 
   const [activeTab, setActiveTab] = useState<'overview' | 'traffic' | 'glasstcp' | 'kernel' | 'security' | 'protocols' | 'hardware' | 'printers'>('overview');
@@ -12302,6 +12375,8 @@ End
               fsLib={fsLib}
               windows={windows}
               closeWindow={closeWindow}
+              currentUser={currentUser}
+              sessions={sessions}
             />
           )}
 
@@ -13243,7 +13318,8 @@ function TerminalApp({
   setSheetData, setActiveFileInSheets,
   networkNodes, setNetworkNodes, runGlassScript,
   windows, setWindows, tasks, setTasks, closeWindow,
-  runBrainscript
+  runBrainscript,
+  sessions, setSessions, activeSessionId, setActiveSessionId
 }: any) {
   interface TerminalSession {
     id: string;
@@ -13252,19 +13328,13 @@ function TerminalApp({
     currentPath: string[];
     isTopActive: boolean;
     topData: any[];
+    tty: string;
+    uid: number;
+    username: string;
+    isChatActive?: boolean;
+    chatTargetTty?: string;
   }
 
-  const [sessions, setSessions] = useState<TerminalSession[]>([
-    {
-      id: '1',
-      title: 'bash',
-      history: ['Welcome to GlassOS Terminal', 'Type "help" for a list of commands.'],
-      currentPath: [],
-      isTopActive: false,
-      topData: []
-    }
-  ]);
-  const [activeSessionId, setActiveSessionId] = useState('1');
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -13285,15 +13355,80 @@ function TerminalApp({
   }, [activeSession.history]);
 
   useEffect(() => {
+    const handleRemoteCommand = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const { slaveId, tty, command } = customEvent.detail;
+      
+      setSessions(prev => {
+        const existing = prev.find(s => s.tty === tty);
+        if (existing) {
+          setTimeout(() => {
+            processCommand(command, existing.id);
+          }, 0);
+          return prev;
+        }
+        
+        const newId = Math.random().toString(36).substr(2, 9);
+        const newSession: TerminalSession = {
+          id: newId,
+          title: 'bash',
+          history: [`Terminal session started on remote dumb terminal (${tty}).`],
+          currentPath: [],
+          isTopActive: false,
+          topData: [],
+          tty,
+          uid: currentUser?.id === '2' ? 1001 : 1000,
+          username: currentUser?.username || 'Administrator'
+        };
+        
+        setTimeout(() => {
+          processCommand(command, newId);
+        }, 50);
+        
+        return [...prev, newSession];
+      });
+    };
+
+    const handleSendAlert = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const { slaveId, message } = customEvent.detail;
+      
+      setSessions(prev => prev.map(s => {
+        if (s.tty === 'tty2' || s.tty === 'pts/1') {
+          return {
+            ...s,
+            history: [...s.history, message]
+          };
+        }
+        return s;
+      }));
+    };
+
+    window.addEventListener('lanbridge:execute-command', handleRemoteCommand);
+    window.addEventListener('lanbridge:send-alert', handleSendAlert);
+    
+    return () => {
+      window.removeEventListener('lanbridge:execute-command', handleRemoteCommand);
+      window.removeEventListener('lanbridge:send-alert', handleSendAlert);
+    };
+  }, [sessions, activeSessionId, currentUser]);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('lanbridge:push-renders', {
+      detail: { sessions }
+    }));
+  }, [sessions]);
+
+  useEffect(() => {
     const interval = setInterval(() => {
       setSessions(prev => prev.map(s => {
         if (s.isTopActive) {
           const systemDaemons = [
-            { pid: 101, proc: 'System Core', cpu: (Math.random() * 2 + 1).toFixed(1), mem: '128MB' },
-            { pid: 204, proc: 'Window Manager', cpu: (Math.random() * 4 + 2).toFixed(1), mem: '256MB' },
-            { pid: 501, proc: 'Network Stack (gTLSP)', cpu: (Math.random() * 0.8 + 0.2).toFixed(1), mem: '64MB' },
-            { pid: 800, proc: 'Memory Daemon', cpu: (Math.random() * 0.4 + 0.1).toFixed(1), mem: '45MB' },
-            { pid: 900, proc: 'Kernel Core (GlassKernel)', cpu: (Math.random() * 0.5 + 0.1).toFixed(1), mem: '80MB' },
+            { pid: 101, proc: 'System Core', cpu: (Math.random() * 2 + 1).toFixed(1), mem: '128MB', uid: 0, tty: '?' },
+            { pid: 204, proc: 'Window Manager', cpu: (Math.random() * 4 + 2).toFixed(1), mem: '256MB', uid: 0, tty: '?' },
+            { pid: 501, proc: 'Network Stack (gTLSP)', cpu: (Math.random() * 0.8 + 0.2).toFixed(1), mem: '64MB', uid: 0, tty: '?' },
+            { pid: 800, proc: 'Memory Daemon', cpu: (Math.random() * 0.4 + 0.1).toFixed(1), mem: '45MB', uid: 0, tty: '?' },
+            { pid: 900, proc: 'Kernel Core (GlassKernel)', cpu: (Math.random() * 0.5 + 0.1).toFixed(1), mem: '80MB', uid: 0, tty: '?' },
           ];
 
           const windowProcs = (windows || []).map((win: any, idx: number) => {
@@ -13328,6 +13463,8 @@ function TerminalApp({
               proc: win.title,
               cpu: cpuVal,
               mem: metric.mem,
+              uid: currentUser?.id === '2' ? 1001 : 1000,
+              tty: win.id === 'terminal' ? s.tty : '?',
             };
           });
 
@@ -13337,6 +13474,8 @@ function TerminalApp({
               proc: `Task: ${t.name}`,
               cpu: '0.1',
               mem: '12MB',
+              uid: 0,
+              tty: '?',
             };
           });
 
@@ -13349,18 +13488,22 @@ function TerminalApp({
       }));
     }, 1000);
     return () => clearInterval(interval);
-  }, [windows, tasks]);
+  }, [windows, tasks, currentUser]);
 
   const addSession = () => {
     const newId = Math.random().toString(36).substr(2, 9);
     addNotification('Terminal', 'New session started', 'info');
+    const nextTtyNum = sessions.length + 1;
     const newSession: TerminalSession = {
       id: newId,
       title: 'bash',
-      history: [`Terminal session ${sessions.length + 1} started.`],
+      history: [`Terminal session ${nextTtyNum} started on tty${nextTtyNum}.`],
       currentPath: [],
       isTopActive: false,
-      topData: []
+      topData: [],
+      tty: `tty${nextTtyNum}`,
+      uid: currentUser?.id === '2' ? 1001 : 1000,
+      username: currentUser?.username || 'Administrator'
     };
     setSessions(prev => [...prev, newSession]);
     setActiveSessionId(newId);
@@ -13376,11 +13519,75 @@ function TerminalApp({
     }
   };
 
-  const updateActiveSession = (update: Partial<TerminalSession>) => {
-    setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, ...update } : s));
+  const updateSession = (sid: string, update: Partial<TerminalSession>) => {
+    setSessions(prev => prev.map(s => s.id === sid ? { ...s, ...update } : s));
   };
 
-  const processCommand = async (inputCommand: string) => {
+  const updateActiveSession = (update: Partial<TerminalSession>) => {
+    updateSession(activeSessionId, update);
+  };
+
+  const processCommand = async (inputCommand: string, targetSessionId: string = activeSessionId) => {
+    const targetSession = sessions.find(s => s.id === targetSessionId) || sessions.find(s => s.id === activeSessionId) || sessions[0];
+    const activeSession = targetSession;
+    const updateActiveSession = (update: Partial<TerminalSession>) => {
+      updateSession(targetSessionId, update);
+    };
+
+    if (activeSession.isChatActive) {
+      const cmdToProcess = inputCommand.trim();
+      if (cmdToProcess.toLowerCase() === 'exit' || cmdToProcess.toLowerCase() === 'quit') {
+        const myTty = activeSession.tty;
+        updateActiveSession({
+          isChatActive: false,
+          chatTargetTty: undefined,
+          history: [
+            ...activeSession.history,
+            `${activeSession.username}@glass-os:${'/' + activeSession.currentPath.join('/')}$ ${inputCommand}`,
+            `[SYSCALL] int 0x80 -> SYS_CLOSE (0x3) releasing socket FD 5.`,
+            `[KERNEL] Connection torn down. Inter-user virtual circuit closed.`,
+          ]
+        });
+        addNotification('Syscall Protocol', `Connection closed on /dev/${myTty}`, 'info');
+        return;
+      }
+
+      // Route chat message!
+      const message = inputCommand;
+      const myTty = activeSession.tty;
+      const targetTty = activeSession.chatTargetTty || 'tty1';
+
+      // 1. Log to sender's history
+      const updatedHistory = [
+        ...activeSession.history,
+        `${activeSession.username}@glass-os:${'/' + activeSession.currentPath.join('/')}$ ${inputCommand}`,
+        `[SYSCALL] int 0x80 -> SYS_WRITE (0x1) to socket FD 5.`,
+        `[KERNEL] Intercepting socket write. Encapsulating packet frame...`,
+        `[KERNEL] Routing payload smoothly across LAN to /dev/${targetTty}.`,
+        `[CHAT] Me: ${message}`
+      ];
+
+      updateActiveSession({ history: updatedHistory });
+
+      // 2. Log to receiver's history
+      setSessions(prev => prev.map(s => {
+        if (s.tty === targetTty) {
+          return {
+            ...s,
+            history: [
+              ...s.history,
+              `\n[SYSCALL] Intercepted incoming packet on TTY port /dev/${targetTty} from /dev/${myTty}:`,
+              `[CHAT] /dev/${myTty}: ${message}`
+            ]
+          };
+        }
+        return s;
+      }));
+
+      addNotification('Syscall Protocol', `SYS_WRITE routed /dev/${myTty} -> /dev/${targetTty}`, 'success');
+      return;
+    }
+
     let forcedAdmin = false;
     let cmdToProcess = inputCommand.trim();
     
@@ -13396,7 +13603,8 @@ function TerminalApp({
     const pathString = '/' + currentPath.join('/');
     const isAdmin = forcedAdmin || currentUser?.isAdmin;
 
-    const newHistory = [...activeSession.history, `${isAdmin ? 'root' : 'guest'}@glass-os:${pathString}$ ${inputCommand}`];
+    const activeUserNameStr = currentUser?.username?.toLowerCase() || 'admin';
+    const newHistory = [...activeSession.history, `${isAdmin ? 'root' : activeUserNameStr}@glass-os:${pathString}$ ${inputCommand}`];
 
     // Refactored to use fsLib
 
@@ -13530,10 +13738,12 @@ function TerminalApp({
           '',
           'PROCESS & RESOURCE COMMANDS:',
           '  top [delay]            Monitor live system processes',
+          '  ps                     List snapshot of all active processes (PCB)',
           '  run <app_id>           Directly spin up an OS workspace app',
           '',
           'NETWORK COMMANDS:',
           '  ping <node>            Test connection latency to a network node',
+          '  chat <tty_or_1>        Open socket & connect to active TTY chat (SYS_SOCKET)',
           '  pkg <cmd>              Execute custom GlassOS packet manager',
           '  shutdown <node>        Stop a network node (requires sudo)',
           '  restart <node>         Reboot a network node (requires sudo)',
@@ -13576,6 +13786,68 @@ function TerminalApp({
             });
           }
         }, 800);
+        break;
+      }
+      case 'chat': {
+        const targetTty = args[0];
+        if (!targetTty) {
+          updateActiveSession({ history: [...newHistory, 'usage: chat <target_tty_or_1> (e.g., chat 1, chat pts/1, chat tty1)'] });
+          break;
+        }
+
+        let normalizedTarget = targetTty;
+        if (targetTty === '1') {
+          normalizedTarget = 'pts/1';
+        }
+
+        const targetSessionExists = sessions.some(s => s.tty === normalizedTarget);
+        if (!targetSessionExists) {
+          updateActiveSession({ 
+            history: [
+              ...newHistory, 
+              `Error: TTY /dev/${normalizedTarget} is not active in GlassOS PCB.`,
+              `Type "ps" or look at the LAN bridge to see active sessions.`
+            ] 
+          });
+          break;
+        }
+
+        if (normalizedTarget === activeSession.tty) {
+          updateActiveSession({ history: [...newHistory, `Error: Cannot open loopback socket to self.`] });
+          break;
+        }
+
+        updateActiveSession({
+          isChatActive: true,
+          chatTargetTty: normalizedTarget,
+          history: [
+            ...newHistory,
+            `[SYSCALL] int 0x80 -> SYS_SOCKET_CREATE (0x50) invoked to provision communication endpoint.`,
+            `[KERNEL] Mapped socket descriptor FD 5 in shared memory space.`,
+            `[SYSCALL] int 0x80 -> SYS_CONNECT (0x2A) targeting local TTY port /dev/${normalizedTarget}.`,
+            `[KERNEL] Established TCP circuit: /dev/${activeSession.tty} <-> /dev/${normalizedTarget} via LAN bridge.`,
+            `==================================================================`,
+            `[CHAT] Connected to /dev/${normalizedTarget}. Type message and hit Enter.`,
+            `       Type "exit" or "quit" to close socket.`,
+            `==================================================================`
+          ]
+        });
+
+        setSessions(prev => prev.map(s => {
+          if (s.tty === normalizedTarget) {
+            return {
+              ...s,
+              history: [
+                ...s.history,
+                `\n[SYSCALL] TCP incoming connection: /dev/${activeSession.tty} -> /dev/${normalizedTarget} via SYS_ACCEPT.`,
+                `[CHAT] Virtual circuit established. Awaiting messages...`
+              ]
+            };
+          }
+          return s;
+        }));
+
+        addNotification('Syscall Protocol', `TCP socket connected to /dev/${normalizedTarget}`, 'success');
         break;
       }
       case 'shutdown':
@@ -13640,10 +13912,96 @@ function TerminalApp({
         updateActiveSession({ history: [] });
         addNotification('Terminal', 'History cleared', 'info');
         break;
-      case 'whoami':
-        updateActiveSession({ history: [...newHistory, 'guest'] });
-        addNotification('System', 'User identity confirmed: guest', 'info');
+      case 'whoami': {
+        const activeUser = currentUser?.username || 'Administrator';
+        const activeUid = currentUser?.id === '2' ? 1001 : 1000;
+        updateActiveSession({ history: [...newHistory, `${activeUser} (UID: ${activeUid})`] });
+        addNotification('System', `User identity confirmed: ${activeUser}`, 'info');
         break;
+      }
+      case 'ps': {
+        const systemDaemons = [
+          { pid: 101, proc: 'System Core', cpu: '1.2', mem: '128MB', uid: 0, tty: '?' },
+          { pid: 204, proc: 'Window Manager', cpu: '2.4', mem: '256MB', uid: 0, tty: '?' },
+          { pid: 501, proc: 'Network Stack (gTLSP)', cpu: '0.3', mem: '64MB', uid: 0, tty: '?' },
+          { pid: 800, proc: 'Memory Daemon', cpu: '0.1', mem: '45MB', uid: 0, tty: '?' },
+          { pid: 900, proc: 'Kernel Core (GlassKernel)', cpu: '0.2', mem: '80MB', uid: 0, tty: '?' },
+        ];
+
+        const windowProcs = (windows || []).map((win: any, idx: number) => {
+          const appMetrics: Record<string, { cpu: number, mem: string }> = {
+            'terminal': { cpu: 1.5, mem: '64MB' },
+            'settings': { cpu: 0.8, mem: '96MB' },
+            'notepad': { cpu: 0.4, mem: '32MB' },
+            'browser': { cpu: 12.5, mem: '512MB' },
+            'photos': { cpu: 1.2, mem: '128MB' },
+            'music': { cpu: 3.5, mem: '160MB' },
+            'appfolder': { cpu: 0.2, mem: '24MB' },
+            'codestudio': { cpu: 8.5, mem: '380MB' },
+            'files': { cpu: 0.6, mem: '80MB' },
+            'systemmonitor': { cpu: 4.2, mem: '150MB' },
+            'glassword': { cpu: 2.8, mem: '210MB' },
+            'spreadsheet': { cpu: 3.1, mem: '180MB' },
+            'glassmail': { cpu: 1.0, mem: '110MB' },
+            'glassdatabase': { cpu: 5.4, mem: '290MB' },
+            'glassmessaging': { cpu: 1.8, mem: '90MB' },
+            'printers': { cpu: 0.3, mem: '40MB' },
+            'calendar': { cpu: 0.5, mem: '50MB' },
+            'taskscheduler': { cpu: 0.4, mem: '45MB' },
+            'glassdraw': { cpu: 6.2, mem: '220MB' },
+            'glasspaint': { cpu: 5.8, mem: '190MB' },
+            'glassphoto': { cpu: 7.1, mem: '310MB' },
+            'videostudio': { cpu: 14.8, mem: '640MB' },
+          };
+          const metric = appMetrics[win.id] || { cpu: 1.0, mem: '64MB' };
+          return {
+            pid: 1000 + idx,
+            proc: win.title,
+            cpu: metric.cpu.toFixed(1),
+            mem: metric.mem,
+            uid: currentUser?.id === '2' ? 1001 : 1000,
+            tty: win.id === 'terminal' ? activeSession.tty : '?',
+          };
+        });
+
+        const taskDaemons = (tasks || []).filter((t: any) => t.enabled).map((t: any, idx: number) => {
+          return {
+            pid: 5000 + idx,
+            proc: `Task: ${t.name}`,
+            cpu: '0.1',
+            mem: '12MB',
+            uid: 0,
+            tty: '?',
+          };
+        });
+
+        const slaveProcs = (sessions || []).filter((s: any) => s.id !== '1').map((s: any, idx: number) => {
+          const pid = idx + 2; // PID = 2 for the first remote connection
+          const ttyLabel = s.tty === 'pts/1' ? '1' : s.tty;
+          return {
+            pid,
+            proc: `shell (bash)`,
+            cpu: '0.2',
+            mem: '16MB',
+            uid: 1001,
+            tty: ttyLabel,
+          };
+        });
+
+        const allProcs = [...systemDaemons, ...windowProcs, ...taskDaemons, ...slaveProcs];
+
+        const lines = [
+          'USER       PID   %CPU  %MEM  TTY      COMMAND',
+          ...allProcs.map(p => {
+            const userStr = p.uid === 0 ? 'root' : p.uid === 1001 ? 'engineer' : 'admin';
+            return `${userStr.padEnd(10)}${p.pid.toString().padEnd(6)}${p.cpu.padEnd(6)}${p.mem.padEnd(6)}${(p.tty || '?').padEnd(9)}${p.proc}`;
+          })
+        ];
+
+        updateActiveSession({ history: [...newHistory, ...lines] });
+        addNotification('Terminal', 'Active process table (ps) retrieved', 'success');
+        break;
+      }
       case 'pwd':
         updateActiveSession({ history: [...newHistory, pathString] });
         addNotification('Terminal', `Current path: ${pathString}`, 'info');
@@ -14490,19 +14848,23 @@ function TerminalApp({
               <span>GlassOS Task Manager (top)</span>
               <span>Press "quit" to exit</span>
             </div>
-            <div className="grid grid-cols-4 font-bold mb-2">
+            <div className="grid grid-cols-[60px_60px_60px_1fr_60px_80px] font-bold mb-2 border-b border-green-900 pb-1 text-xs">
               <span>PID</span>
+              <span>UID</span>
+              <span>TTY</span>
               <span>PROCESS</span>
               <span>%CPU</span>
               <span>MEM</span>
             </div>
-            <div className="flex-1">
+            <div className="flex-1 overflow-y-auto no-scrollbar space-y-0.5">
               {activeSession.topData.map(p => (
-                <div key={p.pid} className="grid grid-cols-4">
-                  <span>{p.pid}</span>
-                  <span>{p.proc}</span>
-                  <span>{p.cpu}</span>
-                  <span>{p.mem}</span>
+                <div key={p.pid} className="grid grid-cols-[60px_60px_60px_1fr_60px_80px] text-xs hover:bg-green-500/10 px-1 py-0.5 rounded transition-colors">
+                  <span className="font-mono text-green-400">{p.pid}</span>
+                  <span className="font-mono text-blue-400">{p.uid !== undefined ? p.uid : '0'}</span>
+                  <span className="font-mono text-amber-400">{p.tty || '?'}</span>
+                  <span className="truncate pr-2">{p.proc}</span>
+                  <span className="font-mono text-emerald-400">{p.cpu}%</span>
+                  <span className="font-mono text-purple-400">{p.mem}</span>
                 </div>
               ))}
             </div>
@@ -15919,7 +16281,7 @@ function SettingsApp(props: any) {
     activeSettingsTab,
     screensaverTimeout, setScreensaverTimeout,
   } = props;
-  const [view, setView] = useState<'main' | 'personalization' | 'network' | 'control-panel' | 'extensions' | 'accounts' | 'hardware'>('main');
+  const [view, setView] = useState<'main' | 'personalization' | 'theme-creator' | 'network' | 'control-panel' | 'extensions' | 'accounts' | 'hardware'>('main');
 
   React.useEffect(() => {
     if (activeSettingsTab) {
@@ -16263,6 +16625,12 @@ function SettingsApp(props: any) {
           Personalization
         </button>
         <button 
+          onClick={() => setView('theme-creator')}
+          className={cn("w-full text-left px-3 py-2 rounded-lg transition-all text-sm", view === 'theme-creator' ? "bg-white/10" : "hover:bg-white/5")}
+        >
+          Theme Creator
+        </button>
+        <button 
           onClick={() => setView('hardware')}
           className={cn("w-full text-left px-3 py-2 rounded-lg transition-all text-sm", view === 'hardware' ? "bg-white/10" : "hover:bg-white/5")}
         >
@@ -16534,6 +16902,14 @@ function SettingsApp(props: any) {
               </div>
             </section>
           </div>
+        )}
+
+        {view === 'theme-creator' && (
+          <ThemeCreator 
+            accentColor={accentColor}
+            setAccentColor={setAccentColor}
+            addNotification={addNotification}
+          />
         )}
 
         {view === 'hardware' && (

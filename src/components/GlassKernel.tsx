@@ -15,6 +15,8 @@ interface GlassKernelProps {
   fsLib?: any;
   windows?: any[];
   closeWindow?: (id: any) => void;
+  currentUser?: any;
+  sessions?: any[];
 }
 
 interface Process {
@@ -25,6 +27,8 @@ interface Process {
   virtualPages: string[];
   physicalPages: number[];
   status: 'running' | 'blocked' | 'terminated';
+  uid: number;
+  tty: string;
 }
 
 interface KernelLog {
@@ -266,6 +270,17 @@ const SYSTEM_CALLS: VirtualSyscall[] = [
     successMsg: 'Descriptor duplicated. FD 4 now targets same file structure as FD 1.',
     resultRAX: '0x0000000000000004',
     category: 'Files / IO'
+  },
+  {
+    val: 'SYS_SOCKET_CREATE',
+    name: 'SYS_SOCKET_CREATE (0x50)',
+    num: 80,
+    desc: 'Instantiate local hardware transport and map socket descriptor',
+    regRAX: '0x0000000000000050',
+    startMsg: 'sys_socket_create() allocating socket ring buffer and registering local interface descriptor...',
+    successMsg: 'Socket endpoint created successfully. Ready for remote connection routing.',
+    resultRAX: '0x0000000000000005',
+    category: 'Network'
   },
   {
     val: 'SYS_SOCKET',
@@ -835,7 +850,9 @@ export function GlassKernel({
   setKernelCalls,
   fsLib,
   windows,
-  closeWindow
+  closeWindow,
+  currentUser,
+  sessions
 }: GlassKernelProps) {
   const getPidFromAppId = (id: string): number => {
     switch (id) {
@@ -1064,10 +1081,10 @@ void hid_pointer_handler() {
 
   // Memory Isolation / Process list States
   const [processes, setProcesses] = useState<Process[]>([
-    { id: 100, name: 'AuthService (Kernel)', type: 'system', color: 'text-purple-400 bg-purple-500/10 border-purple-500/20', virtualPages: ['0x00A0', '0x00A1', '0x00A2', '0x00A3'], physicalPages: [2, 3, 4, 5], status: 'running' },
-    { id: 101, name: 'GlassFS Driver', type: 'system', color: 'text-blue-400 bg-blue-500/10 border-blue-500/20', virtualPages: ['0x01B0', '0x01B1', '0x01B2', '0x01B3'], physicalPages: [8, 9, 10, 11], status: 'running' },
-    { id: 204, name: 'GlassPaint App', type: 'user', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20', virtualPages: ['0x04C0', '0x04C1', '0x04C2'], physicalPages: [16, 17, 18], status: 'running' },
-    { id: 512, name: 'Untrusted Guest Script', type: 'untrusted', color: 'text-rose-400 bg-rose-500/10 border-rose-500/20', virtualPages: ['0x09F0', '0x09F1'], physicalPages: [24, 25], status: 'running' }
+    { id: 100, name: 'AuthService (Kernel)', type: 'system', color: 'text-purple-400 bg-purple-500/10 border-purple-500/20', virtualPages: ['0x00A0', '0x00A1', '0x00A2', '0x00A3'], physicalPages: [2, 3, 4, 5], status: 'running', uid: 0, tty: '?' },
+    { id: 101, name: 'GlassFS Driver', type: 'system', color: 'text-blue-400 bg-blue-500/10 border-blue-500/20', virtualPages: ['0x01B0', '0x01B1', '0x01B2', '0x01B3'], physicalPages: [8, 9, 10, 11], status: 'running', uid: 0, tty: '?' },
+    { id: 204, name: 'GlassPaint App', type: 'user', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20', virtualPages: ['0x04C0', '0x04C1', '0x04C2'], physicalPages: [16, 17, 18], status: 'running', uid: 1000, tty: '?' },
+    { id: 512, name: 'Untrusted Guest Script', type: 'untrusted', color: 'text-rose-400 bg-rose-500/10 border-rose-500/20', virtualPages: ['0x09F0', '0x09F1'], physicalPages: [24, 25], status: 'running', uid: 9999, tty: 'pts/4' }
   ]);
 
   // Physical RAM map simulation (32 blocks/frames)
@@ -1084,7 +1101,7 @@ void hid_pointer_handler() {
     return ram;
   });
 
-  // Dynamic window synchronizer
+  // Dynamic window and session/slave synchronizer
   useEffect(() => {
     if (!windows) return;
     setProcesses(prev => {
@@ -1092,11 +1109,15 @@ void hid_pointer_handler() {
       const userProcesses: Process[] = windows.map((w) => {
         const pid = getPidFromAppId(w.id);
         const existing = prev.find(p => p.id === pid);
+        const derivedUid = currentUser?.id === '2' ? 1001 : 1000;
+        const derivedTty = w.id === 'terminal' ? 'tty1' : '?';
         if (existing) {
           return {
             ...existing,
             name: w.title,
-            status: w.isMinimized ? 'blocked' : 'running'
+            status: w.isMinimized ? 'blocked' : 'running',
+            uid: existing.uid || derivedUid,
+            tty: existing.tty || derivedTty
           };
         }
         const virtualPages = [
@@ -1116,12 +1137,33 @@ void hid_pointer_handler() {
           color: getAppColor(w.id),
           virtualPages,
           physicalPages,
-          status: w.isMinimized ? 'blocked' : 'running'
+          status: w.isMinimized ? 'blocked' : 'running',
+          uid: derivedUid,
+          tty: derivedTty
         };
       });
-      return [...systemProcesses, ...userProcesses];
+
+      // Dynamic shell processes from remote slave sessions
+      const remoteSessions = (sessions || []).filter(s => s.id !== '1');
+      const slaveProcesses: Process[] = remoteSessions.map((s, idx) => {
+        const pid = idx + 2; // PID = 2 for the first remote connection
+        const ttyLabel = s.tty === 'pts/1' ? '1' : s.tty.replace('pts/', '');
+        return {
+          id: pid,
+          name: 'shell (bash)',
+          type: 'user',
+          color: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+          virtualPages: [`0x0${pid}00`, `0x0${pid}01`],
+          physicalPages: [idx + 22, idx + 23],
+          status: 'running',
+          uid: 1001, // UID = 1001 as required
+          tty: ttyLabel // TTY = 1 (or corresponding)
+        };
+      });
+
+      return [...systemProcesses, ...userProcesses, ...slaveProcesses];
     });
-  }, [windows]);
+  }, [windows, currentUser, sessions]);
 
   // RAM allocator sync
   useEffect(() => {
@@ -2265,7 +2307,15 @@ void hid_pointer_handler() {
                       'bg-rose-400 animate-pulse shadow-[0_0_6px_rgba(244,63,94,0.5)]'
                     }`} />
                     <div className="flex flex-col">
-                      <span className="text-xs font-bold text-white/90">{proc.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-white/90">{proc.name}</span>
+                        <span className="text-[8px] px-1 py-0.2 rounded bg-white/5 text-white/40 font-mono uppercase">
+                          UID: {proc.uid}
+                        </span>
+                        <span className="text-[8px] px-1 py-0.2 rounded bg-blue-500/10 text-blue-400 font-mono uppercase">
+                          TTY: {proc.tty}
+                        </span>
+                      </div>
                       <span className="text-[9px] text-white/30 font-mono">PID: {proc.id} • {proc.virtualPages.join(', ')}</span>
                     </div>
                   </div>
