@@ -114,16 +114,38 @@ export interface NetworkConfig {
   protocols?: any;
 }
 
+export interface NetworkPrinter {
+  id: string;
+  name: string;
+  ip: string;
+  port: number;
+  protocol: 'GPP' | 'IPP' | 'RAW' | 'LPR';
+  status: 'online' | 'offline' | 'busy' | 'error';
+  ink: number;
+  paper: number;
+  speed: string;
+  location: string;
+  isDefault?: boolean;
+  jobsCompleted: number;
+}
+
 export interface PrintJob {
   id: string;
   documentName: string;
   sourceApp?: string;
-  status: 'printing' | 'queued' | 'completed' | 'error';
+  status: 'printing' | 'queued' | 'spooling' | 'completed' | 'error' | 'paused';
   progress?: number;
   pages?: number;
   timestamp: string;
   filename?: string;
   owner?: string;
+  printerName?: string;
+  paperType?: string;
+  orientation?: string;
+  content?: string;
+  dpi?: number;
+  copies?: number;
+  colorMode?: 'COLOR' | 'GRAYSCALE';
 }
 
 export interface Email {

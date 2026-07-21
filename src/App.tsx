@@ -233,6 +233,9 @@ import ClockApp from './components/ClockApp';
 import TimerApp from './components/TimerApp';
 import CalculatorApp from './components/CalculatorApp';
 import UnitConverterApp from './components/UnitConverterApp';
+import { GTerm } from './components/GTerm';
+import { systemPrintDaemon } from './services/printService';
+import { PrintPreviewDialog } from './components/PrintPreviewDialog';
 import { Network } from 'lucide-react';
 import { nativeBridge, SystemInfo } from './lib/NativeBridge.lib';
 import { 
@@ -248,7 +251,8 @@ import {
   NetworkNode, 
   NetworkConfig,
   Email,
-  PrintJob
+  PrintJob,
+  NetworkPrinter
 } from './types';
 
 import { TEMPLATES } from './templates';
@@ -590,6 +594,53 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('glassos_screensaver_timeout', screensaverTimeout.toString());
   }, [screensaverTimeout]);
+
+  // Subscribe to background system print daemon
+  useEffect(() => {
+    const syncPrintDaemonQueue = () => {
+      const daemonJobs = systemPrintDaemon.getQueue();
+      if (!daemonJobs || daemonJobs.length === 0) return;
+      
+      setPrintQueue(prev => {
+        const updated = [...prev];
+        daemonJobs.forEach(dj => {
+          const idStr = dj.id.toString();
+          const mappedStatus = dj.status === 'QUEUED' ? 'queued' : dj.status === 'PROCESSING' ? 'printing' : dj.status === 'COMPLETED' ? 'completed' : 'error';
+          const existingIdx = updated.findIndex(j => j.id.toString() === idStr || j.documentName === dj.jobInfo.jobName);
+          
+          if (existingIdx !== -1) {
+            updated[existingIdx] = {
+              ...updated[existingIdx],
+              status: mappedStatus,
+              progress: dj.status === 'COMPLETED' ? 100 : dj.status === 'PROCESSING' ? 50 : 0
+            };
+          } else {
+            updated.unshift({
+              id: idStr,
+              documentName: dj.jobInfo.jobName,
+              filename: dj.jobInfo.jobName,
+              status: mappedStatus,
+              progress: dj.status === 'COMPLETED' ? 100 : dj.status === 'PROCESSING' ? 50 : 0,
+              pages: dj.jobInfo.pageRange ? dj.jobInfo.pageRange[1] : 1,
+              timestamp: dj.createdAt || new Date().toLocaleTimeString(),
+              owner: 'User #' + dj.ownerUid,
+              printerName: dj.printerName || 'NOC-LaserJet-8000',
+              paperType: dj.formatInfo?.paperType?.name || 'US Letter',
+              orientation: dj.formatInfo?.orientation || 'PORTRAIT',
+              content: dj.content || '',
+              copies: dj.jobInfo?.copies || 1,
+              sourceApp: 'Print Daemon'
+            });
+          }
+        });
+        return updated;
+      });
+    };
+
+    const unsubscribe = systemPrintDaemon.subscribe(syncPrintDaemonQueue);
+    syncPrintDaemonQueue();
+    return () => unsubscribe();
+  }, []);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [notificationHistory, setNotificationHistory] = useState<Notification[]>([]);
   const [isNotificationSidebarOpen, setIsNotificationSidebarOpen] = useState(false);
@@ -1312,12 +1363,6 @@ export default function App() {
   }, []);
 
   const openWindow = (id: AppId, title: string) => {
-    if (id === 'printers') {
-      setSystemMonitorActiveTab('printers');
-      openWindow('systemmonitor', 'NOC Center');
-      return;
-    }
-
     const existing = windows.find(w => w.id === id);
     const maxZ = Math.max(0, ...windows.map(w => w.zIndex));
 
@@ -1333,8 +1378,8 @@ export default function App() {
     const screenH = window.innerHeight;
     
     // Default sizes
-    let w = id === 'codestudio' ? 1000 : id === 'glassmail' ? 800 : 600;
-    let h = id === 'codestudio' ? 700 : id === 'glassmail' ? 500 : 400;
+    let w = (id === 'codestudio' || id === 'printers') ? 920 : id === 'glassmail' ? 800 : 600;
+    let h = (id === 'codestudio' || id === 'printers') ? 620 : id === 'glassmail' ? 500 : 400;
 
     // Cap to screen size with some margins
     w = Math.min(w, screenW - 40);
@@ -11545,6 +11590,19 @@ function SystemMonitorApp(props: any) {
   const [isTestPrinting, setIsTestPrinting] = useState(false);
   const [testDocumentName, setTestDocumentName] = useState('NOC_Diagnostic_Test.pdf');
   const [testDocumentPages, setTestDocumentPages] = useState(1);
+  const [isPrintPreviewOpen, setIsPrintPreviewOpen] = useState(false);
+  const [previewJobConfig, setPreviewJobConfig] = useState<{
+    documentName: string;
+    initialContent?: string;
+    owner?: string;
+    sourceApp?: string;
+    pagesCount?: number;
+  }>({
+    documentName: 'NOC_Diagnostic_Test.pdf',
+    pagesCount: 1,
+    owner: 'admin',
+    sourceApp: 'NOC-Spooler'
+  });
 
   const processedJobs = useRef<Set<string>>(new Set());
 
@@ -12964,26 +13022,49 @@ End
                       const activeP = printers.find(p => p.id === selectedPrinterId) || printers[0];
                       const isOffline = activeP.status === 'offline';
                       return (
-                        <button
-                          onClick={handleSendTestPage}
-                          disabled={isTestPrinting || isOffline}
-                          className={cn(
-                            "w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 mt-2 transition-all shadow-lg",
-                            isOffline
-                              ? "bg-red-500/10 border border-red-500/20 text-red-400 cursor-not-allowed"
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                          <button
+                            onClick={() => {
+                              setPreviewJobConfig({
+                                documentName: testDocumentName || 'NOC_Diagnostic_Test.pdf',
+                                pagesCount: testDocumentPages || 1,
+                                owner: currentUser?.username || 'admin',
+                                sourceApp: 'GPP Test Bench'
+                              });
+                              setIsPrintPreviewOpen(true);
+                            }}
+                            disabled={isOffline}
+                            className={cn(
+                              "py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all border",
+                              isOffline 
+                                ? "bg-white/2 border-white/5 text-white/20 cursor-not-allowed" 
+                                : "bg-white/5 hover:bg-white/10 border-white/10 text-white"
+                            )}
+                          >
+                            <Eye size={14} className="text-cyan-400" />
+                            Print Preview
+                          </button>
+                          <button
+                            onClick={handleSendTestPage}
+                            disabled={isTestPrinting || isOffline}
+                            className={cn(
+                              "py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-lg",
+                              isOffline
+                                ? "bg-red-500/10 border border-red-500/20 text-red-400 cursor-not-allowed"
+                                : isTestPrinting
+                                  ? "bg-blue-500/20 text-blue-400 cursor-wait border border-blue-500/10"
+                                  : "bg-blue-500 text-white hover:bg-blue-600 shadow-blue-500/10 hover:scale-[1.01]"
+                            )}
+                          >
+                            <Send size={14} />
+                            {isOffline
+                              ? 'Offline'
                               : isTestPrinting
-                                ? "bg-blue-500/20 text-blue-400 cursor-wait border border-blue-500/10"
-                                : "bg-blue-500 text-white hover:bg-blue-600 shadow-blue-500/10 hover:scale-[1.01]"
-                          )}
-                        >
-                          <Send size={14} />
-                          {isOffline
-                            ? 'Selected Printer Node is Offline'
-                            : isTestPrinting
-                              ? 'Spooling GPP Packet Stream...'
-                              : `Transmit GPP Packet Stream`
-                          }
-                        </button>
+                                ? 'Spooling...'
+                                : `Transmit Stream`
+                            }
+                          </button>
+                        </div>
                       );
                     })()}
                   </div>
@@ -13045,7 +13126,23 @@ End
                                 </div>
                                 <span className="col-span-2 text-white/50 text-right truncate font-mono text-[10px]">{job.owner || 'user'}</span>
                                 <span className="col-span-2 text-white/30 text-right font-mono text-[9px]">{job.timestamp}</span>
-                                <div className="col-span-1 flex justify-end">
+                                <div className="col-span-1 flex justify-end gap-1">
+                                  <button
+                                    onClick={() => {
+                                      setPreviewJobConfig({
+                                        documentName: job.documentName || job.filename || 'Document.pdf',
+                                        pagesCount: job.pages || 1,
+                                        owner: job.owner || 'user',
+                                        sourceApp: job.sourceApp || 'Print Spooler Queue',
+                                        initialContent: (job as any).content
+                                      });
+                                      setIsPrintPreviewOpen(true);
+                                    }}
+                                    title="Print Preview Document"
+                                    className="p-1 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 rounded-md transition-all cursor-pointer hover:scale-105"
+                                  >
+                                    <Eye size={11} />
+                                  </button>
                                   <button
                                     onClick={() => handlePrintScript(job)}
                                     title="Compile Spooler Script"
@@ -13106,6 +13203,65 @@ End
                   </div>
                 </div>
               </div>
+
+              <PrintPreviewDialog
+                isOpen={isPrintPreviewOpen}
+                onClose={() => setIsPrintPreviewOpen(false)}
+                documentName={previewJobConfig.documentName}
+                initialContent={previewJobConfig.initialContent}
+                owner={previewJobConfig.owner}
+                sourceApp={previewJobConfig.sourceApp}
+                pagesCount={previewJobConfig.pagesCount}
+                availablePrinters={printers}
+                onSendToDaemon={(jobConfig) => {
+                  systemPrintDaemon.submitJob(
+                    1000,
+                    1,
+                    jobConfig.printerName,
+                    {
+                      jobName: jobConfig.jobName,
+                      copies: jobConfig.copies,
+                      pageRange: [1, previewJobConfig.pagesCount || 1],
+                      collate: true,
+                      printToDisk: false
+                    },
+                    {
+                      paperType: jobConfig.paperType,
+                      orientation: jobConfig.orientation,
+                      scaling: jobConfig.scaling,
+                      halftone: jobConfig.halftone
+                    },
+                    jobConfig.content
+                  );
+
+                  const newJob: PrintJob = {
+                    id: 'job-' + Math.random().toString(36).substr(2, 9),
+                    documentName: jobConfig.jobName,
+                    filename: jobConfig.jobName,
+                    status: 'printing',
+                    progress: 5,
+                    pages: previewJobConfig.pagesCount || 1,
+                    timestamp: new Date().toLocaleTimeString(),
+                    owner: previewJobConfig.owner || 'admin',
+                    sourceApp: previewJobConfig.sourceApp || 'Print Spooler'
+                  };
+                  if (props.setPrintQueue) {
+                    props.setPrintQueue(prev => [...prev, newJob]);
+                  }
+
+                  const tNow = new Date().toLocaleTimeString();
+                  setProtocolLogs(prev => [
+                    ...prev,
+                    `[${tNow}] [GPP] Preview confirmed. Dispatching "${jobConfig.jobName}" (${jobConfig.paperType.name}, ${jobConfig.orientation}, ${jobConfig.scaling}%) to ${jobConfig.printerName}`,
+                    `[${tNow}] [GPP] Rasterizing payload at ${jobConfig.dpi} DPI (Halftone: ${jobConfig.halftone ? 'ON' : 'OFF'})...`,
+                    `[${tNow}] [TCP] Stream buffer flushed (100% OK)`
+                  ]);
+
+                  if (props.addNotification) {
+                    props.addNotification('Print Spooler', `Job "${jobConfig.jobName}" sent to ${jobConfig.printerName}`, 'success');
+                  }
+                }}
+              />
             </div>
           )}
 
@@ -13198,10 +13354,173 @@ End
   );
 }
 
-function PrinterApp({ printQueue, setPrintQueue, addNotification, fsLib }: { printQueue: PrintJob[], setPrintQueue: React.Dispatch<React.SetStateAction<PrintJob[]>>, addNotification: any, fsLib: any }) {
+function PrinterApp({ printQueue, setPrintQueue, addNotification, fsLib, userName }: { printQueue: PrintJob[], setPrintQueue: React.Dispatch<React.SetStateAction<PrintJob[]>>, addNotification: any, fsLib: any, userName?: string }) {
+  const [printers, setPrinters] = useState<NetworkPrinter[]>([
+    { id: 'p1', name: 'NOC-LaserJet-8000', ip: '192.168.1.180', port: 9100, protocol: 'GPP', status: 'online', ink: 84, paper: 92, speed: '45 PPM', location: 'Floor 3 Server Room', isDefault: true, jobsCompleted: 142 },
+    { id: 'p2', name: 'Color-Plotter-Enclave', ip: '192.168.1.181', port: 631, protocol: 'IPP', status: 'online', ink: 41, paper: 35, speed: '12 PPM', location: 'Design Enclave', isDefault: false, jobsCompleted: 88 },
+    { id: 'p3', name: 'Secure-Thermal-Matrix', ip: '192.168.1.182', port: 515, protocol: 'RAW', status: 'offline', ink: 100, paper: 0, speed: '180 PPM', location: 'Security Gate 2', isDefault: false, jobsCompleted: 312 },
+    { id: 'p4', name: 'OfficeJet-Pro-GlassOS', ip: '192.168.1.185', port: 9100, protocol: 'GPP', status: 'online', ink: 92, paper: 85, speed: '30 PPM', location: 'Executive Suite', isDefault: false, jobsCompleted: 19 }
+  ]);
+
+  const [jobFilter, setJobFilter] = useState<'all' | 'printing' | 'queued' | 'completed' | 'paused'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isAddPrinterOpen, setIsAddPrinterOpen] = useState(false);
+
+  const [newPrinterForm, setNewPrinterForm] = useState({
+    name: '',
+    ip: '192.168.1.190',
+    port: 9100,
+    protocol: 'GPP' as 'GPP' | 'IPP' | 'RAW' | 'LPR',
+    speed: '35 PPM',
+    location: 'Main Office'
+  });
+
+  const [previewJobConfig, setPreviewJobConfig] = useState<{
+    documentName: string;
+    initialContent?: string;
+    owner?: string;
+    sourceApp?: string;
+    pagesCount?: number;
+  }>({
+    documentName: 'GlassOS_Print_Sample.pdf',
+    pagesCount: 1,
+    owner: userName || 'Administrator',
+    sourceApp: 'Printer Manager'
+  });
+
   const clearJobs = () => {
     setPrintQueue([]);
-    addNotification('Print Manager', 'Print queue cleared', 'info');
+    addNotification('Print Spooler', 'Cleared all print jobs from queue', 'info');
+  };
+
+  const handlePauseAll = () => {
+    setPrintQueue(prev => prev.map(job => job.status === 'printing' || job.status === 'queued' ? { ...job, status: 'paused' } : job));
+    addNotification('Print Spooler', 'Paused all active print jobs', 'warning');
+  };
+
+  const handleResumeAll = () => {
+    setPrintQueue(prev => prev.map(job => job.status === 'paused' ? { ...job, status: 'printing' } : job));
+    addNotification('Print Spooler', 'Resumed active print spooling', 'info');
+  };
+
+  const handleSetDefaultPrinter = (id: string) => {
+    setPrinters(prev => prev.map(p => ({ ...p, isDefault: p.id === id })));
+    const target = printers.find(p => p.id === id);
+    if (target) {
+      addNotification('Printer Spooler', `Set ${target.name} as default printer`, 'success');
+    }
+  };
+
+  const handleTogglePrinterStatus = (id: string) => {
+    setPrinters(prev => prev.map(p => {
+      if (p.id === id) {
+        const nextStatus = p.status === 'online' ? 'offline' : 'online';
+        addNotification('Printer Spooler', `${p.name} is now ${nextStatus}`, nextStatus === 'online' ? 'success' : 'warning');
+        return { ...p, status: nextStatus };
+      }
+      return p;
+    }));
+  };
+
+  const handleSendTestPage = (printer: NetworkPrinter) => {
+    if (printer.status === 'offline') {
+      addNotification('Printer Error', `${printer.name} is offline. Please enable printer first.`, 'error');
+      return;
+    }
+
+    const newJob: PrintJob = {
+      id: 'test-' + Math.random().toString(36).substr(2, 8),
+      documentName: `${printer.name}_Diagnostic_TestPage.pdf`,
+      filename: `${printer.name}_Diagnostic_TestPage.pdf`,
+      status: 'printing',
+      progress: 10,
+      pages: 1,
+      timestamp: new Date().toLocaleTimeString(),
+      owner: userName || 'Administrator',
+      sourceApp: 'Print Diagnostic',
+      printerName: printer.name,
+      paperType: 'US Letter',
+      orientation: 'PORTRAIT',
+      copies: 1,
+      content: `GLASS OS DIAGNOSTIC TEST PAGE\nPrinter: ${printer.name}\nIP: ${printer.ip}:${printer.port}\nProtocol: ${printer.protocol}\nInk: ${printer.ink}%\nPaper: ${printer.paper}%\nTime: ${new Date().toLocaleString()}`
+    };
+
+    systemPrintDaemon.submitJob(
+      1000,
+      1,
+      printer.name,
+      { jobName: newJob.documentName, copies: 1, pageRange: [1, 1], collate: true, printToDisk: false },
+      { paperType: { name: 'US Letter', widthMm: 215.9, heightMm: 279.4, printableBounds: { top: 12.7, left: 12.7, right: 203.2, bottom: 266.7 } }, orientation: 'PORTRAIT', scaling: 1.0, halftone: true },
+      newJob.content!
+    );
+
+    setPrintQueue(prev => [newJob, ...prev]);
+    addNotification('Print Spooler', `Dispatched test page to ${printer.name}`, 'info');
+
+    setTimeout(() => {
+      setPrintQueue(prev => prev.map(j => j.id === newJob.id ? { ...j, status: 'completed', progress: 100 } : j));
+      setPrinters(prev => prev.map(p => p.id === printer.id ? { ...p, jobsCompleted: p.jobsCompleted + 1 } : p));
+      addNotification('Print Spooler', `Successfully printed test page on ${printer.name}`, 'success');
+    }, 3500);
+  };
+
+  const handleAddPrinter = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPrinterForm.name.trim()) return;
+
+    const created: NetworkPrinter = {
+      id: 'p-' + Math.random().toString(36).substr(2, 8),
+      name: newPrinterForm.name.trim(),
+      ip: newPrinterForm.ip,
+      port: Number(newPrinterForm.port),
+      protocol: newPrinterForm.protocol,
+      status: 'online',
+      ink: 100,
+      paper: 100,
+      speed: newPrinterForm.speed,
+      location: newPrinterForm.location,
+      isDefault: printers.length === 0,
+      jobsCompleted: 0
+    };
+
+    setPrinters(prev => [...prev, created]);
+    setIsAddPrinterOpen(false);
+    setNewPrinterForm({ name: '', ip: '192.168.1.190', port: 9100, protocol: 'GPP', speed: '35 PPM', location: 'Main Office' });
+    addNotification('Printer Spooler', `Added printer ${created.name} (${created.ip}:${created.port})`, 'success');
+  };
+
+  const handlePauseResumeJob = (jobId: string) => {
+    setPrintQueue(prev => prev.map(j => {
+      if (j.id === jobId) {
+        const nextStatus = j.status === 'paused' ? 'printing' : 'paused';
+        addNotification('Print Job', `Job "${j.documentName}" ${nextStatus === 'paused' ? 'paused' : 'resumed'}`, 'info');
+        return { ...j, status: nextStatus };
+      }
+      return j;
+    }));
+  };
+
+  const handleCancelJob = (jobId: string) => {
+    setPrintQueue(prev => prev.filter(j => j.id !== jobId));
+    addNotification('Print Job', 'Job cancelled and removed from queue', 'info');
+  };
+
+  const handleReprintJob = (job: PrintJob) => {
+    const newJob: PrintJob = {
+      ...job,
+      id: 'job-' + Math.random().toString(36).substr(2, 9),
+      status: 'printing',
+      progress: 10,
+      timestamp: new Date().toLocaleTimeString()
+    };
+    setPrintQueue(prev => [newJob, ...prev]);
+    addNotification('Print Spooler', `Re-submitting "${job.documentName}" to spooler`, 'info');
+
+    setTimeout(() => {
+      setPrintQueue(prev => prev.map(j => j.id === newJob.id ? { ...j, status: 'completed', progress: 100 } : j));
+      addNotification('Print Spooler', `Finished re-printing "${job.documentName}"`, 'success');
+    }, 4000);
   };
 
   const handlePrintScript = (job: PrintJob) => {
@@ -13209,7 +13528,7 @@ function PrinterApp({ printQueue, setPrintQueue, addNotification, fsLib }: { pri
 Start
 PRINT 'Initiating physical raster...'
 PRINT 'Job: ${job.documentName}'
-PRINT 'Source: ${job.sourceApp}'
+PRINT 'Source: ${job.sourceApp || 'System'}'
 PRINT 'Payload Hash: ${Math.random().toString(16).slice(2)}'
 End
 `;
@@ -13219,94 +13538,605 @@ End
     try {
       if (!fsLib.exists(folderPath)) fsLib.mkdir(folderPath);
       fsLib.write(filePath, scriptContent);
-      addNotification('Printer', 'Generated GlassScript spooler file', 'success');
+      addNotification('Printer', `Generated GlassScript file: ${filePath}`, 'success');
     } catch (e) {
       addNotification('Printer', 'Failed to generate spooler script', 'error');
     }
   };
 
+  const filteredJobs = useMemo(() => {
+    return printQueue.filter(job => {
+      const matchFilter = jobFilter === 'all' ? true :
+        jobFilter === 'printing' ? (job.status === 'printing' || job.status === 'spooling') :
+        jobFilter === 'queued' ? job.status === 'queued' :
+        jobFilter === 'completed' ? job.status === 'completed' :
+        (job.status === 'paused' || job.status === 'error');
+      
+      const q = searchQuery.toLowerCase().trim();
+      const matchQuery = !q || (
+        job.documentName?.toLowerCase().includes(q) ||
+        job.filename?.toLowerCase().includes(q) ||
+        job.sourceApp?.toLowerCase().includes(q) ||
+        job.owner?.toLowerCase().includes(q)
+      );
+
+      return matchFilter && matchQuery;
+    });
+  }, [printQueue, jobFilter, searchQuery]);
+
+  const activeJobsCount = printQueue.filter(j => j.status === 'printing' || j.status === 'queued' || j.status === 'spooling').length;
+
   return (
-    <div className="h-full flex flex-col p-6 gap-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400">
-            <PrinterIcon size={20} />
+    <div className="h-full flex flex-col p-5 gap-5 relative bg-slate-950/80 text-white overflow-hidden select-none">
+      {/* Top Action & Status Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-white/5 border border-white/10 shadow-lg">
+        <div className="flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shadow-inner">
+            <PrinterIcon size={22} />
           </div>
           <div>
-            <h2 className="text-sm font-bold uppercase tracking-wider">Print Manager</h2>
-            <p className="text-[10px] text-white/40">{printQueue.length} Active Jobs</p>
-          </div>
-        </div>
-        <button 
-          onClick={clearJobs}
-          className="text-xs px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-all text-white/60"
-        >
-          Clear History
-        </button>
-      </div>
-
-      <div className="flex-1 glass rounded-2xl overflow-hidden flex flex-col">
-        <div className="p-4 border-b border-white/5 grid grid-cols-4 text-[10px] font-bold text-white/30 uppercase tracking-widest bg-white/2">
-          <span>File Name</span>
-          <span>Status</span>
-          <span>Owner</span>
-          <span>Timestamp</span>
-        </div>
-        <div className="flex-1 overflow-y-auto no-scrollbar">
-          {printQueue.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-white/10 gap-4">
-              <PrinterIcon size={48} className="opacity-5" />
-              <p className="text-xs">No print jobs in queue</p>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-white">Printer Spooler & Manager</h2>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                GPP Daemon Port 9100
+              </span>
             </div>
+            <p className="text-[11px] text-white/50 flex items-center gap-2 mt-0.5">
+              <span>{printers.filter(p => p.status === 'online').length} of {printers.length} Printers Online</span>
+              <span>•</span>
+              <span className={activeJobsCount > 0 ? "text-amber-400 font-semibold" : "text-white/40"}>
+                {activeJobsCount} Active Job{activeJobsCount === 1 ? '' : 's'} in Spool Queue
+              </span>
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => {
+              setPreviewJobConfig({
+                documentName: 'GlassOS_Print_Sample.pdf',
+                pagesCount: 1,
+                owner: userName || 'Administrator',
+                sourceApp: 'Printer Manager'
+              });
+              setIsPreviewOpen(true);
+            }}
+            className="text-xs px-3.5 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-semibold flex items-center gap-2 shadow-lg shadow-blue-500/20 transition-all active:scale-95 cursor-pointer"
+          >
+            <Eye size={14} />
+            <span>Print Preview</span>
+          </button>
+
+          <button
+            onClick={() => setIsAddPrinterOpen(true)}
+            className="text-xs px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white font-medium flex items-center gap-1.5 border border-white/10 transition-all active:scale-95 cursor-pointer"
+          >
+            <Plus size={14} className="text-emerald-400" />
+            <span>Add Printer</span>
+          </button>
+
+          {activeJobsCount > 0 ? (
+            <button
+              onClick={handlePauseAll}
+              className="text-xs px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              <Pause size={13} />
+              <span>Pause All</span>
+            </button>
           ) : (
-            printQueue.map(job => (
-              <div key={job.id} className="p-4 grid grid-cols-4 text-xs border-b border-white/5 items-center hover:bg-white/2 transition-colors">
-                <span className="truncate pr-4">{job.filename}</span>
-                <span className={cn(
-                  "font-medium",
-                  job.status === 'printing' ? "text-blue-400" : 
-                  job.status === 'completed' ? "text-green-400" :
-                  job.status === 'error' ? "text-red-400" : "text-white/40"
-                )}>
-                  {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
-                </span>
-                <span className="text-white/60">{job.owner}</span>
-                <span className="text-white/30 font-mono text-[10px]">{job.timestamp}</span>
-              </div>
-            ))
+            <button
+              onClick={handleResumeAll}
+              className="text-xs px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 border border-white/10 transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              <Play size={13} />
+              <span>Resume All</span>
+            </button>
           )}
+
+          <button 
+            onClick={clearJobs}
+            className="text-xs px-3 py-2 rounded-xl bg-white/5 hover:bg-red-500/20 hover:text-red-300 text-white/50 border border-white/10 transition-all cursor-pointer flex items-center gap-1.5"
+            title="Clear Queue"
+          >
+            <Trash2 size={13} />
+            <span>Clear Queue</span>
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        <div className="glass p-3 rounded-xl flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center text-green-400">
-            <RefreshCw size={14} />
+      {/* Split Main Section: Top = Available Printers Spooler, Bottom = Current Print Jobs Window */}
+      <div className="flex-1 flex flex-col gap-5 overflow-y-auto no-scrollbar pr-0.5">
+        
+        {/* Section 1: Discovered Network Printers & Spoolers */}
+        <div className="glass rounded-2xl p-4 flex flex-col gap-3 border border-white/10 shadow-xl bg-white/2">
+          <div className="flex items-center justify-between px-1">
+            <div className="flex items-center gap-2">
+              <Server size={15} className="text-blue-400" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-white/80">Available Printers in Printer Spool</h3>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/60 font-mono">
+                {printers.length} Installed
+              </span>
+            </div>
+            <p className="text-[10px] text-white/40">Select default printer or send diagnostic test page</p>
           </div>
-          <div>
-            <div className="text-[10px] text-white/30 uppercase">Printer Status</div>
-            <div className="text-xs font-bold">Online</div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5">
+            {printers.map(printer => {
+              const isDefault = printer.isDefault;
+              const isOnline = printer.status === 'online';
+
+              return (
+                <div 
+                  key={printer.id}
+                  className={cn(
+                    "p-3.5 rounded-xl border flex flex-col justify-between gap-3 transition-all relative overflow-hidden group",
+                    isDefault ? "bg-blue-500/10 border-blue-500/40 shadow-lg shadow-blue-500/5" : "bg-black/30 border-white/10 hover:border-white/20"
+                  )}
+                >
+                  <div>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 truncate">
+                        <div className={cn(
+                          "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border",
+                          isOnline ? "bg-blue-500/20 text-blue-400 border-blue-500/30" : "bg-white/5 text-white/30 border-white/10"
+                        )}>
+                          <PrinterIcon size={16} />
+                        </div>
+                        <div className="truncate">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <h4 className="text-xs font-bold text-white truncate">{printer.name}</h4>
+                          </div>
+                          <p className="text-[10px] text-white/40 font-mono">{printer.ip}:{printer.port} • {printer.protocol}</p>
+                        </div>
+                      </div>
+
+                      <span className={cn(
+                        "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold shrink-0 border",
+                        isOnline ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" : "bg-red-500/20 text-red-400 border-red-500/30"
+                      )}>
+                        <span className={cn("w-1.5 h-1.5 rounded-full", isOnline ? "bg-emerald-400 animate-pulse" : "bg-red-400")} />
+                        {printer.status.toUpperCase()}
+                      </span>
+                    </div>
+
+                    {/* Printer Hardware Stats */}
+                    <div className="mt-3 space-y-2 text-[10px]">
+                      {/* Ink level */}
+                      <div>
+                        <div className="flex justify-between text-white/50 mb-1">
+                          <span>Toner / Ink Level</span>
+                          <span className="font-mono font-bold text-white/80">{printer.ink}%</span>
+                        </div>
+                        <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                          <div 
+                            className={cn("h-full rounded-full transition-all", printer.ink < 20 ? "bg-red-500" : printer.ink < 50 ? "bg-amber-500" : "bg-cyan-400")}
+                            style={{ width: `${printer.ink}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Paper tray */}
+                      <div>
+                        <div className="flex justify-between text-white/50 mb-1">
+                          <span>Paper Tray</span>
+                          <span className="font-mono font-bold text-white/80">{printer.paper}%</span>
+                        </div>
+                        <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                          <div 
+                            className={cn("h-full rounded-full transition-all", printer.paper < 15 ? "bg-red-500" : "bg-blue-400")}
+                            style={{ width: `${printer.paper}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="pt-1 flex items-center justify-between text-[10px] text-white/40">
+                        <span>{printer.location}</span>
+                        <span className="font-mono">{printer.speed}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions on Printer Card */}
+                  <div className="pt-2 border-t border-white/5 flex items-center justify-between gap-2">
+                    {isDefault ? (
+                      <span className="text-[10px] font-bold text-blue-400 flex items-center gap-1">
+                        <CheckCircle2 size={12} /> Default
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleSetDefaultPrinter(printer.id)}
+                        className="text-[10px] text-white/50 hover:text-white hover:underline cursor-pointer"
+                      >
+                        Set Default
+                      </button>
+                    )}
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => handleTogglePrinterStatus(printer.id)}
+                        className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-colors cursor-pointer"
+                        title={isOnline ? "Simulate Offline / Maintenance" : "Bring Printer Online"}
+                      >
+                        <Power size={12} className={isOnline ? "text-emerald-400" : "text-red-400"} />
+                      </button>
+
+                      <button
+                        onClick={() => handleSendTestPage(printer)}
+                        className="px-2 py-1 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer"
+                      >
+                        <FileText size={11} />
+                        <span>Test Print</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
-        <div className="glass p-3 rounded-xl flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center text-orange-400">
-            <HardDrive size={14} />
+
+        {/* Section 2: Current Print Jobs Window */}
+        <div className="glass rounded-2xl flex-1 flex flex-col border border-white/10 shadow-xl bg-white/2 min-h-[320px]">
+          {/* Header & Filter Controls */}
+          <div className="p-4 border-b border-white/10 flex flex-wrap items-center justify-between gap-3 bg-white/2">
+            <div className="flex items-center gap-2">
+              <Layers size={16} className="text-cyan-400" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-white">Current Print Jobs Window</h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] bg-blue-500/20 text-blue-300 font-mono border border-blue-500/30">
+                {printQueue.length} Total Jobs
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Filter Tabs */}
+              <div className="flex items-center p-0.5 rounded-xl bg-black/40 border border-white/10 text-[11px]">
+                {(['all', 'printing', 'queued', 'completed', 'paused'] as const).map(f => (
+                  <button
+                    key={f}
+                    onClick={() => setJobFilter(f)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg capitalize font-medium transition-all cursor-pointer",
+                      jobFilter === f ? "bg-blue-500 text-white font-bold shadow" : "text-white/50 hover:text-white"
+                    )}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+
+              {/* Search Job */}
+              <div className="relative">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/30" />
+                <input
+                  type="text"
+                  placeholder="Filter print jobs..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="bg-black/40 border border-white/10 rounded-xl py-1 pl-8 pr-3 text-xs text-white placeholder:text-white/30 outline-none focus:border-blue-500/50 w-36 transition-all"
+                />
+              </div>
+            </div>
           </div>
-          <div>
-            <div className="text-[10px] text-white/30 uppercase">Paper Level</div>
-            <div className="text-xs font-bold">85%</div>
+
+          {/* Print Jobs Table Header */}
+          <div className="p-3 border-b border-white/5 grid grid-cols-12 text-[10px] font-bold text-white/40 uppercase tracking-widest bg-black/20">
+            <span className="col-span-4">Document / File Name</span>
+            <span className="col-span-2">Source App</span>
+            <span className="col-span-2">Status & Progress</span>
+            <span className="col-span-2">Target Printer</span>
+            <span className="col-span-2 text-right pr-2">Actions</span>
           </div>
-        </div>
-        <div className="glass p-3 rounded-xl flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400">
-            <Lock size={14} />
-          </div>
-          <div>
-            <div className="text-[10px] text-white/30 uppercase">Ink Status</div>
-            <div className="text-xs font-bold">Cyan: 42%</div>
+
+          {/* Print Jobs List */}
+          <div className="flex-1 overflow-y-auto no-scrollbar divide-y divide-white/5">
+            {filteredJobs.length === 0 ? (
+              <div className="h-48 flex flex-col items-center justify-center text-white/30 gap-3">
+                <PrinterIcon size={40} className="opacity-20 text-blue-400 animate-pulse" />
+                <p className="text-xs font-medium">No current print jobs found in queue</p>
+                <button
+                  onClick={() => {
+                    setPreviewJobConfig({
+                      documentName: 'GlassOS_Sample_Print.pdf',
+                      pagesCount: 1,
+                      owner: userName || 'Administrator',
+                      sourceApp: 'Printer Spooler'
+                    });
+                    setIsPreviewOpen(true);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 text-xs font-bold transition-all cursor-pointer"
+                >
+                  Create & Print Sample Document
+                </button>
+              </div>
+            ) : (
+              filteredJobs.map(job => {
+                const isPrinting = job.status === 'printing' || job.status === 'spooling';
+                const isCompleted = job.status === 'completed';
+                const isPaused = job.status === 'paused';
+                const isError = job.status === 'error';
+
+                return (
+                  <div key={job.id} className="p-3 grid grid-cols-12 text-xs items-center hover:bg-white/5 transition-colors group">
+                    {/* File Name & Info */}
+                    <div className="col-span-4 flex items-center gap-2.5 pr-2 truncate">
+                      <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-blue-400 shrink-0">
+                        <FileText size={15} />
+                      </div>
+                      <div className="truncate">
+                        <h4 className="font-bold text-white/90 truncate">{job.documentName || job.filename}</h4>
+                        <p className="text-[10px] text-white/40 flex items-center gap-2">
+                          <span>Owner: {job.owner || 'User'}</span>
+                          <span>•</span>
+                          <span>{job.copies || 1} Cop{job.copies === 1 ? 'y' : 'ies'} ({job.pages || 1} pgs)</span>
+                          <span>•</span>
+                          <span>{job.timestamp}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Source App */}
+                    <div className="col-span-2 text-white/60 font-medium truncate">
+                      <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-[10px] font-mono text-cyan-300">
+                        {job.sourceApp || 'System'}
+                      </span>
+                    </div>
+
+                    {/* Status & Progress */}
+                    <div className="col-span-2 flex flex-col gap-1">
+                      <span className={cn(
+                        "font-bold text-[11px] flex items-center gap-1.5",
+                        isPrinting ? "text-blue-400" :
+                        isCompleted ? "text-emerald-400" :
+                        isPaused ? "text-amber-400" :
+                        isError ? "text-red-400" : "text-white/50"
+                      )}>
+                        {isPrinting && <RefreshCw size={12} className="animate-spin text-blue-400" />}
+                        {isCompleted && <CheckCircle2 size={12} className="text-emerald-400" />}
+                        {isPaused && <Pause size={12} className="text-amber-400" />}
+                        {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
+                      </span>
+
+                      {isPrinting && (
+                        <div className="w-24 h-1 rounded-full bg-white/10 overflow-hidden">
+                          <div 
+                            className="h-full bg-blue-400 rounded-full transition-all duration-300"
+                            style={{ width: `${job.progress || 45}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Target Printer */}
+                    <div className="col-span-2 text-white/70 font-mono text-[11px] truncate">
+                      {job.printerName || 'NOC-LaserJet-8000'}
+                    </div>
+
+                    {/* Action Controls */}
+                    <div className="col-span-2 flex items-center justify-end gap-1.5">
+                      <button
+                        onClick={() => {
+                          setPreviewJobConfig({
+                            documentName: job.documentName || job.filename || 'Document.pdf',
+                            pagesCount: job.pages || 1,
+                            owner: job.owner || userName || 'Administrator',
+                            sourceApp: job.sourceApp || 'Printer Spooler',
+                            initialContent: job.content
+                          });
+                          setIsPreviewOpen(true);
+                        }}
+                        title="Preview Document Content"
+                        className="p-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 rounded-lg transition-all cursor-pointer"
+                      >
+                        <Eye size={13} />
+                      </button>
+
+                      <button
+                        onClick={() => handlePauseResumeJob(job.id.toString())}
+                        title={isPaused ? "Resume Job" : "Pause Job"}
+                        className="p-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 rounded-lg transition-all cursor-pointer"
+                      >
+                        {isPaused ? <Play size={13} /> : <Pause size={13} />}
+                      </button>
+
+                      <button
+                        onClick={() => handleReprintJob(job)}
+                        title="Re-print Job"
+                        className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg transition-all cursor-pointer"
+                      >
+                        <RefreshCw size={13} />
+                      </button>
+
+                      <button
+                        onClick={() => handlePrintScript(job)}
+                        title="Compile GlassScript Spooler File"
+                        className="p-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-lg transition-all cursor-pointer"
+                      >
+                        <TerminalIcon size={13} />
+                      </button>
+
+                      <button
+                        onClick={() => handleCancelJob(job.id.toString())}
+                        title="Cancel / Delete Job"
+                        className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-lg transition-all cursor-pointer"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       </div>
+
+      {/* Print Preview Modal */}
+      <PrintPreviewDialog
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        documentName={previewJobConfig.documentName}
+        initialContent={previewJobConfig.initialContent}
+        owner={previewJobConfig.owner}
+        sourceApp={previewJobConfig.sourceApp}
+        pagesCount={previewJobConfig.pagesCount}
+        availablePrinters={printers}
+        onSendToDaemon={(jobConfig) => {
+          systemPrintDaemon.submitJob(
+            1000,
+            1,
+            jobConfig.printerName,
+            {
+              jobName: jobConfig.jobName,
+              copies: jobConfig.copies,
+              pageRange: [1, previewJobConfig.pagesCount || 1],
+              collate: true,
+              printToDisk: false
+            },
+            {
+              paperType: jobConfig.paperType,
+              orientation: jobConfig.orientation,
+              scaling: jobConfig.scaling,
+              halftone: jobConfig.halftone
+            },
+            jobConfig.content
+          );
+
+          const newJob: PrintJob = {
+            id: 'job-' + Math.random().toString(36).substr(2, 9),
+            documentName: jobConfig.jobName,
+            filename: jobConfig.jobName,
+            status: 'printing',
+            progress: 10,
+            pages: previewJobConfig.pagesCount || 1,
+            timestamp: new Date().toLocaleTimeString(),
+            owner: previewJobConfig.owner || userName || 'Administrator',
+            sourceApp: previewJobConfig.sourceApp || 'Print Spooler',
+            printerName: jobConfig.printerName,
+            paperType: jobConfig.paperType.name,
+            orientation: jobConfig.orientation,
+            copies: jobConfig.copies,
+            content: jobConfig.content
+          };
+
+          setPrintQueue(prev => [newJob, ...prev]);
+          addNotification('Print Spooler', `Job "${jobConfig.jobName}" dispatched to ${jobConfig.printerName}`, 'success');
+          setIsPreviewOpen(false);
+
+          setTimeout(() => {
+            setPrintQueue(prev => prev.map(j => j.id === newJob.id ? { ...j, status: 'completed', progress: 100 } : j));
+            addNotification('Print Spooler', `Finished printing "${jobConfig.jobName}"`, 'success');
+          }, 4000);
+        }}
+      />
+
+      {/* Add Printer Modal */}
+      {isAddPrinterOpen && (
+        <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-slate-900 border border-white/20 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <PrinterIcon size={18} className="text-emerald-400" />
+                <h3 className="text-sm font-bold uppercase tracking-wider text-white">Add Network Printer</h3>
+              </div>
+              <button 
+                onClick={() => setIsAddPrinterOpen(false)}
+                className="p-1 rounded-lg hover:bg-white/10 text-white/50 hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddPrinter} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-white/60 font-medium mb-1">Printer Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. LaserJet-Office-North"
+                  value={newPrinterForm.name}
+                  onChange={(e) => setNewPrinterForm({ ...newPrinterForm, name: e.target.value })}
+                  className="w-full bg-black/50 border border-white/10 rounded-xl px-3 py-2 text-white outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-white/60 font-medium mb-1">IP Address</label>
+                  <input
+                    type="text"
+                    required
+                    value={newPrinterForm.ip}
+                    onChange={(e) => setNewPrinterForm({ ...newPrinterForm, ip: e.target.value })}
+                    className="w-full bg-black/50 border border-white/10 rounded-xl px-3 py-2 text-white outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-white/60 font-medium mb-1">Port</label>
+                  <input
+                    type="number"
+                    required
+                    value={newPrinterForm.port}
+                    onChange={(e) => setNewPrinterForm({ ...newPrinterForm, port: parseInt(e.target.value, 10) || 9100 })}
+                    className="w-full bg-black/50 border border-white/10 rounded-xl px-3 py-2 text-white outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-white/60 font-medium mb-1">Protocol</label>
+                  <select
+                    value={newPrinterForm.protocol}
+                    onChange={(e) => setNewPrinterForm({ ...newPrinterForm, protocol: e.target.value as any })}
+                    className="w-full bg-black/50 border border-white/10 rounded-xl px-3 py-2 text-white outline-none focus:border-blue-500"
+                  >
+                    <option value="GPP">GPP (Glass Print Protocol)</option>
+                    <option value="IPP">IPP (Internet Printing Protocol)</option>
+                    <option value="RAW">RAW / Socket 9100</option>
+                    <option value="LPR">LPR / LPD Line Printer</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-white/60 font-medium mb-1">Speed</label>
+                  <input
+                    type="text"
+                    value={newPrinterForm.speed}
+                    onChange={(e) => setNewPrinterForm({ ...newPrinterForm, speed: e.target.value })}
+                    className="w-full bg-black/50 border border-white/10 rounded-xl px-3 py-2 text-white outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-white/60 font-medium mb-1">Location</label>
+                <input
+                  type="text"
+                  value={newPrinterForm.location}
+                  onChange={(e) => setNewPrinterForm({ ...newPrinterForm, location: e.target.value })}
+                  className="w-full bg-black/50 border border-white/10 rounded-xl px-3 py-2 text-white outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-white/10 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddPrinterOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold shadow-lg shadow-blue-500/20"
+                >
+                  Add Printer Node
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -13336,6 +14166,27 @@ function TerminalApp({
   }
 
   const [input, setInput] = useState('');
+  const [childProcesses, setChildProcesses] = useState<Record<string, React.ReactNode>>({});
+
+  const trapHandler = useMemo(() => ({
+    trapFromTTY: (syscallId: number, args: any) => {
+      addNotification('GTerm Syscall', `Intercepted Syscall Trap 0x${syscallId.toString(16).toUpperCase()} on /dev/tty${args.tty}`, 'info');
+      
+      // If write syscall and we have a command, let's also output to active session history!
+      if (syscallId === 0x04 && args.command) {
+        setSessions((prev: any[]) => prev.map(s => {
+          if (s.id === activeSessionId) {
+            return {
+              ...s,
+              history: [...s.history, `[SYS_WRITE TRAP 0x04] Executing: ${args.command}`]
+            };
+          }
+          return s;
+        }));
+      }
+    }
+  }), [activeSessionId, addNotification, setSessions]);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -13756,6 +14607,10 @@ function TerminalApp({
           '',
           'SYSTEM COMMANDS:',
           '  sudo <cmd>             Execute command as root administrator',
+          '  gterm                  Spawn local xterm virtual sub-shell (SYS_SPAWN)',
+          '  lpr <doc> / lp <doc>   Submit print job to Background Print Spool Daemon',
+          '  lpq                    Inspect active & spooled print jobs queue',
+          '  cancel-job <id>        Cancel spooled print job',
           '  clear                  Clear terminal buffer history',
           '  whoami                 Display active user session status',
           '  sysinfo                Print host kernel compile statistics',
@@ -13764,6 +14619,109 @@ function TerminalApp({
         ] });
         addNotification('Terminal', 'Expanded help menu displayed', 'info');
         break;
+      case 'gterm': {
+        const currentTty = activeSession.tty ? parseInt(activeSession.tty.replace(/\D/g, ''), 10) || 1 : 1;
+        const currentPid = activeSession.uid === 1001 ? 1001 : 1000;
+        const newSubTty = currentTty + 10;
+
+        setChildProcesses(prev => ({
+          ...prev,
+          [targetSessionId]: (
+            <GTerm
+              subTtyId={newSubTty}
+              parentPid={currentPid}
+              onExit={() => {
+                setChildProcesses(p => {
+                  const copy = { ...p };
+                  delete copy[targetSessionId];
+                  return copy;
+                });
+                setSessions(prevSessions => prevSessions.map(s => {
+                  if (s.id === targetSessionId) {
+                    return {
+                      ...s,
+                      history: [...s.history, `[PROCESS TERMINATED] Sub-shell (TTY ${newSubTty}) exited successfully.`]
+                    };
+                  }
+                  return s;
+                }));
+              }}
+              sendSyscallTrap={(syscallId, payload) => {
+                trapHandler.trapFromTTY(syscallId, payload);
+              }}
+            />
+          )
+        }));
+
+        updateActiveSession({
+          history: [...newHistory, `[EXEC] Spawning virtual sub-shell... allocated TTY /dev/tty${newSubTty}.`]
+        });
+        break;
+      }
+      case 'lpq': {
+        const queue = systemPrintDaemon.getQueue();
+        if (queue.length === 0) {
+          updateActiveSession({ history: [...newHistory, 'Print Spooler: Queue is empty. No active or spooled jobs.'] });
+        } else {
+          const lines = [
+            'Rank   Owner   Job#  Printer          Status       Name',
+            '-------------------------------------------------------------------------'
+          ];
+          queue.forEach((j, idx) => {
+            const rank = idx === 0 ? 'active' : `${idx}st`;
+            lines.push(`${rank.padEnd(6)} ${String(j.ownerUid).padEnd(7)} ${String(j.id).padEnd(5)} ${j.printerName.padEnd(16)} ${j.status.padEnd(12)} ${j.jobInfo.jobName}`);
+          });
+          updateActiveSession({ history: [...newHistory, ...lines] });
+        }
+        break;
+      }
+      case 'lpr':
+      case 'lp': {
+        const docName = args.join(' ') || 'terminal_spool_document.txt';
+        const job = systemPrintDaemon.submitJob(
+          activeSession.uid || 1000,
+          parseInt(activeSession.tty?.replace(/\D/g, '') || '1', 10),
+          'LaserJet-Pro-GlassOS',
+          {
+            jobName: docName,
+            copies: 1,
+            pageRange: [1, 1],
+            collate: true,
+            printToDisk: false
+          },
+          {
+            paperType: {
+              name: 'US Letter',
+              widthMm: 215.9,
+              heightMm: 279.4,
+              printableBounds: { top: 5, left: 5, right: 210.9, bottom: 274.4 }
+            },
+            orientation: 'PORTRAIT',
+            scaling: 1.0,
+            halftone: false
+          },
+          `Sample Print Content for document: ${docName}`
+        );
+        updateActiveSession({
+          history: [...newHistory, `[PrintDaemon] Job #${job.id} ("${job.jobInfo.jobName}") submitted to LaserJet-Pro-GlassOS.`]
+        });
+        addNotification('Print Daemon', `Job #${job.id} queued for printing`, 'info');
+        break;
+      }
+      case 'cancel-job': {
+        const jid = parseInt(args[0], 10);
+        if (isNaN(jid)) {
+          updateActiveSession({ history: [...newHistory, 'usage: cancel-job <job_id>'] });
+        } else {
+          const ok = systemPrintDaemon.cancelJob(jid);
+          if (ok) {
+            updateActiveSession({ history: [...newHistory, `[PrintDaemon] Job #${jid} cancelled.`] });
+          } else {
+            updateActiveSession({ history: [...newHistory, `[PrintDaemon] Could not cancel Job #${jid} (not found or already completed).`] });
+          }
+        }
+        break;
+      }
       case 'ping': {
         const target = args[0];
         if (!target) {
@@ -14842,7 +15800,9 @@ function TerminalApp({
 
       {/* Terminal Content */}
       <div className="flex-1 overflow-hidden relative">
-        {activeSession.isTopActive ? (
+        {childProcesses[activeSessionId] ? (
+          childProcesses[activeSessionId]
+        ) : activeSession.isTopActive ? (
           <div className="h-full text-green-500 font-mono p-4 text-sm overflow-hidden flex flex-col">
             <div className="flex justify-between border-b border-green-900 pb-2 mb-2">
               <span>GlassOS Task Manager (top)</span>

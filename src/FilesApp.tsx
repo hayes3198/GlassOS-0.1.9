@@ -98,25 +98,18 @@ interface FilesAppProps {
   setProtocolsCompressSelectedFile?: (path: string) => void;
 }
 
-export function FilesApp({ 
-  fs, setFs, fsLib, openWindow, setNotepadContent, setGlassWordContent, setSheetData,
-  setActiveFileInNotepad, setActiveFileInGlassWord, setActiveFileInSheets, setContextMenu, addNotification,
-  clipboardHistory, setClipboardHistory, userName, setPrintQueue,
-  currentUser,
-  networkNodes,
-  accentColor,
-  runBrainscript,
-  setPhotosAppProps,
-  setGlassDrawProps,
-  systemMonitorActiveTab,
-  setSystemMonitorActiveTab,
-  protocolsSelectedFile,
-  setProtocolsSelectedFile,
-  protocolsCompressSelectedFile,
-  setProtocolsCompressSelectedFile,
-  explorerPath,
-  setExplorerPath
-}: FilesAppProps & { explorerPath?: string[]; setExplorerPath?: React.Dispatch<React.SetStateAction<string[]>> }) {
+export function FilesApp(props: FilesAppProps & { explorerPath?: string[]; setExplorerPath?: React.Dispatch<React.SetStateAction<string[]>> }) {
+  const {
+    fs, setFs, fsLib, openWindow, setNotepadContent, setGlassWordContent, setSheetData,
+    setActiveFileInNotepad, setActiveFileInGlassWord, setActiveFileInSheets, setContextMenu, addNotification,
+    clipboardHistory, setClipboardHistory, userName, setPrintQueue,
+    currentUser, networkNodes, accentColor, runBrainscript,
+    setPhotosAppProps, setGlassDrawProps,
+    systemMonitorActiveTab, setSystemMonitorActiveTab,
+    protocolsSelectedFile, setProtocolsSelectedFile,
+    protocolsCompressSelectedFile, setProtocolsCompressSelectedFile,
+    explorerPath, setExplorerPath
+  } = props;
   const [localPath, setLocalPath] = useState<string[]>(['Documents']);
   const currentPath = explorerPath !== undefined ? explorerPath : localPath;
   const setCurrentPath = setExplorerPath !== undefined ? setExplorerPath : setLocalPath;
