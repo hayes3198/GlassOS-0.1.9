@@ -179,7 +179,7 @@ import {
   SlidersHorizontal,
   VolumeX,
 } from 'lucide-react';
-import { motion, AnimatePresence, useDragControls } from 'motion/react';
+import { motion, AnimatePresence, useDragControls, useMotionValue } from 'motion/react';
 import { 
   BarChart as ReBarChart, 
   Bar, 
@@ -379,6 +379,28 @@ export const findItemByPath = (items: FileSystemItem[], path: string[]): FileSys
   return current;
 };
 
+// --- Helper to merge missing default system files into cached FS ---
+const mergeFsTrees = (existing: FileSystemItem[], defaults: FileSystemItem[]): FileSystemItem[] => {
+  if (!Array.isArray(existing)) return defaults;
+  const result = [...existing];
+  for (const defItem of defaults) {
+    const idx = result.findIndex(i => i.name === defItem.name && i.type === defItem.type);
+    if (idx === -1) {
+      result.push(defItem);
+    } else if (defItem.type === 'folder' && defItem.children) {
+      result[idx] = {
+        ...result[idx],
+        children: mergeFsTrees(result[idx].children || [], defItem.children)
+      };
+    } else if (defItem.type === 'file') {
+      if (['neighborhood.html', 'geocities.html', 'home.html', 'index.json'].includes(defItem.name)) {
+        result[idx] = defItem;
+      }
+    }
+  }
+  return result;
+};
+
 // --- Components ---
 
 export default function App() {
@@ -496,6 +518,7 @@ export default function App() {
   const [brainscriptLine, setBrainscriptLine] = useState<number>(-1);
   const [glassChatContext, setGlassChatContext] = useState<{ appName: string; initialPrompt: string } | null>(null);
   const [activeFileInNotepad, setActiveFileInNotepad] = useState<{name: string, path: string[]} | null>(null);
+  const [activeFileInCodeStudio, setActiveFileInCodeStudio] = useState<string>('main.b');
   const [calendarEvents, setCalendarEvents] = useState<any[]>([
     { id: '1', title: 'System Review', date: new Date().toISOString().split('T')[0], time: '10:00', type: 'meeting' },
     { id: '2', title: 'Database Migration', date: new Date().toISOString().split('T')[0], time: '14:30', type: 'work' },
@@ -868,7 +891,10 @@ export default function App() {
         const cloudData = await response.json();
         setServerStatus('online');
         
-        if (cloudData.fs_v1) setFs(cloudData.fs_v1);
+        if (cloudData.fs_v1) {
+          const mergedFs = mergeFsTrees(cloudData.fs_v1, INITIAL_FS);
+          setFs(mergedFs);
+        }
         if (cloudData.collections) setCollections(cloudData.collections);
         if (cloudData.settings_v1) {
           const { username, wallpaper, accentColor, notepad, fontFamily, fontSize, fontWeight } = cloudData.settings_v1;
@@ -1000,7 +1026,13 @@ export default function App() {
 
       await storage.init();
       const localFs = await storage.loadFS();
-      if (localFs) setFs(localFs);
+      if (localFs) {
+        const mergedFs = mergeFsTrees(localFs, INITIAL_FS);
+        setFs(mergedFs);
+        storage.saveFS(mergedFs).catch(() => {});
+      } else {
+        storage.saveFS(INITIAL_FS).catch(() => {});
+      }
 
       // Restore custom glassmorphism theme from IndexedDB or presets
       try {
@@ -1975,6 +2007,7 @@ export default function App() {
                     sheetData, setSheetData,
                     activeFileInSheets, setActiveFileInSheets,
                     activeFileInNotepad, setActiveFileInNotepad,
+                    activeFileInCodeStudio, setActiveFileInCodeStudio,
                     photosAppSelectedFile, setPhotosAppSelectedFile,
                     glassDrawSelectedFile, setGlassDrawSelectedFile,
                     systemMonitorActiveTab, setSystemMonitorActiveTab,
@@ -2687,6 +2720,14 @@ function ResizeHandle({ direction, onResize, className, children }: any) {
 function Window({ win, isActive, onFocus, onClose, onMinimize, onMaximize, onResizeRect, onDragEnd, dragConstraints, children }: any) {
   const controls = useDragControls();
   const windowRef = useRef<HTMLDivElement>(null);
+  const dragX = useMotionValue(0);
+  const dragY = useMotionValue(0);
+
+  // Reset drag motion values whenever position, maximized state, or size changes
+  useEffect(() => {
+    dragX.set(0);
+    dragY.set(0);
+  }, [win.x, win.y, win.isMaximized, win.width, win.height, dragX, dragY]);
 
   if (win.isMinimized) return null;
 
@@ -2719,41 +2760,55 @@ function Window({ win, isActive, onFocus, onClose, onMinimize, onMaximize, onRes
   return (
     <motion.div
       ref={windowRef}
-      initial={{ opacity: 0, scale: 0.9, y: 20 }}
+      initial={{ opacity: 0, scale: 0.95 }}
       animate={{ 
         opacity: 1, 
         scale: 1, 
-        y: 0,
         width: win.isMaximized ? "100%" : win.width,
         height: win.isMaximized ? "calc(100% - 48px)" : win.height,
         left: win.isMaximized ? 0 : win.x,
         top: win.isMaximized ? 0 : win.y,
         zIndex: win.zIndex
       }}
-      exit={{ opacity: 0, scale: 0.9, y: 20 }}
-      transition={{ type: 'spring', damping: 25, stiffness: 300, mass: 0.5 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ type: 'spring', damping: 28, stiffness: 350, mass: 0.4 }}
       drag={!win.isMaximized}
-      dragMomentum={true}
-      dragTransition={{ bounceStiffness: 500, bounceDamping: 25 }}
+      dragMomentum={false}
       dragListener={false}
       dragControls={controls}
       dragConstraints={dragConstraints}
-      dragElastic={0.1}
-      whileDrag={{ scale: 1.01, boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)" }}
+      dragElastic={0}
+      whileDrag={{ scale: 1.005, boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)" }}
       onDragEnd={() => {
         if (windowRef.current && dragConstraints && dragConstraints.current) {
           const rect = windowRef.current.getBoundingClientRect();
           const desktopRect = dragConstraints.current.getBoundingClientRect();
-          onDragEnd(rect.left - desktopRect.left, rect.top - desktopRect.top);
+          const relativeX = rect.left - desktopRect.left;
+          const relativeY = rect.top - desktopRect.top;
+          
+          // Reset drag motion values so style.left and style.top are pure exact coordinates
+          dragX.set(0);
+          dragY.set(0);
+
+          // Snap to top edge to maximize if dragged to top of viewport
+          if (relativeY <= 5 && !win.isMaximized) {
+            onMaximize();
+          } else {
+            const safeX = Math.max(0, Math.min(relativeX, desktopRect.width - 100));
+            const safeY = Math.max(0, Math.min(relativeY, desktopRect.height - 48));
+            onDragEnd(safeX, safeY);
+          }
         }
       }}
       onPointerDown={onFocus}
       style={{ 
         position: 'absolute',
+        x: dragX,
+        y: dragY,
         touchAction: 'none'
       }}
       className={cn(
-        "glass-dark rounded-xl flex flex-col shadow-2xl border border-white/20",
+        "glass-dark rounded-xl flex flex-col shadow-2xl border border-white/20 overflow-hidden",
         isActive ? "ring-1 ring-white/30" : "opacity-90",
         win.isMaximized ? "rounded-none border-none" : ""
       )}
@@ -16007,29 +16062,54 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
   const lastContent = useRef(content);
   const lastSelection = useRef('');
 
-  const [leftIndent, setLeftIndent] = useState(72); // pt (72pt = 96px = 1 inch)
-  const [rightIndent, setRightIndent] = useState(72); // pt
-  const [topMargin, setTopMargin] = useState(72); // pt
-  const [bottomMargin, setBottomMargin] = useState(72); // pt
+  const [leftIndent, setLeftIndent] = useState(36); // pt (36pt = 48px = 0.5 inch for larger text area)
+  const [rightIndent, setRightIndent] = useState(36); // pt
+  const [topMargin, setTopMargin] = useState(36); // pt
+  const [bottomMargin, setBottomMargin] = useState(36); // pt
   const [tabSize, setTabSize] = useState(36.0); // pt (36pt = 0.5 inch)
-  const [showRuler, setShowRuler] = useState(false); // Default to hidden, toggled via menu
+  const [showRuler, setShowRuler] = useState(true); // Default to visible ruler bar under font bar
   const [showPageLayoutModal, setShowPageLayoutModal] = useState(false);
   const [layoutActiveTab, setLayoutActiveTab] = useState<'margins' | 'tabs'>('margins');
   const [showTemplatesModal, setShowTemplatesModal] = useState(false);
   const [selectedTemplateCategory, setSelectedTemplateCategory] = useState<string>('All');
+
+  const savedRange = useRef<Range | null>(null);
+
+  const saveSelection = () => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && editorRef.current) {
+      const range = sel.getRangeAt(0);
+      if (editorRef.current.contains(range.commonAncestorContainer)) {
+        savedRange.current = range.cloneRange();
+      }
+    }
+  };
+
+  const restoreSelection = () => {
+    if (savedRange.current && editorRef.current) {
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(savedRange.current);
+      }
+    }
+  };
 
   useEffect(() => {
     const updateSelection = () => {
       const sel = window.getSelection();
       if (sel && editorRef.current?.contains(sel.anchorNode)) {
         lastSelection.current = sel.toString();
+        saveSelection();
       }
     };
     document.addEventListener('mouseup', updateSelection);
     document.addEventListener('keyup', updateSelection);
+    document.addEventListener('selectionchange', updateSelection);
     return () => {
       document.removeEventListener('mouseup', updateSelection);
       document.removeEventListener('keyup', updateSelection);
+      document.removeEventListener('selectionchange', updateSelection);
     };
   }, []);
 
@@ -16101,9 +16181,23 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
   }, [content, activeFile]);
 
   const exec = (command: string, value: string = '') => {
-    document.execCommand(command, false, value);
-    if (editorRef.current) editorRef.current.focus();
-    // Update content state after execCommand
+    if (editorRef.current) {
+      editorRef.current.focus();
+      restoreSelection();
+    }
+    
+    if (command === 'formatBlock') {
+      try {
+        document.execCommand('formatBlock', false, value);
+      } catch (e) {
+        const cleanVal = value.replace(/[<>]/g, '');
+        document.execCommand('formatBlock', false, cleanVal);
+      }
+    } else {
+      document.execCommand(command, false, value);
+    }
+
+    saveSelection();
     if (editorRef.current) {
       const html = editorRef.current.innerHTML;
       lastContent.current = html;
@@ -16390,12 +16484,16 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
         { label: 'Italic', action: () => exec('italic'), shortcut: 'Cmd+I' },
         { label: 'Underline', action: () => exec('underline'), shortcut: 'Cmd+U' },
         { label: 'Strikethrough', action: () => exec('strikeThrough') },
-        { label: 'Heading 1', action: () => exec('formatBlock', 'H1') },
-        { label: 'Heading 2', action: () => exec('formatBlock', 'H2') },
-        { label: 'Heading 3', action: () => exec('formatBlock', 'H3') },
-        { label: 'Paragraph', action: () => exec('formatBlock', 'P') },
+        { label: 'Heading 1', action: () => exec('formatBlock', '<h1>') },
+        { label: 'Heading 2', action: () => exec('formatBlock', '<h2>') },
+        { label: 'Heading 3', action: () => exec('formatBlock', '<h3>') },
+        { label: 'Paragraph', action: () => exec('formatBlock', '<p>') },
         { label: 'Bullet List', action: () => exec('insertUnorderedList') },
-        { label: 'Numbered List', action: () => exec('insertOrderedList') }
+        { label: 'Numbered List', action: () => exec('insertOrderedList') },
+        { label: 'Align Left', action: () => exec('justifyLeft') },
+        { label: 'Center', action: () => exec('justifyCenter') },
+        { label: 'Align Right', action: () => exec('justifyRight') },
+        { label: 'Justify', action: () => exec('justifyFull') }
       ] 
     },
     { 
@@ -16407,7 +16505,9 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
         { label: 'Montserrat', action: () => exec('fontName', 'Montserrat') },
         { label: 'Poppins', action: () => exec('fontName', 'Poppins') },
         { label: 'JetBrains Mono', action: () => exec('fontName', 'JetBrains Mono') },
-        { label: 'Playfair Display', action: () => exec('fontName', 'Playfair Display') }
+        { label: 'Playfair Display', action: () => exec('fontName', 'Playfair Display') },
+        { label: 'Georgia', action: () => exec('fontName', 'Georgia') },
+        { label: 'Courier New', action: () => exec('fontName', 'Courier New') }
       ] 
     },
     { 
@@ -16451,6 +16551,7 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
         {menuItems.map((menu) => (
           <div key={menu.label} className="relative">
             <button
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 setActiveMenu(activeMenu === menu.label ? null : menu.label);
                 setActiveSubmenu(null);
@@ -16473,6 +16574,7 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
         {menu.items.map((item: any) => (
           <div key={item.label} className="relative group/sub">
             <button
+              onMouseDown={(e) => e.preventDefault()}
               onClick={(e) => {
                 if (item.items) {
                   e.stopPropagation();
@@ -16502,6 +16604,7 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
                 {item.items.map((subItem: any) => (
                   <button
                     key={subItem.label}
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
                       subItem.action();
                       setActiveMenu(null);
@@ -16523,18 +16626,20 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
         ))}
       </div>
 
-      {/* Toolbar */}
+      {/* Toolbar / Font Bar */}
       <div className="p-1.5 flex items-center gap-1 bg-white/10 backdrop-blur-md border-b border-white/10 shadow-sm z-40">
         <div className="flex items-center gap-0.5 px-2 border-r border-white/10">
           <select 
+            onMouseDown={() => saveSelection()}
             onChange={(e) => exec('fontName', e.target.value)}
             className="bg-transparent text-[11px] text-white/80 border border-white/10 rounded px-1 py-0.5 outline-none focus:border-blue-500/50 transition-all w-32 cursor-pointer hover:bg-white/5"
           >
-            {['Inter', 'Roboto', 'Open Sans', 'Montserrat', 'Poppins', 'JetBrains Mono', 'Playfair Display'].map(font => (
+            {['Inter', 'Roboto', 'Open Sans', 'Montserrat', 'Poppins', 'JetBrains Mono', 'Playfair Display', 'Georgia', 'Courier New'].map(font => (
               <option key={font} className="bg-slate-900" value={font}>{font}</option>
             ))}
           </select>
           <select 
+            onMouseDown={() => saveSelection()}
             onChange={(e) => exec('fontSize', e.target.value)}
             className="bg-transparent text-[11px] text-white/80 border border-white/10 rounded px-1 py-0.5 outline-none focus:border-blue-500/50 transition-all w-16 cursor-pointer ml-1 hover:bg-white/5"
           >
@@ -16545,9 +16650,9 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
         </div>
 
         <div className="flex items-center gap-0.5 px-2 border-r border-white/10">
-          <ToolbarButton icon={<Bold size={14} />} onClick={() => exec('bold')} tooltip="Bold" />
-          <ToolbarButton icon={<Italic size={14} />} onClick={() => exec('italic')} tooltip="Italic" />
-          <ToolbarButton icon={<Underline size={14} />} onClick={() => exec('underline')} tooltip="Underline" />
+          <ToolbarButton icon={<Bold size={14} />} onClick={() => exec('bold')} tooltip="Bold (Cmd+B)" />
+          <ToolbarButton icon={<Italic size={14} />} onClick={() => exec('italic')} tooltip="Italic (Cmd+I)" />
+          <ToolbarButton icon={<Underline size={14} />} onClick={() => exec('underline')} tooltip="Underline (Cmd+U)" />
           <ToolbarButton icon={<Eraser size={14} />} onClick={() => exec('removeFormat')} tooltip="Clear Format" />
         </div>
 
@@ -16569,76 +16674,66 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
         </div>
       </div>
 
-      {/* Word 4.0 Style Ruler */}
+      {/* Ruler Bar directly under Font Bar */}
       {showRuler && (
-        <div className="h-7 flex items-center bg-white/5 border-b border-white/10 relative overflow-hidden select-none">
-          <div className="absolute inset-y-0 left-0 w-[40px] bg-white/5 border-r border-white/10 flex items-center justify-center">
-             <span className="text-[9px] text-white/40 uppercase font-bold tracking-tighter">In</span>
+        <div className="h-8 bg-slate-900/90 backdrop-blur-md border-b border-white/10 flex items-center px-4 relative select-none z-30 shadow-inner overflow-hidden text-white/60 font-mono text-[10px]">
+          <div className="flex items-center gap-1 pr-3 border-r border-white/10 shrink-0 text-white/40 font-bold uppercase tracking-wider text-[9px]">
+            <Ruler size={13} className="text-blue-400" />
+            <span>INCH</span>
           </div>
-          <div className="flex-1 flex px-4">
-            {Array.from({ length: 20 }).map((_, i) => (
-              <div key={i} className="flex-1 border-l border-white/10 h-2 flex flex-col justify-end">
-                {i % 2 === 0 && <span className="text-[8px] text-white/20 -mb-4 -ml-1 select-none">{i}</span>}
-                <div className="h-1 w-px bg-white/20 self-center" />
+
+          <div className="flex-1 flex justify-center overflow-hidden px-2">
+            <div className="w-full max-w-[850px] relative h-full flex items-center">
+              {/* Shaded margin indicators */}
+              <div 
+                className="absolute left-0 top-0 bottom-0 bg-blue-500/15 border-r border-blue-400/40" 
+                style={{ width: `${leftIndent * (96 / 72)}px` }} 
+                title={`Left Margin: ${(leftIndent / 72).toFixed(2)}" (${leftIndent}pt)`}
+              />
+              <div 
+                className="absolute right-0 top-0 bottom-0 bg-blue-500/15 border-l border-blue-400/40" 
+                style={{ width: `${rightIndent * (96 / 72)}px` }} 
+                title={`Right Margin: ${(rightIndent / 72).toFixed(2)}" (${rightIndent}pt)`}
+              />
+
+              {/* Ruler ticks and inch numbers */}
+              <div className="w-full relative h-full flex items-end">
+                {Array.from({ length: 17 }).map((_, i) => {
+                  const isFullInch = i % 2 === 0;
+                  const posPercent = (i / 16) * 100;
+                  return (
+                    <div 
+                      key={i} 
+                      className="absolute bottom-0 flex flex-col items-center -translate-x-1/2" 
+                      style={{ left: `${posPercent}%` }}
+                    >
+                      {isFullInch && (
+                        <span className="text-[9px] text-white/80 font-bold mb-0.5">
+                          {i / 2}"
+                        </span>
+                      )}
+                      <div className={isFullInch ? "h-3.5 w-[1.5px] bg-white/60" : "h-2 w-px bg-white/30"} />
+                    </div>
+                  );
+                })}
               </div>
-            ))}
+            </div>
+          </div>
+
+          <div className="pl-3 border-l border-white/10 shrink-0 flex items-center gap-3 text-[10px] text-white/60 font-mono">
+            <span>Left: {(leftIndent / 72).toFixed(1)}"</span>
+            <span>Right: {(rightIndent / 72).toFixed(1)}"</span>
           </div>
         </div>
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 overflow-y-auto bg-black/20 p-8 flex flex-col items-center custom-scrollbar" onClick={() => {
+      <div className="flex-1 overflow-y-auto bg-black/20 p-6 flex flex-col items-center custom-scrollbar" onClick={() => {
         if (editorRef.current) editorRef.current.focus();
         setActiveMenu(null);
       }}>
-        {showRuler && (
-          <div className="w-full max-w-[816px] h-9 bg-slate-900 border border-white/10 rounded-t-lg relative overflow-hidden select-none text-white/60 font-mono shadow-md flex flex-col justify-end mb-1">
-            {/* Shaded margin indicators */}
-            <div 
-              className="absolute left-0 top-0 bottom-0 bg-white/5 border-r border-white/10" 
-              style={{ width: `${leftIndent * (96 / 72)}px` }} 
-            />
-            <div 
-              className="absolute right-0 top-0 bottom-0 bg-white/5 border-l border-white/10" 
-              style={{ width: `${rightIndent * (96 / 72)}px` }} 
-            />
-
-            {/* Left/Right Margin Labels */}
-            <div className="absolute top-1 left-2 text-[8px] text-white/30 uppercase font-bold tracking-wider">
-              Left Margin: {leftIndent}pt
-            </div>
-            <div className="absolute top-1 right-2 text-[8px] text-white/30 uppercase font-bold tracking-wider text-right">
-              Right Margin: {rightIndent}pt
-            </div>
-
-            {/* Scale ticks */}
-            <div className="flex justify-between px-0 relative h-5 items-end">
-              {Array.from({ length: 18 }).map((_, i) => {
-                const ptValue = i * 36; // increments of 36 pt (0.5 inch)
-                const leftPx = ptValue * (96 / 72);
-                if (leftPx >= 816) return null;
-                const isInch = ptValue % 72 === 0;
-                return (
-                  <div 
-                    key={i} 
-                    className="absolute bottom-0 flex flex-col items-center" 
-                    style={{ left: `${leftPx}px` }}
-                  >
-                    {isInch && (
-                      <span className="text-[9px] text-white/60 -mt-4 font-bold">
-                        {ptValue / 72}"
-                      </span>
-                    )}
-                    <div className={isInch ? "h-3.5 w-[1.5px] bg-white/40" : "h-2 w-px bg-white/20"} />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
         <div 
-          className="w-full max-w-[816px] min-h-[1056px] h-auto shrink-0 bg-white/95 text-slate-900 shadow-2xl transform transition-transform duration-300 hover:scale-[1.005] focus:outline-none ring-1 ring-white/50 relative cursor-text selection:bg-blue-100 selection:text-slate-900"
+          className="w-full max-w-[850px] min-h-[1056px] h-auto shrink-0 bg-white text-slate-900 shadow-2xl focus:outline-none ring-1 ring-black/10 relative cursor-text selection:bg-blue-100 selection:text-slate-900 transition-all"
           contentEditable
           suppressContentEditableWarning
           ref={editorRef}
@@ -17198,15 +17293,19 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
   );
 }
 
-function ToolbarButton({ icon, onClick, tooltip }: { icon: React.ReactNode, onClick: () => void, tooltip: string }) {
+function ToolbarButton({ icon, onClick, tooltip, active }: { icon: React.ReactNode, onClick: () => void, tooltip: string, active?: boolean }) {
   return (
     <button
+      onMouseDown={(e) => e.preventDefault()}
       onClick={(e) => {
         e.stopPropagation();
         onClick();
       }}
       title={tooltip}
-      className="p-1.5 rounded hover:bg-white/10 text-white/60 hover:text-white transition-all active:scale-95 group relative"
+      className={cn(
+        "p-1.5 rounded transition-all active:scale-95 group relative cursor-pointer",
+        active ? "bg-blue-500/30 text-white" : "hover:bg-white/10 text-white/60 hover:text-white"
+      )}
     >
       {icon}
       <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 text-[9px] rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-white/10 uppercase tracking-widest font-bold z-50">
@@ -20613,100 +20712,6 @@ console.log("Grouped Animals:", grouped);`;
                   onClick={() => { setShowFontDialog(true); setActiveMenu(null); }} 
                 />
 
-                {/* Font Size sub-menu */}
-                <div className="relative group/sub">
-                  <button className="w-full px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/20 text-white/70 hover:text-white transition-all text-left">
-                    <div className="flex items-center gap-3">
-                      <Baseline size={14} />
-                      <span>Font Size</span>
-                    </div>
-                    <ChevronRight size={12} />
-                  </button>
-                  <div className="absolute top-0 left-full ml-1 w-40 glass-dark border border-white/20 rounded-xl shadow-2xl hidden group-hover/sub:block py-2">
-                    <MenuButton 
-                      icon={(notepadStyle?.fontSize === '12px') ? <Check size={12} /> : <div className="w-3" />} 
-                      label="Small (12px)" 
-                      onClick={() => { handleUpdateStyle('fontSize', '12px'); setActiveMenu(null); }} 
-                    />
-                    <MenuButton 
-                      icon={(!notepadStyle?.fontSize || notepadStyle?.fontSize === '14px') ? <Check size={12} /> : <div className="w-3" />} 
-                      label="Medium (14px)" 
-                      onClick={() => { handleUpdateStyle('fontSize', '14px'); setActiveMenu(null); }} 
-                    />
-                    <MenuButton 
-                      icon={(notepadStyle?.fontSize === '18px') ? <Check size={12} /> : <div className="w-3" />} 
-                      label="Large (18px)" 
-                      onClick={() => { handleUpdateStyle('fontSize', '18px'); setActiveMenu(null); }} 
-                    />
-                    <MenuButton 
-                      icon={(notepadStyle?.fontSize === '24px') ? <Check size={12} /> : <div className="w-3" />} 
-                      label="X-Large (24px)" 
-                      onClick={() => { handleUpdateStyle('fontSize', '24px'); setActiveMenu(null); }} 
-                    />
-                  </div>
-                </div>
-
-                {/* Font Weight sub-menu */}
-                <div className="relative group/sub">
-                  <button className="w-full px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/20 text-white/70 hover:text-white transition-all text-left">
-                    <div className="flex items-center gap-3">
-                      <Bold size={14} />
-                      <span>Font Weight</span>
-                    </div>
-                    <ChevronRight size={12} />
-                  </button>
-                  <div className="absolute top-0 left-full ml-1 w-40 glass-dark border border-white/20 rounded-xl shadow-2xl hidden group-hover/sub:block py-2">
-                    <MenuButton 
-                      icon={(!notepadStyle?.fontWeight || notepadStyle?.fontWeight === 'normal') ? <Check size={12} /> : <div className="w-3" />} 
-                      label="Normal" 
-                      onClick={() => { handleUpdateStyle('fontWeight', 'normal'); setActiveMenu(null); }} 
-                    />
-                    <MenuButton 
-                      icon={(notepadStyle?.fontWeight === 'medium') ? <Check size={12} /> : <div className="w-3" />} 
-                      label="Medium" 
-                      onClick={() => { handleUpdateStyle('fontWeight', 'medium'); setActiveMenu(null); }} 
-                    />
-                    <MenuButton 
-                      icon={(notepadStyle?.fontWeight === 'bold') ? <Check size={12} /> : <div className="w-3" />} 
-                      label="Bold" 
-                      onClick={() => { handleUpdateStyle('fontWeight', 'bold'); setActiveMenu(null); }} 
-                    />
-                  </div>
-                </div>
-
-                {/* Text Align sub-menu */}
-                <div className="relative group/sub">
-                  <button className="w-full px-4 py-1.5 flex items-center justify-between hover:bg-blue-500/20 text-white/70 hover:text-white transition-all text-left">
-                    <div className="flex items-center gap-3">
-                      <AlignLeft size={14} />
-                      <span>Text Align</span>
-                    </div>
-                    <ChevronRight size={12} />
-                  </button>
-                  <div className="absolute top-0 left-full ml-1 w-40 glass-dark border border-white/20 rounded-xl shadow-2xl hidden group-hover/sub:block py-2">
-                    <MenuButton 
-                      icon={(!notepadStyle?.textAlign || notepadStyle?.textAlign === 'left') ? <Check size={12} /> : <div className="w-3" />} 
-                      label="Align Left" 
-                      onClick={() => { handleUpdateStyle('textAlign', 'left'); setActiveMenu(null); }} 
-                    />
-                    <MenuButton 
-                      icon={(notepadStyle?.textAlign === 'center') ? <Check size={12} /> : <div className="w-3" />} 
-                      label="Align Center" 
-                      onClick={() => { handleUpdateStyle('textAlign', 'center'); setActiveMenu(null); }} 
-                    />
-                    <MenuButton 
-                      icon={(notepadStyle?.textAlign === 'right') ? <Check size={12} /> : <div className="w-3" />} 
-                      label="Align Right" 
-                      onClick={() => { handleUpdateStyle('textAlign', 'right'); setActiveMenu(null); }} 
-                    />
-                    <MenuButton 
-                      icon={(notepadStyle?.textAlign === 'justify') ? <Check size={12} /> : <div className="w-3" />} 
-                      label="Justify" 
-                      onClick={() => { handleUpdateStyle('textAlign', 'justify'); setActiveMenu(null); }} 
-                    />
-                  </div>
-                </div>
-
                 <div className="h-px bg-white/10 my-1 mx-2" />
                 <MenuButton 
                   icon={notepadStyle?.wordWrap !== false ? <Check size={12} /> : <div className="w-3" />} 
@@ -22659,11 +22664,400 @@ function BrowserApp({ fs, fsLib, addNotification, closeWindow, setPrintQueue, us
     }
   };
 
+  const compileGlassOSDocToGeoCitiesHTML = useCallback((doc: any, filePath: string) => {
+    const meta = doc.metadata || {};
+    const content = doc.content || {};
+    const neighborhood = meta.neighborhood || meta.tags?.[1] || 'SiliconValley';
+    const icon = meta.neighborhoodIcon || '💻';
+    const theme = meta.theme || 'matrix-cyan';
+    const author = meta.author || 'Netizen99';
+    const title = content.title || `${neighborhood} Cyber Node`;
+    const tagline = content.tagline || 'Hosted on GlassDrive Virtual Network';
+    const items = content.richText || [];
+
+    // Hit Counter Increment & Persistence
+    let visitorHits = 1337;
+    const hitItem = items.find((i: any) => i.type === 'hitCounter');
+    if (hitItem) {
+      hitItem.initialValue = (hitItem.initialValue || 1000) + 1;
+      visitorHits = hitItem.initialValue;
+      try {
+        fsLib.write(filePath, JSON.stringify(doc, null, 2));
+      } catch (e) {
+        /* silent */
+      }
+    }
+
+    // Guestbook entries
+    const gbItem = items.find((i: any) => i.type === 'guestbook');
+    const gbEntries: any[] = gbItem?.entries || [];
+
+    // Theme styling rules
+    let bgGradient = 'linear-gradient(180deg, #020617 0%, #090d16 100%)';
+    let accentColor = '#38bdf8';
+    let glowColor = 'rgba(56, 189, 248, 0.4)';
+    let borderColor = '#0284c7';
+    let marqueeColor = '#38bdf8';
+
+    if (theme === 'alien-green' || neighborhood === 'Area51') {
+      bgGradient = 'linear-gradient(180deg, #022c22 0%, #064e3b 100%)';
+      accentColor = '#4ade80';
+      glowColor = 'rgba(74, 222, 128, 0.4)';
+      borderColor = '#16a34a';
+      marqueeColor = '#86efac';
+    } else if (theme === 'tokyo-magenta' || neighborhood === 'Tokyo') {
+      bgGradient = 'linear-gradient(180deg, #2e1065 0%, #1f0a24 100%)';
+      accentColor = '#f472b6';
+      glowColor = 'rgba(244, 114, 182, 0.4)';
+      borderColor = '#db2777';
+      marqueeColor = '#f472b6';
+    }
+
+    const paddedCounter = String(visitorHits).padStart(6, '0');
+
+    // Webring neighboring links
+    const webringLinks = [
+      { name: 'SiliconValley (💻)', url: 'local://SiliconValley/index.json' },
+      { name: 'Area51 (🛸)', url: 'local://Area51/index.json' },
+      { name: 'Tokyo (🗼)', url: 'local://Tokyo/index.json' },
+      { name: 'Webring Hub (🌐)', url: 'local://geocities.html' }
+    ];
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${title} - GeoCities GlassDrive</title>
+  <style>
+    body {
+      background: ${bgGradient};
+      color: #f1f5f9;
+      font-family: 'Comic Sans MS', 'Courier New', monospace;
+      margin: 0;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    .header-box {
+      text-align: center;
+      padding: 24px 16px;
+      border: 3px double ${accentColor};
+      box-shadow: 0 0 20px ${glowColor};
+      border-radius: 12px;
+      background: rgba(0,0,0,0.6);
+      margin-bottom: 20px;
+    }
+    h1 {
+      color: ${accentColor};
+      font-size: 26px;
+      margin: 0 0 8px 0;
+      text-shadow: 0 0 12px ${glowColor};
+    }
+    .tagline {
+      color: #cbd5e1;
+      font-size: 13px;
+      font-style: italic;
+      margin-bottom: 12px;
+    }
+    .marquee-container {
+      background: #000;
+      border: 2px inset ${borderColor};
+      color: ${marqueeColor};
+      font-weight: bold;
+      padding: 6px 12px;
+      margin: 12px 0;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+    }
+    .webring-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      background: #0f172a;
+      border: 1px solid ${borderColor};
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 12px;
+    }
+    .webring-link {
+      color: ${accentColor};
+      text-decoration: none;
+      font-weight: bold;
+      padding: 4px 8px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 4px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .webring-link:hover {
+      background: ${accentColor};
+      color: #000;
+    }
+    .counter-box {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: #000;
+      border: 2px inset #475569;
+      padding: 6px 16px;
+      border-radius: 6px;
+      margin: 16px 0;
+    }
+    .odometer {
+      font-family: 'Courier New', monospace;
+      font-size: 20px;
+      font-weight: bold;
+      color: #22c55e;
+      letter-spacing: 4px;
+      background: #022c22;
+      padding: 2px 8px;
+      border-radius: 4px;
+      border: 1px solid #15803d;
+      text-shadow: 0 0 8px #22c55e;
+    }
+    .section-card {
+      background: rgba(15, 23, 42, 0.85);
+      border: 2px solid ${borderColor};
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+    }
+    .section-title {
+      color: ${accentColor};
+      font-size: 18px;
+      font-weight: bold;
+      border-bottom: 2px dashed ${borderColor};
+      padding-bottom: 6px;
+      margin-top: 0;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .gb-entry {
+      background: rgba(0,0,0,0.4);
+      border-left: 3px solid ${accentColor};
+      padding: 10px 14px;
+      margin-bottom: 10px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .gb-author {
+      font-weight: bold;
+      color: ${accentColor};
+    }
+    .gb-date {
+      font-size: 10px;
+      color: #64748b;
+      margin-left: 8px;
+    }
+    .gb-input {
+      width: 100%;
+      background: #020617;
+      border: 1px solid ${borderColor};
+      color: #fff;
+      padding: 8px;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 13px;
+      box-sizing: border-box;
+      margin-bottom: 8px;
+    }
+    .btn-sign {
+      background: ${borderColor};
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      font-weight: bold;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+      box-shadow: 0 2px 8px ${glowColor};
+    }
+    .btn-sign:hover {
+      opacity: 0.9;
+    }
+    .badge-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      margin-top: 20px;
+    }
+    .retro-badge {
+      font-size: 10px;
+      padding: 3px 8px;
+      background: #1e293b;
+      border: 1px solid #475569;
+      color: #cbd5e1;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+    .synth-btn {
+      background: #a855f7;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 11px;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="header-box">
+    <h1>${icon} ${title}</h1>
+    <div class="tagline">${tagline} &bull; Node Author: <strong>${author}</strong></div>
+    <div style="font-size: 11px; color: #94a3b8;">
+      Neighborhood: <strong style="color: ${accentColor}">${neighborhood}</strong> |
+      Schema: <code>GlassOSDocument v1.0</code>
+    </div>
+  </div>
+
+  <div class="webring-bar">
+    <strong style="color: #cbd5e1;">🌐 GeoCities Webring:</strong>
+    ${webringLinks.map(w => `<a href="${w.url}" class="webring-link">${w.name}</a>`).join('')}
+  </div>
+
+  <div class="section-card">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+      <div class="counter-box">
+        <span style="font-size: 12px; color: #94a3b8; font-weight: bold;">TOTAL VISITORS:</span>
+        <div class="odometer">${paddedCounter}</div>
+      </div>
+
+      <button id="synth-audio-btn" class="synth-btn" onclick="(function(){
+        if(window._synthPlaying) {
+          if(window._synthCtx) window._synthCtx.close();
+          window._synthPlaying = false;
+          document.getElementById('synth-audio-btn').innerText = '🎵 Play 90s Synth Melody';
+          return;
+        }
+        try {
+          var ctx = new (window.AudioContext || window.webkitAudioContext)();
+          window._synthCtx = ctx;
+          window._synthPlaying = true;
+          document.getElementById('synth-audio-btn').innerText = '⏸ Pause Synth Melody';
+          var notes = [261.63, 329.63, 392.00, 523.25, 392.00, 329.63];
+          var step = 0;
+          setInterval(function(){
+            if(!window._synthPlaying) return;
+            var osc = ctx.createOscillator();
+            var gain = ctx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.value = notes[step % notes.length];
+            gain.gain.setValueAtTime(0.08, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.25);
+            step++;
+          }, 300);
+        } catch(e) { console.log(e); }
+      })()">🎵 Play 90s Synth Melody</button>
+    </div>
+
+    ${items.map((item: any) => {
+      if (item.type === 'heading') {
+        return `<h2 class="section-title">✨ ${item.text}</h2>`;
+      }
+      if (item.type === 'marquee') {
+        return `<div class="marquee-container"><marquee>${item.text}</marquee></div>`;
+      }
+      if (item.type === 'paragraph') {
+        return `<p style="font-size: 14px; color: #e2e8f0; line-height: 1.7;">${item.text}</p>`;
+      }
+      if (item.type === 'code') {
+        return `<pre style="background: #020617; border: 1px solid ${borderColor}; padding: 12px; border-radius: 6px; font-size: 12px; color: #38bdf8; overflow-x: auto;"><code>${item.code}</code></pre>`;
+      }
+      return '';
+    }).join('')}
+  </div>
+
+  <!-- Interactive Guestbook Section -->
+  <div class="section-card gb-form-container">
+    <h3 class="section-title">📖 Neighborhood Guestbook (${gbEntries.length} entries)</h3>
+    <p style="font-size: 12px; color: #94a3b8; margin-bottom: 16px;">
+      Leave your mark in <strong>${author}</strong>'s guestbook! All entries are written directly to <code>${filePath}</code> on GlassDrive.
+    </p>
+
+    <div style="margin-bottom: 20px;">
+      <input type="text" class="gb-input gb-name-input" placeholder="Your Name or Alias (e.g. CyberSam99)" />
+      <textarea class="gb-input gb-msg-input" rows="3" placeholder="Write your guestbook message here..."></textarea>
+      <button class="btn-sign" data-action="submit-guestbook" data-path="${filePath}">✏️ Sign Guestbook</button>
+    </div>
+
+    <div style="max-height: 250px; overflow-y: auto; padding-right: 4px;">
+      ${gbEntries.length === 0 ? '<p style="font-size: 12px; color: #64748b;">No guestbook entries yet. Be the first to sign!</p>' : ''}
+      ${gbEntries.map((e: any) => `
+        <div class="gb-entry">
+          <div>
+            <span class="gb-author">${e.author || 'Anonymous'}</span>
+            <span class="gb-date">${e.date || ''}</span>
+          </div>
+          <div style="margin-top: 4px; color: #cbd5e1;">${e.message || ''}</div>
+        </div>
+      `).join('')}
+    </div>
+  </div>
+
+  <div style="text-align: center; margin-top: 30px; font-size: 11px; color: #64748b;">
+    <div class="badge-bar">
+      <span class="retro-badge">🚧 UNDER CONSTRUCTION</span>
+      <span class="retro-badge">🖥 BEST VIEWED 800x600</span>
+      <span class="retro-badge">⚡ POWERED BY GLASS DRIVE</span>
+      <span class="retro-badge">📜 GLASS OS DOCUMENT SCHEMA</span>
+    </div>
+    <p style="margin-top: 12px;">Hosted on GlassOS Kernel &bull; Node Path: <code>${filePath}</code></p>
+  </div>
+</body>
+</html>`;
+  }, [fsLib]);
+
   const getLocalPageContent = useCallback((url: string) => {
     if (!url.startsWith('local://')) return undefined;
-    const fileName = url.replace('local://', '');
-    return fsLib.read(`/GlassDrive/webpages/${fileName}`) || undefined;
-  }, [fsLib]);
+    let cleanPath = url.replace('local://', '');
+    if (!cleanPath) cleanPath = 'home.html';
+
+    const candidatePaths = [
+      `/GlassDrive/${cleanPath}`,
+      `/GlassDrive/webpages/${cleanPath}`,
+      `/home/Administrator/GlassDrive/${cleanPath}`,
+      `/home/Administrator/GlassDrive/webpages/${cleanPath}`,
+      cleanPath.includes('.') ? null : `/GlassDrive/${cleanPath}/index.json`,
+      cleanPath.includes('.') ? null : `/GlassDrive/${cleanPath}/index.html`
+    ].filter(Boolean) as string[];
+
+    let rawContent: string | null = null;
+    let foundPath: string | null = null;
+
+    for (const p of candidatePaths) {
+      const c = fsLib.read(p);
+      if (c) {
+        rawContent = c;
+        foundPath = p;
+        break;
+      }
+    }
+
+    if (!rawContent) return undefined;
+
+    try {
+      const doc = JSON.parse(rawContent);
+      if (doc && (doc.type === 'document' || doc.metadata || doc.content)) {
+        return compileGlassOSDocToGeoCitiesHTML(doc, foundPath || cleanPath);
+      }
+    } catch (e) {
+      // Raw string/HTML
+    }
+
+    return rawContent;
+  }, [fsLib, compileGlassOSDocToGeoCitiesHTML]);
 
   useEffect(() => {
     setUrlInput(activeTab.url);
@@ -24012,6 +24406,52 @@ function BrowserApp({ fs, fsLib, addNotification, closeWindow, setPrintQueue, us
                     dangerouslySetInnerHTML={{ __html: tab.localContent }}
                     onClick={(e) => {
                       const target = e.target as HTMLElement;
+
+                      // Guestbook submission handler
+                      const gbBtn = target.closest('[data-action="submit-guestbook"]') as HTMLElement;
+                      if (gbBtn) {
+                        e.preventDefault();
+                        const filePath = gbBtn.getAttribute('data-path');
+                        const container = gbBtn.closest('.gb-form-container') as HTMLElement;
+                        if (container && filePath) {
+                          const nameInput = container.querySelector('.gb-name-input') as HTMLInputElement;
+                          const msgInput = container.querySelector('.gb-msg-input') as HTMLInputElement;
+                          const author = nameInput?.value?.trim() || 'Anonymous Netizen';
+                          const message = msgInput?.value?.trim() || '';
+                          if (message) {
+                            const raw = fsLib.read(filePath);
+                            if (raw) {
+                              try {
+                                const doc = JSON.parse(raw);
+                                let gb = doc.content?.richText?.find((item: any) => item.type === 'guestbook');
+                                if (!gb) {
+                                  gb = { type: 'guestbook', entries: [] };
+                                  if (!doc.content) doc.content = {};
+                                  if (!doc.content.richText) doc.content.richText = [];
+                                  doc.content.richText.push(gb);
+                                }
+                                if (!gb.entries) gb.entries = [];
+                                const now = new Date();
+                                const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+                                gb.entries.unshift({ author, message, date: dateStr });
+                                fsLib.write(filePath, JSON.stringify(doc, null, 2));
+                                addNotification('Guestbook', `Signed guestbook for ${filePath}!`, 'success');
+                                const updatedContent = getLocalPageContent(activeTab.url);
+                                if (updatedContent) {
+                                  setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, localContent: updatedContent } : t));
+                                }
+                              } catch (err) {
+                                console.error('Guestbook save error', err);
+                              }
+                            }
+                          } else {
+                            addNotification('Guestbook', 'Please write a message before signing!', 'warning');
+                          }
+                        }
+                        return;
+                      }
+
+                      // Local link navigation
                       const link = target.closest('a');
                       const href = link?.getAttribute('href');
                       if (href?.startsWith('local://')) {
@@ -26634,6 +27074,571 @@ interface VirtualFile {
   path: string;
 }
 
+export interface CodeSnippetItem {
+  id: string;
+  title: string;
+  category: string;
+  language: string;
+  description: string;
+  code: string;
+  tags: string[];
+  isCustom?: boolean;
+}
+
+const DEFAULT_SNIPPETS_COLLECTION: CodeSnippetItem[] = [
+  {
+    id: 'bs-conductor-entry',
+    title: 'B Conductor Entry Point (###)',
+    category: 'Boilerplate',
+    language: 'Brainscript',
+    description: 'Primary program initialization and conductor entry block in B (Brainscript).',
+    code: '###MAIN.EntryPoint\nStart\n  SET $000 0x01 $001 "SYSTEM_ACTIVE"\n  LET $appName \'GlassOS Core Kernel\'\n  PRINT \'Initializing: \' && $appName\n  TIMESTAMP\n  BRANCH ##user_auth\n  QUIT\nEnd',
+    tags: ['b-language', 'brainscript', 'conductor', 'entry', 'boilerplate']
+  },
+  {
+    id: 'bs-compare-fork',
+    title: 'B Conditional Fork (COMPARE)',
+    category: 'Logic',
+    language: 'Brainscript',
+    description: 'Evaluates dual or single conditions and branches to targets.',
+    code: '##user_auth\nStart\n  INPUT $input_pass: "Enter Security PIN: "\n  LET $expected "1234"\n  COMPARE $input_pass $expected : PRINT "AUTH OK - WELCOME" && $001 BRANCH ##run_task : PRINT "AUTH FAILED" BRANCH ##halt_seq\nEnd',
+    tags: ['b-language', 'brainscript', 'compare', 'logic', 'fork']
+  },
+  {
+    id: 'bs-iteration-loop',
+    title: 'B Iteration Loop (COUNT)',
+    category: 'Logic',
+    language: 'Brainscript',
+    description: 'Executes a block repeatedly using the COUNT keyword.',
+    code: '##run_task\nStart\n  LET $counter 10\n  PRINT "Loop Iteration Counter: " && $counter\n  BRANCH ##task_step COUNT $counter\nEnd\n\n##task_step\nStart\n  PRINT "Processing packet batch..."\nEnd',
+    tags: ['b-language', 'brainscript', 'loop', 'count', 'iteration']
+  },
+  {
+    id: 'bs-data-routing',
+    title: 'B I/O Data Packet Routing (BRANCH)',
+    category: 'Utility',
+    language: 'Brainscript',
+    description: 'Routes data packets to target handles or external files.',
+    code: '##data_sync\nStart\n  LET $logentry "System event recorded at "\n  BRANCH $logentry TO file "system.log"\n  BRANCH $configData FROM file "config.json"\n  PRINT "Loaded Config: " && $configData\nEnd',
+    tags: ['b-language', 'brainscript', 'io', 'routing', 'branch']
+  },
+  {
+    id: 'bs-global-class',
+    title: 'B Global Parent Object (@@)',
+    category: 'Boilerplate',
+    language: 'Brainscript',
+    description: 'Top-level class definition for core system structures.',
+    code: '@@System.Kernel.Core\nStart\n  SET $030 "Kernel v3.8"\n  LET self.status "ONLINE"\n  PRINT "Parent Structure Loaded: " && self.status\nEnd',
+    tags: ['b-language', 'brainscript', 'global', 'class']
+  },
+  {
+    id: 'gs-tell-app',
+    title: 'GlassScript App Automation',
+    category: 'GlassScript',
+    language: 'GlassScript',
+    description: 'Send automation commands to a GlassOS application.',
+    code: 'tell app "Finder": start\n  notify "Automation trigger executed"\n  wait 1 second\nend',
+    tags: ['glassscript', 'tell', 'automation', 'finder']
+  },
+  {
+    id: 'gs-date-system',
+    title: 'GlassScript System Date Logger',
+    category: 'GlassScript',
+    language: 'GlassScript',
+    description: 'Fetches system timestamp and notifies the desktop.',
+    code: 'set $today to system.date\nwrite "GlassOS Log: " + $today\nnotify "Log saved at " + $today',
+    tags: ['glassscript', 'date', 'system', 'logger']
+  },
+  {
+    id: 'pkg-header',
+    title: 'Package Metadata Header (.pkg)',
+    category: 'Boilerplate',
+    language: 'GlassScript',
+    description: 'Required header for compiling standalone .pkg executables.',
+    code: '// #PACKET_METADATA_START\n// #PACKET_ID: app.mytool\n// #PACKET_NAME: My Tool\n// #PACKET_VERSION: 1.0.0\n// #PACKET_AUTHOR: Administrator\n// #PACKET_DESCRIPTION: Compiled GlassOS executable packet.\n// #PACKET_LANGUAGE: GlassScript\n// #PACKET_METADATA_END\n',
+    tags: ['pkg', 'packet', 'metadata', 'header']
+  },
+  {
+    id: 'json-template',
+    title: 'JSON Application Config',
+    category: 'Utility',
+    language: 'JSON',
+    description: 'Standard JSON structure for settings and manifest files.',
+    code: '{\n  "appName": "CodeStudio App",\n  "version": "1.0.0",\n  "settings": {\n    "autoSave": true,\n    "theme": "glass",\n    "maxLogs": 100\n  }\n}',
+    tags: ['json', 'config', 'settings']
+  },
+  {
+    id: 'sql-schema',
+    title: 'Database Table Schema (SQL)',
+    category: 'Utility',
+    language: 'SQL',
+    description: 'Create table structure with indexes and defaults.',
+    code: 'CREATE TABLE records (\n  id VARCHAR(36) PRIMARY KEY,\n  title VARCHAR(255) NOT NULL,\n  status VARCHAR(50) DEFAULT \'active\',\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);',
+    tags: ['sql', 'database', 'schema']
+  }
+];
+
+interface CodeStudioSnippetsManagerProps {
+  isOpen: boolean;
+  onClose: () => void;
+  snippets: CodeSnippetItem[];
+  onInsertSnippet: (code: string) => void;
+  onSaveSnippet: (snippet: CodeSnippetItem) => void;
+  onDeleteSnippet: (id: string) => void;
+  onResetDefaults?: () => void;
+  activeFile: string;
+}
+
+function CodeStudioSnippetsManager({
+  isOpen,
+  onClose,
+  snippets,
+  onInsertSnippet,
+  onSaveSnippet,
+  onDeleteSnippet,
+  onResetDefaults,
+  activeFile
+}: CodeStudioSnippetsManagerProps) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingSnippet, setEditingSnippet] = useState<CodeSnippetItem | null>(null);
+
+  const [formData, setFormData] = useState({
+    title: '',
+    category: 'Boilerplate',
+    language: 'Brainscript',
+    description: '',
+    tags: '',
+    code: ''
+  });
+
+  if (!isOpen) return null;
+
+  const categories = ['All', 'Brainscript', 'GlassScript', 'Boilerplate', 'Logic', 'UI', 'Utility', 'Custom'];
+
+  const filteredSnippets = snippets.filter(snippet => {
+    const matchesCategory = 
+      selectedCategory === 'All' ? true :
+      selectedCategory === 'Custom' ? Boolean(snippet.isCustom) :
+      snippet.category === selectedCategory || snippet.language === selectedCategory;
+
+    const query = searchQuery.toLowerCase().trim();
+    if (!query) return matchesCategory;
+
+    return matchesCategory && (
+      snippet.title.toLowerCase().includes(query) ||
+      snippet.description.toLowerCase().includes(query) ||
+      snippet.code.toLowerCase().includes(query) ||
+      snippet.language.toLowerCase().includes(query) ||
+      snippet.category.toLowerCase().includes(query) ||
+      snippet.tags.some(t => t.toLowerCase().includes(query))
+    );
+  });
+
+  const handleOpenCreateForm = () => {
+    const defaultLang = activeFile.endsWith('.b') ? 'Brainscript' : activeFile.endsWith('.scr') ? 'GlassScript' : activeFile.endsWith('.json') ? 'JSON' : activeFile.endsWith('.sql') ? 'SQL' : 'Brainscript';
+    setEditingSnippet(null);
+    setFormData({
+      title: '',
+      category: defaultLang === 'Brainscript' ? 'Brainscript' : defaultLang === 'GlassScript' ? 'GlassScript' : 'Custom',
+      language: defaultLang,
+      description: '',
+      tags: defaultLang.toLowerCase(),
+      code: ''
+    });
+    setIsFormOpen(true);
+  };
+
+  const handleOpenEditForm = (snippet: CodeSnippetItem) => {
+    setEditingSnippet(snippet);
+    setFormData({
+      title: snippet.title,
+      category: snippet.category,
+      language: snippet.language,
+      description: snippet.description,
+      tags: snippet.tags.join(', '),
+      code: snippet.code
+    });
+    setIsFormOpen(true);
+  };
+
+  const handleSaveForm = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.title.trim() || !formData.code.trim()) return;
+
+    const tagsArray = formData.tags
+      .split(',')
+      .map(t => t.trim().toLowerCase())
+      .filter(Boolean);
+
+    const updated: CodeSnippetItem = {
+      id: editingSnippet ? editingSnippet.id : 'custom-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
+      title: formData.title.trim(),
+      category: formData.category,
+      language: formData.language,
+      description: formData.description.trim(),
+      code: formData.code,
+      tags: tagsArray.length > 0 ? tagsArray : ['custom'],
+      isCustom: true
+    };
+
+    onSaveSnippet(updated);
+    setIsFormOpen(false);
+  };
+
+  const handleCopyCode = (snippet: CodeSnippetItem) => {
+    navigator.clipboard.writeText(snippet.code);
+    setCopiedId(snippet.id);
+    setTimeout(() => setCopiedId(null), 1500);
+  };
+
+  return (
+    <div className="snippets-manager-container fixed inset-0 z-[4000] flex items-center justify-center bg-black/60 backdrop-blur-md p-4" onClick={onClose}>
+      <motion.div 
+        initial={{ scale: 0.95, opacity: 0, y: 10 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.95, opacity: 0, y: 10 }}
+        onClick={(e) => e.stopPropagation()}
+        className="snippets-manager-container w-full max-w-4xl h-[80vh] flex flex-col bg-slate-900/95 border border-white/20 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-xl text-left"
+      >
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between bg-white/5">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-violet-500/20 text-violet-400 border border-violet-500/30 rounded-xl shadow-inner">
+              <Code size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-white tracking-wide">CodeStudio Snippets Manager</h3>
+                <span className="px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 text-[10px] font-semibold border border-violet-500/30">
+                  {snippets.length} Saved
+                </span>
+                <kbd className="px-1.5 py-0.5 rounded bg-black/40 text-violet-300 text-[10px] font-mono border border-violet-500/30">Ctrl+K</kbd>
+              </div>
+              <p className="text-xs text-white/50">Save, edit, and instantly insert code blocks into <span className="text-white/80 font-mono font-medium">{activeFile}</span></p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleOpenCreateForm}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-xs font-semibold transition-all shadow-lg shadow-violet-600/30"
+            >
+              <Plus size={14} />
+              <span>New Snippet</span>
+            </button>
+            <button 
+              onClick={onClose}
+              className="p-1.5 hover:bg-white/10 rounded-lg text-white/50 hover:text-white transition-colors"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Toolbar & Search */}
+        <div className="p-4 border-b border-white/10 flex flex-col sm:flex-row gap-3 bg-black/20">
+          <div className="relative flex-1">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+            <input 
+              type="text"
+              placeholder="Search by title, tags, description or code..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-8 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder-white/30 outline-none focus:border-violet-500/50 transition-colors"
+            />
+            {searchQuery && (
+              <button 
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          {/* Categories Pills */}
+          <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+            {categories.map(cat => {
+              const isActive = selectedCategory === cat;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-all",
+                    isActive 
+                      ? "bg-violet-500/30 text-violet-300 border border-violet-500/40 shadow-sm" 
+                      : "text-white/60 hover:text-white hover:bg-white/5"
+                  )}
+                >
+                  {cat}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Snippets List Grid */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {filteredSnippets.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center p-8 text-white/40">
+              <Code2 size={36} className="mb-2 text-white/20" />
+              <p className="text-sm font-medium">No code snippets found</p>
+              <p className="text-xs text-white/30 mt-1">Try adjusting your search query or category filter, or add a custom snippet.</p>
+              <button
+                onClick={handleOpenCreateForm}
+                className="mt-4 px-3 py-1.5 bg-violet-600/30 hover:bg-violet-600/50 text-violet-300 border border-violet-500/30 rounded-lg text-xs font-semibold transition-all"
+              >
+                Create Custom Snippet
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {filteredSnippets.map(snippet => (
+                <div 
+                  key={snippet.id}
+                  className="group relative bg-slate-950/40 border border-white/10 hover:border-violet-500/40 rounded-xl p-3.5 flex flex-col justify-between transition-all hover:shadow-lg hover:shadow-violet-950/20"
+                >
+                  <div>
+                    {/* Top line */}
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-xs font-bold text-white group-hover:text-violet-300 transition-colors">
+                          {snippet.title}
+                        </h4>
+                        {snippet.isCustom && (
+                          <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-semibold">
+                            Custom
+                          </span>
+                        )}
+                      </div>
+                      <span className={cn(
+                        "px-2 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase border",
+                        snippet.language === 'Brainscript' ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
+                        snippet.language === 'GlassScript' ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" :
+                        snippet.language === 'JSON' ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+                        snippet.language === 'SQL' ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                        "bg-slate-500/10 text-slate-300 border-slate-500/20"
+                      )}>
+                        {snippet.language}
+                      </span>
+                    </div>
+
+                    {/* Description */}
+                    {snippet.description && (
+                      <p className="text-[11px] text-white/60 mb-2 line-clamp-1">
+                        {snippet.description}
+                      </p>
+                    )}
+
+                    {/* Code Block Preview */}
+                    <div className="relative bg-black/60 border border-white/10 rounded-lg p-2.5 font-mono text-[10px] text-emerald-300/90 overflow-hidden mb-2 max-h-28 overflow-y-auto scrollbar-thin">
+                      <pre className="whitespace-pre-wrap break-all leading-tight">{snippet.code}</pre>
+                    </div>
+
+                    {/* Tags */}
+                    {snippet.tags && snippet.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mb-3">
+                        {snippet.tags.map((tag, idx) => (
+                          <span key={idx} className="text-[9px] text-white/40 bg-white/5 px-1.5 py-0.5 rounded">
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center justify-between border-t border-white/5 pt-2 mt-1">
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleCopyCode(snippet)}
+                        className="px-2 py-1 hover:bg-white/10 text-white/60 hover:text-white rounded text-[10px] font-medium transition-colors flex items-center gap-1"
+                        title="Copy code to clipboard"
+                      >
+                        {copiedId === snippet.id ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+                        <span>{copiedId === snippet.id ? 'Copied' : 'Copy'}</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleOpenEditForm(snippet)}
+                        className="p-1 hover:bg-white/10 text-white/40 hover:text-white rounded transition-colors"
+                        title="Edit Snippet"
+                      >
+                        <Pencil size={11} />
+                      </button>
+
+                      <button
+                        onClick={() => onDeleteSnippet(snippet.id)}
+                        className="p-1 hover:bg-red-500/20 text-white/40 hover:text-red-400 rounded transition-colors"
+                        title="Delete Snippet"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        onInsertSnippet(snippet.code);
+                        onClose();
+                      }}
+                      className="px-3 py-1 bg-violet-600/30 hover:bg-violet-600 text-violet-200 hover:text-white border border-violet-500/30 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm"
+                    >
+                      <Plus size={12} />
+                      <span>Insert Code</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-3 border-t border-white/10 bg-white/5 flex items-center justify-between text-xs text-white/50">
+          <div>
+            <span>Pro tip: Click <strong className="text-white/80">Insert Code</strong> to paste directly into active editor position.</span>
+          </div>
+          {onResetDefaults && (
+            <button
+              onClick={onResetDefaults}
+              className="text-white/40 hover:text-white/80 underline text-[11px] transition-colors"
+            >
+              Reset to Standard Defaults
+            </button>
+          )}
+        </div>
+      </motion.div>
+
+      {/* Create / Edit Snippet Sub-modal */}
+      <AnimatePresence>
+        {isFormOpen && (
+          <div className="fixed inset-0 z-[4100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setIsFormOpen(false)}>
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-lg bg-slate-900 border border-white/20 rounded-2xl p-6 shadow-2xl space-y-4 text-left"
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Code size={16} className="text-violet-400" />
+                  <span>{editingSnippet ? 'Edit Snippet' : 'Create New Snippet'}</span>
+                </h4>
+                <button onClick={() => setIsFormOpen(false)} className="text-white/40 hover:text-white">
+                  <X size={16} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveForm} className="space-y-3 text-xs">
+                <div>
+                  <label className="block text-white/70 mb-1 font-medium">Snippet Title *</label>
+                  <input 
+                    type="text"
+                    required
+                    placeholder="e.g. Brainscript Async HTTP Query"
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white outline-none focus:border-violet-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-white/70 mb-1 font-medium">Language</label>
+                    <select
+                      value={formData.language}
+                      onChange={(e) => setFormData({ ...formData, language: e.target.value })}
+                      className="w-full px-3 py-1.5 bg-slate-800 border border-white/10 rounded-lg text-white outline-none focus:border-violet-500"
+                    >
+                      <option value="Brainscript">Brainscript</option>
+                      <option value="GlassScript">GlassScript</option>
+                      <option value="JSON">JSON</option>
+                      <option value="SQL">SQL</option>
+                      <option value="General">General</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-white/70 mb-1 font-medium">Category</label>
+                    <select
+                      value={formData.category}
+                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                      className="w-full px-3 py-1.5 bg-slate-800 border border-white/10 rounded-lg text-white outline-none focus:border-violet-500"
+                    >
+                      <option value="Boilerplate">Boilerplate</option>
+                      <option value="Logic">Logic</option>
+                      <option value="UI">UI</option>
+                      <option value="Utility">Utility</option>
+                      <option value="GlassScript">GlassScript</option>
+                      <option value="Brainscript">Brainscript</option>
+                      <option value="Custom">Custom</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-white/70 mb-1 font-medium">Description</label>
+                  <input 
+                    type="text"
+                    placeholder="Short description of what this code block accomplishes"
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white outline-none focus:border-violet-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-white/70 mb-1 font-medium">Tags (comma separated)</label>
+                  <input 
+                    type="text"
+                    placeholder="e.g. main, loop, network, async"
+                    value={formData.tags}
+                    onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white outline-none focus:border-violet-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-white/70 mb-1 font-medium">Code Block *</label>
+                  <textarea
+                    required
+                    rows={6}
+                    placeholder="Enter snippet code here..."
+                    value={formData.code}
+                    onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+                    className="w-full px-3 py-2 bg-black/60 border border-white/10 rounded-lg text-emerald-300 font-mono text-xs outline-none focus:border-violet-500 leading-relaxed"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsFormOpen(false)}
+                    className="px-3 py-1.5 hover:bg-white/10 text-white/70 rounded-lg font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-semibold shadow-md"
+                  >
+                    Save Snippet
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 const THEMES = {
   glass: { name: 'Glass Dark', bg: 'bg-black/40', text: 'text-white/80', accent: 'text-blue-400', border: 'border-blue-400' },
   monokai: { name: 'Monokai', bg: 'bg-[#272822]', text: 'text-[#f8f8f2]', accent: 'text-[#a6e22e]', border: 'border-[#a6e22e]' },
@@ -26652,9 +27657,11 @@ function CodeStudioApp({
   glassScriptLine,
   runBrainscript,
   brainscriptLine,
-  accentColor
+  accentColor,
+  activeFileInCodeStudio,
+  setActiveFileInCodeStudio
 }: any) {
-  const projectsPath = 'home/Administrator/Documents/Projects/CodeStudio';
+  const projectsPath = 'home/Administrator/Projects/CodeStudio';
   const files = useMemo(() => {
     try {
       if (!fsLib.exists(projectsPath)) {
@@ -26667,13 +27674,57 @@ function CodeStudioApp({
     }
   }, [fs]);
 
-  const [activeFile, setActiveFile] = useState<string>('main.b');
+  const [openFiles, setOpenFiles] = useState<string[]>(() => {
+    const initial = activeFileInCodeStudio || 'main.b';
+    return [initial];
+  });
+
+  const [activeFile, setActiveFileState] = useState<string>(activeFileInCodeStudio || 'main.b');
+
+  const setActiveFile = useCallback((fileName: string) => {
+    setActiveFileState(fileName);
+    if (fileName) {
+      setOpenFiles(prev => prev.includes(fileName) ? prev : [...prev, fileName]);
+    }
+    if (setActiveFileInCodeStudio) {
+      setActiveFileInCodeStudio(fileName);
+    }
+  }, [setActiveFileInCodeStudio]);
+
+  const handleCloseTab = (fName: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setOpenFiles(prev => {
+      const next = prev.filter(f => f !== fName);
+      if (fName === activeFile) {
+        if (next.length > 0) {
+          const nextActive = next[next.length - 1];
+          setActiveFileState(nextActive);
+          if (setActiveFileInCodeStudio) setActiveFileInCodeStudio(nextActive);
+        } else {
+          setActiveFileState('');
+          setCode('');
+          if (setActiveFileInCodeStudio) setActiveFileInCodeStudio('');
+        }
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (activeFileInCodeStudio && activeFileInCodeStudio !== activeFile) {
+      setActiveFileState(activeFileInCodeStudio);
+      if (activeFileInCodeStudio) {
+        setOpenFiles(prev => prev.includes(activeFileInCodeStudio) ? prev : [...prev, activeFileInCodeStudio]);
+      }
+    }
+  }, [activeFileInCodeStudio]);
+
   const [code, setCode] = useState<string>('');
   const [isDirty, setIsDirty] = useState(false);
   
   // Syntax Validator
   const validateSyntax = useCallback((content: string) => {
-    if (!activeFile.endsWith('.b')) {
+    if (!activeFile || !activeFile.endsWith('.b')) {
       setSyntaxErrors([]);
       return [];
     }
@@ -26779,6 +27830,12 @@ function CodeStudioApp({
   }, [activeFile]);
 
   useEffect(() => {
+    if (!activeFile) {
+      setCode('');
+      setSyntaxErrors([]);
+      setIsDirty(false);
+      return;
+    }
     const fullPath = `${projectsPath}/${activeFile}`;
     if (fsLib.exists(fullPath)) {
       const content = fsLib.read(fullPath);
@@ -26792,6 +27849,7 @@ function CodeStudioApp({
 
   // Watch for external changes
   useEffect(() => {
+    if (!activeFile) return;
     const fullPath = `${projectsPath}/${activeFile}`;
     const unwatch = fsLib.watch(fullPath, (newContent) => {
       if (newContent !== null && newContent !== code) {
@@ -26808,6 +27866,62 @@ function CodeStudioApp({
   const [currentTheme, setCurrentTheme] = useState<keyof typeof THEMES>('glass');
   const [syntaxErrors, setSyntaxErrors] = useState<{line: number, message: string}[]>([]);
   const [bitConflicts, setBitConflicts] = useState<{line: number, message: string, severity: 'warning'}[]>([]);
+
+  // Snippets Manager State
+  const [snippets, setSnippets] = useState<CodeSnippetItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('glassos_codestudio_snippets');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return DEFAULT_SNIPPETS_COLLECTION;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('glassos_codestudio_snippets', JSON.stringify(snippets));
+    } catch (e) {}
+  }, [snippets]);
+
+  const [isSnippetsManagerOpen, setIsSnippetsManagerOpen] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsSnippetsManagerOpen(prev => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, []);
+
+  const handleSaveSnippet = (snippetToSave: CodeSnippetItem) => {
+    setSnippets(prev => {
+      const existingIndex = prev.findIndex(s => s.id === snippetToSave.id);
+      if (existingIndex >= 0) {
+        const updated = [...prev];
+        updated[existingIndex] = snippetToSave;
+        return updated;
+      }
+      return [snippetToSave, ...prev];
+    });
+    addNotification('Code Studio', `Saved snippet: ${snippetToSave.title}`, 'success');
+  };
+
+  const handleDeleteSnippet = (id: string) => {
+    setSnippets(prev => prev.filter(s => s.id !== id));
+    addNotification('Code Studio', 'Snippet deleted', 'info');
+  };
+
+  const handleResetSnippetDefaults = () => {
+    setSnippets(DEFAULT_SNIPPETS_COLLECTION);
+    addNotification('Code Studio', 'Reset snippets to default library', 'info');
+  };
 
   const getBitDepth = useCallback((arch: string): number => {
     const lower = arch.toLowerCase();
@@ -26974,24 +28088,31 @@ function CodeStudioApp({
     ]
   };
 
-  const insertSnippet = (snippet: string) => {
-    if (!textareaRef.current) return;
+  const insertSnippet = (snippetCode: string) => {
+    if (!textareaRef.current) {
+      setCode(prev => prev + (prev ? '\n' : '') + snippetCode);
+      setIsDirty(true);
+      setActiveMenu(null);
+      addNotification('Code Studio', 'Inserted code snippet', 'success');
+      return;
+    }
     const textarea = textareaRef.current;
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const text = textarea.value;
     const before = text.substring(0, start);
     const after = text.substring(end);
-    const newText = before + snippet + after;
+    const newText = before + snippetCode + after;
     setCode(newText);
     setIsDirty(true);
     setActiveMenu(null);
+    addNotification('Code Studio', 'Inserted code snippet', 'success');
     
     // Focus back and set cursor position
     setTimeout(() => {
       textarea.focus();
-      textarea.setSelectionRange(start + snippet.length, start + snippet.length);
-    }, 0);
+      textarea.setSelectionRange(start + snippetCode.length, start + snippetCode.length);
+    }, 50);
   };
 
   const highlightCode = (content: string) => {
@@ -27125,7 +28246,7 @@ function CodeStudioApp({
   // Removed redundant effect
 
   const handleSave = () => {
-    const fullPath = `home/Administrator/Projects/CodeStudio/${activeFile}`;
+    const fullPath = `${projectsPath}/${activeFile}`;
     try {
       fsLib.write(fullPath, code);
       setIsDirty(false);
@@ -27155,11 +28276,10 @@ function CodeStudioApp({
     }
     
     try {
-      const initialContent = newFileData.type === 'Brainscript' 
-        ? `@@${fileName.replace('.b', '')}\nStart\n  PRINT 'Hello World'\nEnd`
-        : '// New ' + newFileData.type + ' file';
-        
+      const initialContent = '';
       fsLib.write(fullPath, initialContent);
+      setCode('');
+      setIsDirty(false);
       setActiveFile(fileName);
       setOutputLogs(prev => [...prev, `[IDE] Created ${fileName}`]);
       addNotification('Code Studio', `Created ${fileName}`, 'success');
@@ -27536,9 +28656,9 @@ function CodeStudioApp({
                       <span>$$lib.system.kernel</span>
                     </button>
                     <div className="h-[1px] bg-white/10 my-1" />
-                    <button onClick={() => setActiveMenu(null)} className="w-full text-left px-4 py-2 hover:bg-white/10 flex items-center gap-2 text-[11px]">
-                      <Search size={14} />
-                      <span>Browse Library...</span>
+                    <button onClick={() => { setIsSnippetsManagerOpen(true); setActiveMenu(null); }} className="w-full text-left px-4 py-2 hover:bg-white/10 flex items-center gap-2 text-[11px] text-violet-300 font-semibold">
+                      <Code size={14} className="text-violet-400" />
+                      <span>Browse Snippets Library...</span>
                     </button>
                   </motion.div>
                 )}
@@ -27720,24 +28840,26 @@ function CodeStudioApp({
                     exit={{ opacity: 0, y: 5 }}
                     className="absolute top-full left-0 w-64 glass-dark border border-white/10 rounded-lg shadow-2xl py-1 z-[3000]"
                   >
-                    <div className="px-4 py-1 text-[9px] uppercase font-bold text-white/30 tracking-widest flex items-center gap-2">
-                       <Code size={10} /> {activeFile.endsWith('.b') ? 'Brainscript' : activeFile.endsWith('.scr') ? 'GlassScript' : 'Snippets'}
+                    <button 
+                      onClick={() => { setIsSnippetsManagerOpen(true); setActiveMenu(null); }}
+                      className="w-full text-left px-4 py-2 hover:bg-violet-500/20 text-violet-300 font-bold flex items-center gap-2 text-[11px] border-b border-white/10"
+                    >
+                      <Code size={14} className="text-violet-400" />
+                      <span>Open Snippets Manager...</span>
+                    </button>
+                    <div className="px-4 py-1.5 text-[9px] uppercase font-bold text-white/30 tracking-widest flex items-center gap-2 mt-1">
+                      <Code size={10} /> Quick Insert
                     </div>
-                    {(activeFile.endsWith('.b') ? COMMON_SNIPPETS.Brainscript : activeFile.endsWith('.scr') ? COMMON_SNIPPETS.GlassScript : []).map(snippet => (
+                    {snippets.slice(0, 6).map(snippet => (
                       <button 
-                        key={snippet.name}
+                        key={snippet.id}
                         onClick={() => insertSnippet(snippet.code)}
-                        className="w-full text-left px-4 py-2 hover:bg-white/10 flex flex-col gap-0.5"
+                        className="w-full text-left px-4 py-1.5 hover:bg-white/10 flex flex-col gap-0.5"
                       >
-                        <span className="text-[11px] text-white/90 font-bold">{snippet.name}</span>
-                        <code className="text-[9px] text-white/40 truncate font-mono">{snippet.code.split('\n')[0]}...</code>
+                        <span className="text-[11px] text-white/90 font-bold">{snippet.title}</span>
+                        <code className="text-[9px] text-white/40 truncate font-mono">{snippet.code.split('\n')[0]}</code>
                       </button>
                     ))}
-                    {( !activeFile.endsWith('.b') && !activeFile.endsWith('.scr') ) && (
-                      <div className="px-4 py-2 text-[10px] text-white/40 italic">
-                        No snippets available for this file type.
-                      </div>
-                    )}
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -27798,6 +28920,15 @@ function CodeStudioApp({
             </optgroup>
           </select>
           <div className="h-4 w-[1px] bg-white/10 mx-2" />
+          <button 
+            onClick={() => setIsSnippetsManagerOpen(true)}
+            className="px-2 py-1 rounded bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 border border-violet-500/30 transition-all flex items-center gap-1.5 shadow-sm"
+            title="Open Snippets Manager & Library (Ctrl+K)"
+          >
+            <Code size={12} className="text-violet-400" />
+            <span className="text-[10px] font-bold uppercase">Snippets</span>
+            <kbd className="hidden sm:inline-block px-1 py-0.2 text-[9px] bg-black/40 text-violet-200 rounded border border-violet-500/30 font-mono">Ctrl+K</kbd>
+          </button>
           <button 
             onClick={() => setIsOutputVisible(!isOutputVisible)}
             className={cn(
@@ -27871,16 +29002,71 @@ function CodeStudioApp({
 
         {/* Editor */}
         <div className={cn("flex-1 flex flex-col transition-colors duration-300 relative overflow-hidden min-h-0", THEMES[currentTheme].bg)}>
-          <div className="h-8 bg-white/5 flex items-center px-4 gap-2 border-b border-white/5">
-            <div className={cn("h-full border-t-2 px-4 flex items-center gap-2 bg-white/5", THEMES[currentTheme].border)}>
-              <FileCode size={12} className={THEMES[currentTheme].accent} />
-              <div className="flex items-center gap-2">
-                <span className={cn("text-[11px]", THEMES[currentTheme].text)}>{activeFile}</span>
-                {isDirty && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />}
+          {/* Page Tabs Bar */}
+          <div className="h-9 bg-black/40 flex items-center border-b border-white/10 overflow-x-auto no-scrollbar px-1 gap-1 select-none shrink-0">
+            {openFiles.map(fName => {
+              const isActive = fName === activeFile;
+              return (
+                <div 
+                  key={fName}
+                  onClick={() => setActiveFile(fName)}
+                  className={cn(
+                    "h-8 px-3 rounded-t-lg flex items-center gap-2 text-xs cursor-pointer border-t-2 transition-all group shrink-0 relative",
+                    isActive 
+                      ? cn("bg-white/10 border-x border-x-white/10 text-white font-medium", THEMES[currentTheme].border)
+                      : "bg-transparent border-t-transparent text-white/50 hover:bg-white/5 hover:text-white/80"
+                  )}
+                >
+                  <FileCode size={12} className={isActive ? THEMES[currentTheme].accent : "text-white/40"} />
+                  <span className="truncate max-w-[130px] font-mono">{fName}</span>
+                  {isDirty && isActive && (
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] shrink-0" />
+                  )}
+                  <button
+                    onClick={(e) => handleCloseTab(fName, e)}
+                    className="p-0.5 rounded-full hover:bg-white/20 text-white/40 hover:text-white transition-colors opacity-60 group-hover:opacity-100 ml-1"
+                    title="Close Tab"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              );
+            })}
+
+            {/* New File (+) Tab Button */}
+            <button
+              onClick={() => { setActiveDialog('new'); setNewFileError(null); }}
+              className="p-1.5 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition-colors ml-1 flex items-center justify-center shrink-0"
+              title="Create New File (Canvas Cleared)"
+            >
+              <Plus size={14} />
+            </button>
+          </div>
+
+          {openFiles.length === 0 || !activeFile ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-white/40">
+              <Code size={48} className="mb-4 text-white/20 animate-pulse" />
+              <h3 className="text-sm font-semibold text-white/60 mb-1">No File Open</h3>
+              <p className="text-xs text-white/40 mb-4 max-w-sm">Create a new file or open an existing project file to start writing code.</p>
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={() => { setActiveDialog('new'); setNewFileError(null); }}
+                  className="px-3.5 py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 text-xs font-semibold flex items-center gap-1.5 transition-all border border-blue-500/30 shadow-lg"
+                >
+                  <Plus size={14} />
+                  <span>New File</span>
+                </button>
+                <button 
+                  onClick={() => setActiveDialog('open')}
+                  className="px-3.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 text-xs font-semibold flex items-center gap-1.5 transition-all border border-white/10"
+                >
+                  <Upload size={14} />
+                  <span>Open File...</span>
+                </button>
               </div>
             </div>
-          </div>
-          <div className="flex-1 relative overflow-hidden flex min-h-0">
+          ) : (
+            <div className="flex-1 relative overflow-hidden flex min-h-0">
             {/* Gutter */}
             <div 
               ref={gutterRef}
@@ -28020,7 +29206,7 @@ function CodeStudioApp({
                   <div className="w-[1px] h-3 bg-white/10 flex-shrink-0" />
                   <span className="flex-shrink-0">UTF-8</span>
                   <div className="w-[1px] h-3 bg-white/10 flex-shrink-0" />
-                  <span className="flex-shrink-0">{activeFile.endsWith('.b') ? 'Brainscript' : activeFile.endsWith('.scr') ? 'GlassScript' : 'Text'}</span>
+                  <span className="flex-shrink-0">{activeFile ? (activeFile.endsWith('.b') ? 'Brainscript' : activeFile.endsWith('.scr') ? 'GlassScript' : 'Text') : 'None'}</span>
                   
                   <div className="w-[1px] h-3 bg-white/10 flex-shrink-0" />
                   <div className="flex items-center gap-1 text-white/50 flex-shrink-0">
@@ -28047,6 +29233,7 @@ function CodeStudioApp({
 
 
           </div>
+          )}
           
           {syntaxErrors.length > 0 && (
             <div className="h-24 bg-red-500/10 border-t border-red-500/20 overflow-y-auto p-3 space-y-1">
@@ -28177,6 +29364,7 @@ function CodeStudioApp({
             title="Create New Project File"
             fs={fs}
             fsLib={fsLib}
+            currentPath={['Projects', 'CodeStudio']}
             mode="save"
             initialFileName="untitled.b"
             allowedExtensions={['b', 'scr', 'json', 'txt', 'pkg']}
@@ -28184,29 +29372,12 @@ function CodeStudioApp({
             onCancel={() => setActiveDialog(null)}
             onSelect={(path) => {
               try {
-                const ext = path.split('.').pop() || '';
-                let initialContent = '';
-                if (ext === 'pkg') {
-                  initialContent = 
-                    `-- #PACKET_METADATA_START\n` +
-                    `-- #PACKET_ID: app.custom_app\n` +
-                    `-- #PACKET_NAME: Custom App\n` +
-                    `-- #PACKET_VERSION: 1.0.0\n` +
-                    `-- #PACKET_AUTHOR: Administrator\n` +
-                    `-- #PACKET_DESCRIPTION: A compiled GlassOS executable packet.\n` +
-                    `-- #PACKET_LANGUAGE: GlassScript\n` +
-                    `-- #PACKET_METADATA_END\n\n` +
-                    `tell app "Finder": start\n` +
-                    `  notify "Package application is running successfully!"\n` +
-                    `end\n`;
-                } else if (ext === 'b') {
-                  initialContent = `@@Main\nStart\n  PRINT 'Hello World'\nEnd`;
-                } else {
-                  initialContent = `\nREM New ${ext} file created\nStart\n  TIMESTAMP\nEnd`;
-                }
+                const initialContent = '';
                 fsLib.write(path, initialContent);
                 const parts = path.split('/');
                 const fileName = parts.pop() || '';
+                setCode('');
+                setIsDirty(false);
                 setActiveFile(fileName);
                 setActiveDialog(null);
                 addNotification('Code Studio', `Created ${fileName}`, 'success');
@@ -28222,6 +29393,7 @@ function CodeStudioApp({
             title="Open Project File"
             fs={fs}
             fsLib={fsLib}
+            currentPath={['Projects', 'CodeStudio']}
             mode="open"
             allowedExtensions={['b', 'scr', 'json', 'txt', 'pkg']}
             accentColor={accentColor}
@@ -28240,6 +29412,7 @@ function CodeStudioApp({
             title="Save Project File As"
             fs={fs}
             fsLib={fsLib}
+            currentPath={['Projects', 'CodeStudio']}
             mode="save"
             initialFileName={activeFile}
             allowedExtensions={['b', 'scr', 'json', 'txt', 'pkg']}
@@ -28480,6 +29653,17 @@ end`}
           </div>
         )}
       </AnimatePresence>
+
+      <CodeStudioSnippetsManager
+        isOpen={isSnippetsManagerOpen}
+        onClose={() => setIsSnippetsManagerOpen(false)}
+        snippets={snippets}
+        onInsertSnippet={insertSnippet}
+        onSaveSnippet={handleSaveSnippet}
+        onDeleteSnippet={handleDeleteSnippet}
+        onResetDefaults={handleResetSnippetDefaults}
+        activeFile={activeFile}
+      />
     </div>
   );
 }

@@ -219,10 +219,920 @@ export const INITIAL_FS: FileSystemItem[] = [
         ]
       },
       {
+        name: 'SiliconValley',
+        type: 'folder',
+        permissions: DEFAULT_PERMISSIONS,
+        children: [
+          {
+            name: 'index.json',
+            type: 'file',
+            permissions: DEFAULT_PERMISSIONS,
+            content: JSON.stringify({
+              type: "document",
+              version: "1.0.0",
+              metadata: {
+                author: "SiliconValley_Coder99",
+                created: "2026-08-03T00:00:00Z",
+                modified: "2026-08-03T08:00:00Z",
+                tags: ["geocities", "siliconvalley", "personal-site", "retro"],
+                isExecutable: true,
+                neighborhood: "SiliconValley",
+                neighborhoodIcon: "💻",
+                theme: "matrix-cyan"
+              },
+              content: {
+                title: "SiliconValley Cyber Shrine",
+                tagline: "The Official Home of GlassOS Kernel Tweaks & Retro Cybernetics",
+                richText: [
+                  {
+                    type: "heading",
+                    text: "Welcome to My SiliconValley Cyber Shrine!"
+                  },
+                  {
+                    type: "marquee",
+                    text: "*** Under Construction *** Best Viewed in GlassFlow Browser @ 800x600 resolution *** GlassOS Kernel v1.2 Enabled ***"
+                  },
+                  {
+                    type: "paragraph",
+                    text: "Greetings netizen! You have stumbled into the personal node of SiliconValley_Coder99. Here we compile custom GlassOS executables, write low-bit assembly, and host local virtual drive documents."
+                  },
+                  {
+                    type: "hitCounter",
+                    initialValue: 1337
+                  },
+                  {
+                    type: "guestbook",
+                    entries: [
+                      { author: "GlassOS_Admin", message: "First comment on the SiliconValley node! GlassOS rules!", date: "2026-08-03 10:14" },
+                      { author: "CyberNet_Fan", message: "Awesome page! Love the retro neon style.", date: "2026-08-03 11:22" }
+                    ]
+                  }
+                ]
+              },
+              customScripts: {
+                onRender: "playBackgroundMidi(); initMouseStars();",
+                onOpen: "this.stats.incrementVisitorCount();"
+              },
+              api: [
+                {
+                  endpoint: "/guestbook",
+                  method: "POST",
+                  handler: "sys_guestbook_append"
+                }
+              ]
+            }, null, 2)
+          }
+        ]
+      },
+      {
+        name: 'Area51',
+        type: 'folder',
+        permissions: DEFAULT_PERMISSIONS,
+        children: [
+          {
+            name: 'index.json',
+            type: 'file',
+            permissions: DEFAULT_PERMISSIONS,
+            content: JSON.stringify({
+              type: "document",
+              version: "1.0.0",
+              metadata: {
+                author: "XFiles_Watcher88",
+                created: "2026-08-03T00:00:00Z",
+                modified: "2026-08-03T08:00:00Z",
+                tags: ["geocities", "area51", "ufos", "retro"],
+                isExecutable: true,
+                neighborhood: "Area51",
+                neighborhoodIcon: "🛸",
+                theme: "alien-green"
+              },
+              content: {
+                title: "Area 51 Paranormal & Retro Gaming Vault",
+                tagline: "The Truth is Out There... Inside GlassDrive!",
+                richText: [
+                  {
+                    type: "heading",
+                    text: "🛸 Area 51 Top Secret Archives"
+                  },
+                  {
+                    type: "marquee",
+                    text: "👽 WARNING: TOP SECRET CLEARANCE REQUIRED *** UFO Sightings Log Updated *** Area 51 Webring Node ***"
+                  },
+                  {
+                    type: "paragraph",
+                    text: "Welcome to the Area 51 node. Here we investigate unexplainable GlassOS kernel anomalies, mysterious process IDs, and classic 90s sci-fi gaming secrets."
+                  },
+                  {
+                    type: "hitCounter",
+                    initialValue: 5151
+                  },
+                  {
+                    type: "guestbook",
+                    entries: [
+                      { author: "FoxM_Agent", message: "I saw a glowing green UFO over Nevada sector 4!", date: "2026-08-03 09:05" },
+                      { author: "RetroGamer99", message: "The retro alien synth beat is amazing!", date: "2026-08-03 12:40" }
+                    ]
+                  }
+                ]
+              },
+              customScripts: {
+                onRender: "playBackgroundMidi(); initAlienGlow();",
+                onOpen: "this.stats.incrementVisitorCount();"
+              },
+              api: [
+                {
+                  endpoint: "/guestbook",
+                  method: "POST",
+                  handler: "sys_guestbook_append"
+                }
+              ]
+            }, null, 2)
+          }
+        ]
+      },
+      {
+        name: 'Tokyo',
+        type: 'folder',
+        permissions: DEFAULT_PERMISSIONS,
+        children: [
+          {
+            name: 'index.json',
+            type: 'file',
+            permissions: DEFAULT_PERMISSIONS,
+            content: JSON.stringify({
+              type: "document",
+              version: "1.0.0",
+              metadata: {
+                author: "CyberPixel_Artisan",
+                created: "2026-08-03T00:00:00Z",
+                modified: "2026-08-03T08:00:00Z",
+                tags: ["geocities", "tokyo", "anime", "pixelart"],
+                isExecutable: true,
+                neighborhood: "Tokyo",
+                neighborhoodIcon: "🗼",
+                theme: "tokyo-magenta"
+              },
+              content: {
+                title: "Neo-Tokyo Low-Bit Pixel Haven",
+                tagline: "Cyberpunk, Anime Shrine & Low-Bit Audio Synth",
+                richText: [
+                  {
+                    type: "heading",
+                    text: "🗼 Neo-Tokyo 8-Bit Cyber Shrine"
+                  },
+                  {
+                    type: "marquee",
+                    text: "★ Welcome to Tokyo Cyber Shrine ★ Anime Pixel Art & Synthwave Sounds ★ GlassOS Webring Node ★"
+                  },
+                  {
+                    type: "paragraph",
+                    text: "Konichiwa! Welcome to my Tokyo neighborhood node. Dedicated to synthwave aesthetics, anime pixel art, and low-bit music creation in GlassOS."
+                  },
+                  {
+                    type: "hitCounter",
+                    initialValue: 9001
+                  },
+                  {
+                    type: "guestbook",
+                    entries: [
+                      { author: "Akira_Fan", message: "Sugoi page design! Tokyo neighborhood is the best!", date: "2026-08-03 08:30" },
+                      { author: "SynthRider", "message": "Love the magenta neon borders and synth audio!", date: "2026-08-03 14:15" }
+                    ]
+                  }
+                ]
+              },
+              customScripts: {
+                onRender: "playBackgroundMidi(); initNeonFlicker();",
+                onOpen: "this.stats.incrementVisitorCount();"
+              },
+              api: [
+                {
+                  endpoint: "/guestbook",
+                  method: "POST",
+                  handler: "sys_guestbook_append"
+                }
+              ]
+            }, null, 2)
+          }
+        ]
+      },
+      {
         name: 'webpages',
         type: 'folder',
         permissions: DEFAULT_PERMISSIONS,
         children: [
+          {
+            name: 'neighborhood.html',
+            type: 'file',
+            permissions: DEFAULT_PERMISSIONS,
+            content: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>GlassDrive Neighborhoods & Webpages Directory</title>
+  <style>
+    :root {
+      --primary: #06b6d4;
+      --accent: #a855f7;
+      --bg: #090d16;
+      --card-bg: #0f172a;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+    }
+    body {
+      background: #030712;
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      line-height: 1.6;
+    }
+    .header {
+      background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #030712 100%);
+      border-bottom: 1px solid #1e293b;
+      padding: 2.5rem 1.5rem 2rem 1.5rem;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .header-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      background: rgba(168, 85, 247, 0.15);
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      color: #c084fc;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+    }
+    h1 {
+      font-size: 2.25rem;
+      font-weight: 800;
+      margin: 0 0 0.5rem 0;
+      background: linear-gradient(135deg, #38bdf8, #c084fc, #f472b6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.025em;
+    }
+    .subtitle {
+      color: #94a3b8;
+      font-size: 1.05rem;
+      max-width: 680px;
+      margin: 0 auto 1.5rem auto;
+    }
+    .marquee-bar {
+      background: #020617;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 8px 16px;
+      max-width: 820px;
+      margin: 0 auto;
+      font-family: 'Courier New', monospace;
+      font-size: 0.85rem;
+      color: #38bdf8;
+    }
+    .container {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+    }
+    .search-filter-box {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .filter-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #94a3b8;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .tag-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .tag-pill {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #cbd5e1;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .tag-pill:hover, .tag-pill.active {
+      background: #0284c7;
+      border-color: #38bdf8;
+      color: #ffffff;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+    }
+    .search-input {
+      width: 100%;
+      background: #020617;
+      border: 1px solid #334155;
+      color: #fff;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      margin-bottom: 1rem;
+      box-sizing: border-box;
+      outline: none;
+    }
+    .search-input:focus {
+      border-color: #38bdf8;
+    }
+    .group-section {
+      margin-bottom: 2.5rem;
+    }
+    .group-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 2px solid #1e293b;
+      padding-bottom: 0.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .group-title {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .group-tag-badge {
+      font-size: 0.75rem;
+      padding: 3px 10px;
+      border-radius: 12px;
+      background: rgba(56, 189, 248, 0.1);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      font-weight: 600;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1.25rem;
+    }
+    .card {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 1.25rem;
+      text-decoration: none;
+      color: inherit;
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+    }
+    .card:hover {
+      transform: translateY(-3px);
+      border-color: #38bdf8;
+      box-shadow: 0 10px 25px -5px rgba(56, 189, 248, 0.2);
+    }
+    .card-top {
+      margin-bottom: 1rem;
+    }
+    .card-icon-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 0.5rem;
+    }
+    .card-icon {
+      font-size: 1.5rem;
+    }
+    .card-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #f1f5f9;
+      margin: 0;
+    }
+    .card-author {
+      font-size: 0.75rem;
+      color: #64748b;
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+    .card-desc {
+      font-size: 0.85rem;
+      color: #94a3b8;
+      margin: 0;
+      line-height: 1.5;
+    }
+    .card-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 0.75rem;
+    }
+    .card-tag {
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      background: #1e293b;
+      color: #cbd5e1;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+    .card-bottom {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 1rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid #1e293b;
+    }
+    .card-path {
+      font-family: 'Courier New', monospace;
+      font-size: 0.75rem;
+      color: #38bdf8;
+    }
+    .btn-visit {
+      display: inline-block;
+      padding: 6px 12px;
+      background: #0284c7;
+      color: white;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-align: center;
+      text-decoration: none;
+      transition: background 0.2s;
+    }
+    .btn-visit:hover {
+      background: #0369a1;
+    }
+    .guide-box {
+      background: #020617;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-top: 2.5rem;
+    }
+    .footer {
+      text-align: center;
+      padding: 2rem;
+      color: #64748b;
+      font-size: 0.85rem;
+      border-top: 1px solid #1e293b;
+      margin-top: 3rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-badge">🌆 GlassDrive Personal Webpages Directory</div>
+    <h1>Glass Drive Neighborhood Hub</h1>
+    <p class="subtitle">Discover user-created webpages and retro GeoCities personal sites grouped dynamically by document metadata tags.</p>
+    
+    <div class="marquee-bar">
+      <marquee>*** GlassDrive Neighborhood Hub Active *** Search and filter user pages by tags: #siliconvalley #area51 #tokyo #geocities #retro #tech #anime ***</marquee>
+    </div>
+  </div>
+
+  <div class="container">
+    <!-- Interactive Tag Filter and Search Box -->
+    <div class="search-filter-box">
+      <input type="text" id="search-input" class="search-input" placeholder="🔍 Search webpages by title, author, description, or metadata tag..." onkeyup="filterPages()" />
+      
+      <div class="filter-title">🏷️ Filter by Metadata Tag:</div>
+      <div class="tag-pills" id="tag-pills">
+        <span class="tag-pill active" onclick="selectTag('all')"># All Pages</span>
+        <span class="tag-pill" onclick="selectTag('geocities')"># geocities</span>
+        <span class="tag-pill" onclick="selectTag('siliconvalley')"># siliconvalley</span>
+        <span class="tag-pill" onclick="selectTag('area51')"># area51</span>
+        <span class="tag-pill" onclick="selectTag('tokyo')"># tokyo</span>
+        <span class="tag-pill" onclick="selectTag('retro')"># retro</span>
+        <span class="tag-pill" onclick="selectTag('tech')"># tech</span>
+        <span class="tag-pill" onclick="selectTag('ufos')"># ufos</span>
+        <span class="tag-pill" onclick="selectTag('anime')"># anime</span>
+        <span class="tag-pill" onclick="selectTag('system')"># system</span>
+      </div>
+    </div>
+
+    <!-- Metadata Group 1: SiliconValley & Tech Shrines -->
+    <div class="group-section" data-group-tag="siliconvalley tech kernel">
+      <div class="group-header">
+        <div class="group-title">
+          <span>💻</span> Silicon Valley Tech Neighborhood
+        </div>
+        <span class="group-tag-badge">Tags: geocities &bull; siliconvalley &bull; tech</span>
+      </div>
+      <div class="grid">
+        <div class="card" data-tags="geocities siliconvalley personal-site retro tech kernel">
+          <div class="card-top">
+            <div class="card-icon-title">
+              <span class="card-icon">💻</span>
+              <h3 class="card-title">SiliconValley Cyber Shrine</h3>
+            </div>
+            <span class="card-author">By: SiliconValley_Coder99</span>
+            <p class="card-desc">Low-level assembly, custom GlassOS executables, kernel tweaks, hit counters, and cybernetics shrine.</p>
+            <div class="card-tags">
+              <span class="card-tag">#geocities</span>
+              <span class="card-tag">#siliconvalley</span>
+              <span class="card-tag">#retro</span>
+              <span class="card-tag">#tech</span>
+            </div>
+          </div>
+          <div class="card-bottom">
+            <span class="card-path">local://SiliconValley/index.json</span>
+            <a href="local://SiliconValley/index.json" class="btn-visit" style="background:#0891b2;">Visit Site ➔</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Metadata Group 2: Area51 & Sci-Fi Archives -->
+    <div class="group-section" data-group-tag="area51 ufos sci-fi gaming">
+      <div class="group-header">
+        <div class="group-title">
+          <span>🛸</span> Area 51 Paranormal & Sci-Fi Vault
+        </div>
+        <span class="group-tag-badge">Tags: geocities &bull; area51 &bull; ufos</span>
+      </div>
+      <div class="grid">
+        <div class="card" data-tags="geocities area51 ufos retro sci-fi gaming">
+          <div class="card-top">
+            <div class="card-icon-title">
+              <span class="card-icon">🛸</span>
+              <h3 class="card-title">Area 51 Top Secret Vault</h3>
+            </div>
+            <span class="card-author">By: XFiles_Watcher88</span>
+            <p class="card-desc">Paranormal archives, UFO sighting logs, mysterious GlassOS process IDs, and 90s gaming secrets.</p>
+            <div class="card-tags">
+              <span class="card-tag">#geocities</span>
+              <span class="card-tag">#area51</span>
+              <span class="card-tag">#ufos</span>
+              <span class="card-tag">#retro</span>
+            </div>
+          </div>
+          <div class="card-bottom">
+            <span class="card-path">local://Area51/index.json</span>
+            <a href="local://Area51/index.json" class="btn-visit" style="background:#16a34a;">Visit Site ➔</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Metadata Group 3: Tokyo & Synthwave Cyber Haven -->
+    <div class="group-section" data-group-tag="tokyo anime pixelart synth">
+      <div class="group-header">
+        <div class="group-title">
+          <span>🗼</span> Neo-Tokyo 8-Bit Pixel Haven
+        </div>
+        <span class="group-tag-badge">Tags: geocities &bull; tokyo &bull; anime</span>
+      </div>
+      <div class="grid">
+        <div class="card" data-tags="geocities tokyo anime pixelart synthwave">
+          <div class="card-top">
+            <div class="card-icon-title">
+              <span class="card-icon">🗼</span>
+              <h3 class="card-title">Neo-Tokyo Cyber Shrine</h3>
+            </div>
+            <span class="card-author">By: CyberPixel_Artisan</span>
+            <p class="card-desc">Synthwave aesthetics, anime low-bit pixel art, 90s audio synthesis, and collectibles node.</p>
+            <div class="card-tags">
+              <span class="card-tag">#geocities</span>
+              <span class="card-tag">#tokyo</span>
+              <span class="card-tag">#anime</span>
+              <span class="card-tag">#pixelart</span>
+            </div>
+          </div>
+          <div class="card-bottom">
+            <span class="card-path">local://Tokyo/index.json</span>
+            <a href="local://Tokyo/index.json" class="btn-visit" style="background:#db2777;">Visit Site ➔</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Metadata Group 4: System Pages & Directories -->
+    <div class="group-section" data-group-tag="system docs geocities hub">
+      <div class="group-header">
+        <div class="group-title">
+          <span>📄</span> GlassDrive Portals & System Pages
+        </div>
+        <span class="group-tag-badge">Tags: system &bull; docs &bull; hub</span>
+      </div>
+      <div class="grid">
+        <div class="card" data-tags="geocities hub retro network">
+          <div class="card-top">
+            <div class="card-icon-title">
+              <span class="card-icon">🏰</span>
+              <h3 class="card-title">GeoCities Network Hub</h3>
+            </div>
+            <span class="card-author">GlassOS System</span>
+            <p class="card-desc">Overview of polymorphic GlassOSDocument sites with guestbooks, hit counters, and webrings.</p>
+            <div class="card-tags">
+              <span class="card-tag">#geocities</span>
+              <span class="card-tag">#hub</span>
+              <span class="card-tag">#retro</span>
+            </div>
+          </div>
+          <div class="card-bottom">
+            <span class="card-path">local://geocities.html</span>
+            <a href="local://geocities.html" class="btn-visit">Visit Page ➔</a>
+          </div>
+        </div>
+
+        <div class="card" data-tags="system portal home">
+          <div class="card-top">
+            <div class="card-icon-title">
+              <span class="card-icon">🏠</span>
+              <h3 class="card-title">GlassOS Home Portal</h3>
+            </div>
+            <span class="card-author">GlassOS System</span>
+            <p class="card-desc">Primary OS web portal for featured applications, system specifications, and shortcuts.</p>
+            <div class="card-tags">
+              <span class="card-tag">#system</span>
+              <span class="card-tag">#portal</span>
+            </div>
+          </div>
+          <div class="card-bottom">
+            <span class="card-path">local://home.html</span>
+            <a href="local://home.html" class="btn-visit">Visit Page ➔</a>
+          </div>
+        </div>
+
+        <div class="card" data-tags="system docs guide manual">
+          <div class="card-top">
+            <div class="card-icon-title">
+              <span class="card-icon">📖</span>
+              <h3 class="card-title">User's Manual & Guide</h3>
+            </div>
+            <span class="card-author">GlassOS System</span>
+            <p class="card-desc">Comprehensive guide on writing GlassOS documents, Web Composer authoring, and GlassScripting.</p>
+            <div class="card-tags">
+              <span class="card-tag">#system</span>
+              <span class="card-tag">#docs</span>
+            </div>
+          </div>
+          <div class="card-bottom">
+            <span class="card-path">local://guide.html</span>
+            <a href="local://guide.html" class="btn-visit">Visit Page ➔</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Guide for Authors -->
+    <div class="guide-box">
+      <h2 style="font-size: 1.15rem; color: #f8fafc; margin: 0 0 0.5rem 0; display: flex; align-items: center; gap: 8px;">
+        <span>🚀</span> How to Tag Your Page for Neighborhood Placement
+      </h2>
+      <p style="font-size: 0.875rem; color: #94a3b8; margin: 0 0 1rem 0;">
+        When creating a document in Web Composer or saving a JSON document in <code>/GlassDrive/</code>, include a <code>metadata</code> object with your neighborhood and tags:
+      </p>
+      <pre style="background: #0f172a; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; font-size: 0.8rem; color: #38bdf8; overflow-x: auto;"><code>{
+  "type": "document",
+  "metadata": {
+    "author": "YourName",
+    "neighborhood": "SiliconValley", // "SiliconValley" | "Area51" | "Tokyo"
+    "tags": ["geocities", "tech", "personal-site", "retro"]
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="footer">
+    GlassOS Neighborhood Directory &bull; GlassDrive Virtual Filesystem &bull; Powered by Metadata Schema
+  </div>
+
+  <script>
+    var currentTag = 'all';
+
+    function selectTag(tag) {
+      currentTag = tag;
+      var pills = document.querySelectorAll('.tag-pill');
+      pills.forEach(function(p) {
+        if (p.innerText.includes(tag) || (tag === 'all' && p.innerText.includes('All'))) {
+          p.classList.add('active');
+        } else {
+          p.classList.remove('active');
+        }
+      });
+      filterPages();
+    }
+
+    function filterPages() {
+      var query = document.getElementById('search-input').value.toLowerCase();
+      var cards = document.querySelectorAll('.card');
+      var sections = document.querySelectorAll('.group-section');
+
+      cards.forEach(function(card) {
+        var tags = (card.getAttribute('data-tags') || '').toLowerCase();
+        var text = card.innerText.toLowerCase();
+        var matchesTag = (currentTag === 'all') || tags.includes(currentTag);
+        var matchesQuery = !query || text.includes(query) || tags.includes(query);
+
+        if (matchesTag && matchesQuery) {
+          card.style.display = 'flex';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+
+      sections.forEach(function(sec) {
+        var visibleCards = sec.querySelectorAll('.card[style="display: flex;"]');
+        if (visibleCards.length === 0 && (query || currentTag !== 'all')) {
+          sec.style.display = 'none';
+        } else {
+          sec.style.display = 'block';
+        }
+      });
+    }
+  </script>
+</body>
+</html>`
+          },
+          {
+            name: 'geocities.html',
+            type: 'file',
+            permissions: DEFAULT_PERMISSIONS,
+            content: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>GeoCities Cyber Shrine Network - GlassOS</title>
+  <style>
+    body {
+      background: #090d16;
+      color: #e2e8f0;
+      font-family: 'Courier New', Courier, monospace;
+      margin: 0;
+      padding: 24px;
+      line-height: 1.6;
+    }
+    .hero {
+      text-align: center;
+      padding: 30px 20px;
+      background: linear-gradient(180deg, #1e1b4b 0%, #0f172a 100%);
+      border: 3px double #a855f7;
+      border-radius: 12px;
+      margin-bottom: 24px;
+      box-shadow: 0 0 20px rgba(168, 85, 247, 0.2);
+    }
+    h1 {
+      color: #38bdf8;
+      font-size: 28px;
+      margin: 0 0 10px 0;
+      text-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+    }
+    .marquee-box {
+      background: #000;
+      border: 1px solid #38bdf8;
+      color: #f43f5e;
+      font-weight: bold;
+      padding: 6px;
+      margin: 15px 0;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+    .card {
+      background: #111827;
+      border: 2px solid #374151;
+      border-radius: 10px;
+      padding: 18px;
+      text-decoration: none;
+      color: inherit;
+      transition: all 0.2s;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .card:hover {
+      transform: translateY(-3px);
+      border-color: #a855f7;
+      box-shadow: 0 0 15px rgba(168, 85, 247, 0.3);
+    }
+    .card-silicon { border-top: 4px solid #06b6d4; }
+    .card-area51 { border-top: 4px solid #22c55e; }
+    .card-tokyo { border-top: 4px solid #ec4899; }
+    .card-title {
+      font-size: 18px;
+      font-weight: bold;
+      color: #f3f4f6;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tag {
+      font-size: 10px;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #1f2937;
+      color: #9ca3af;
+      margin-right: 4px;
+    }
+    .btn-link {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 8px 14px;
+      background: #2563eb;
+      color: white;
+      border-radius: 6px;
+      font-weight: bold;
+      text-align: center;
+      text-decoration: none;
+    }
+    .btn-link:hover { background: #1d4ed8; }
+    .spec-box {
+      background: #020617;
+      border: 1px dashed #475569;
+      padding: 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <h1>🏰 GlassDrive GeoCities Cyber Shrine Network</h1>
+    <div class="marquee-box">
+      <marquee>*** Welcome to the Retro Personal Site Network hosted directly on GlassDrive *** Polymorphic GlassOSDocument Schema Enabled ***</marquee>
+    </div>
+    <p style="color: #cbd5e1; font-size: 14px; margin: 0;">
+      Every page in GlassDrive conforms to the polymorphic <code>GlassOSDocument</code> JSON schema, bundling layout, custom scripts, hit counters, and live REST API guestbooks.
+    </p>
+  </div>
+
+  <h2 style="color: #f472b6; font-size: 20px; border-bottom: 2px solid #ec4899; padding-bottom: 6px;">
+    🌆 Neighborhood Nodes
+  </h2>
+
+  <div class="grid">
+    <div class="card card-silicon">
+      <div>
+        <div class="card-title">💻 SiliconValley</div>
+        <div>
+          <span class="tag">tech</span><span class="tag">kernel</span><span class="tag">retro</span>
+        </div>
+        <p style="font-size: 13px; color: #9ca3af; margin-top: 10px;">
+          Personal node of <strong>SiliconValley_Coder99</strong>. OS assembly tweaks, kernel scripts, and cybernetic shrine.
+        </p>
+      </div>
+      <a href="local://SiliconValley/index.json" class="btn-link" style="background: #0891b2;">Visit Node ➔</a>
+    </div>
+
+    <div class="card card-area51">
+      <div>
+        <div class="card-title">🛸 Area51</div>
+        <div>
+          <span class="tag">ufos</span><span class="tag">sci-fi</span><span class="tag">gaming</span>
+        </div>
+        <p style="font-size: 13px; color: #9ca3af; margin-top: 10px;">
+          Paranormal archives of <strong>XFiles_Watcher88</strong>. UFO sightings, mysterious process IDs, and retro gaming secrets.
+        </p>
+      </div>
+      <a href="local://Area51/index.json" class="btn-link" style="background: #16a34a;">Visit Node ➔</a>
+    </div>
+
+    <div class="card card-tokyo">
+      <div>
+        <div class="card-title">🗼 Tokyo</div>
+        <div>
+          <span class="tag">anime</span><span class="tag">pixel-art</span><span class="tag">synth</span>
+        </div>
+        <p style="font-size: 13px; color: #9ca3af; margin-top: 10px;">
+          Neo-Tokyo 8-bit cyber shrine of <strong>CyberPixel_Artisan</strong>. Low-bit pixel art, synthwave audio, and anime collectibles.
+        </p>
+      </div>
+      <a href="local://Tokyo/index.json" class="btn-link" style="background: #db2777;">Visit Node ➔</a>
+    </div>
+  </div>
+
+  <div class="spec-box">
+    <strong style="color: #38bdf8;">⚙️ GlassOSDocument Specifications:</strong><br/>
+    • <strong>Location:</strong> <code>/GlassDrive/&lt;Neighborhood&gt;/index.json</code><br/>
+    • <strong>Features:</strong> Marquee banners, Odometer hit counter, Live filesystem guestbook, Synth audio MIDI player, Low-bit webring navigation.<br/>
+    • <strong>Publishing:</strong> Call <code>publishAsApp()</code> in GlassOS kernel to deploy any document as an instant executable web app!
+  </div>
+</body>
+</html>`
+          },
           {
             name: 'home.html',
             type: 'file',
@@ -347,6 +1257,18 @@ export const INITIAL_FS: FileSystemItem[] = [
         <span class="badge" style="background:#f1f5f9; color:#475569;">System</span>
         <h2 class="card-title">✨ About GlassOS</h2>
         <p class="card-desc">Read about the architecture, system specifications, kernel version, and the vision of GlassOS.</p>
+      </a>
+
+      <a href="local://neighborhood.html" class="card" style="border-left: 4px solid #06b6d4; background: linear-gradient(135deg, #ecfeff, #cffaff);">
+        <span class="badge" style="background:#cffaff; color:#0891b2;">Webpages Directory</span>
+        <h2 class="card-title">🌆 Web Neighborhoods Landing Page</h2>
+        <p class="card-desc">Directory of all user created webpages, GeoCities personal sites, and GlassDrive HTML documents.</p>
+      </a>
+
+      <a href="local://geocities.html" class="card" style="border-left: 4px solid #a855f7; background: linear-gradient(135deg, #fdf4ff, #fae8ff);">
+        <span class="badge" style="background:#f3e8ff; color:#9333ea;">Retro GlassDrive</span>
+        <h2 class="card-title">🏰 GeoCities Cyber Shrine Network</h2>
+        <p class="card-desc">Explore polymorphic GlassOSDocument personal sites in SiliconValley, Area51, and Tokyo with guestbooks, hit counters, and webrings!</p>
       </a>
     </div>
 
@@ -855,26 +1777,39 @@ export const INITIAL_FS: FileSystemItem[] = [
 
     <!-- Code Studio section -->
     <div id="codestudio">
-      <h2>Code Studio & Brainscript Compiler</h2>
-      <p>To run programmatic computations, launch the <strong>Code Studio</strong>. Code Studio runs an advanced custom virtual machine executing <strong>Brainscript</strong>.</p>
+      <h2>Code Studio & B (Brainscript) Kernel VM</h2>
+      <p><strong>B (Brainscript)</strong> is a powerful high/low-level programming and kernel scripting language designed for programs and low-level system execution. It utilizes structural block delimiters (<code>@@</code> Global Parent, <code>$$</code> Library, <code>###</code> Conductor Entry Point, <code>##</code> Local Method) and indexed memory segments (<code>$000-$02F</code> System, <code>$030-$0FF</code> Global, <code>$100-$1FF</code> Library, <code>$200-$2FF</code> Conductor, <code>$300-$7FF</code> Local, <code>$800-$9FF</code> User Defined).</p>
       
-      <h3>Brainscript Example</h3>
-      <pre><code>###mainrun.boot
+      <h3>B (Brainscript) Program Example</h3>
+      <pre><code>###MAIN.EntryPoint
 Start
-  PRINT "Initializing Brainscript..."
-  LET $x 5
-  LET $y 10
-  LET $sum $x + $y
-  PRINT "Sum is: " && $sum
+  SET $000 0x01 $001 "SYS_ACTIVE"
+  LET $appName 'GlassOS Kernel Engine'
+  PRINT 'Initializing: ' && $appName
+  TIMESTAMP
+  BRANCH ##user_auth
   QUIT
+End
+
+##user_auth
+Start
+  INPUT $pass: "Enter Access PIN: "
+  LET $expected "1234"
+  COMPARE $pass $expected : PRINT "AUTH OK" BRANCH ##run_process : PRINT "AUTH DENIED"
+End
+
+##run_process
+Start
+  LET $batchCount 5
+  PRINT "Running task batch, size: " && $batchCount
 End</code></pre>
-      <p>Use the VM debugger to step through instructions, inspect raw registers, check memory slots, and view the visual runtime execution stack!</p>
+      <p>Launch CodeStudio to compile B scripts, step through VM instruction execution, inspect memory registers, and debug kernel tasks!</p>
     </div>
 
     <!-- GlassScript section -->
     <div id="automation">
-      <h2>GlassScript Automation</h2>
-      <p>Automate GUI applications with GlassScript. For example, to control the Notepad app through code:</p>
+      <h2>glassScript Automation</h2>
+      <p><strong>glassScript</strong> is a high-level English-like desktop automation language that operates like AppleScript / HyperTalk to script applications and GUI processes:</p>
       <pre><code>tell app "Notepad"
     set font size to 16
     set style to bold
