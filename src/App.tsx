@@ -16021,6 +16021,69 @@ function Screensaver({ type, onDismiss }: { type: string, onDismiss: () => void 
         animationFrameId = requestAnimationFrame(draw);
       };
       draw();
+    } else if (type === 'Classic Moiré' || type === 'Moiré') {
+      let t = 0;
+      const draw = () => {
+        ctx.fillStyle = 'rgba(4, 4, 10, 0.2)'; // Smooth trail persistence
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        t += 0.012;
+        const width = canvas.width;
+        const height = canvas.height;
+        const maxR = Math.max(width, height) * 0.75;
+
+        // Focal point 1 (orbiting)
+        const cx1 = width / 2 + Math.sin(t * 0.7) * (width * 0.22);
+        const cy1 = height / 2 + Math.cos(t * 0.5) * (height * 0.22);
+
+        // Focal point 2 (counter-orbiting)
+        const cx2 = width / 2 + Math.cos(t * 0.8) * (width * 0.25);
+        const cy2 = height / 2 + Math.sin(t * 0.6) * (height * 0.25);
+
+        // Focal point 3 (floating center)
+        const cx3 = width / 2 + Math.sin(t * 0.3) * (width * 0.12);
+        const cy3 = height / 2 + Math.cos(t * 0.4) * (height * 0.12);
+
+        const hue = (t * 25) % 360;
+
+        ctx.lineWidth = 1.2;
+
+        // Pattern 1: Concentric distorted ellipses from Center 1
+        ctx.strokeStyle = `hsla(${hue}, 85%, 65%, 0.5)`;
+        ctx.beginPath();
+        for (let r = 12; r < maxR; r += 10) {
+          const rx = r + Math.sin(t + r * 0.015) * 12;
+          const ry = r * 0.8 + Math.cos(t * 0.6 + r * 0.015) * 12;
+          ctx.moveTo(cx1 + rx, cy1);
+          ctx.ellipse(cx1, cy1, Math.max(1, rx), Math.max(1, ry), t * 0.15, 0, Math.PI * 2);
+        }
+        ctx.stroke();
+
+        // Pattern 2: Intersecting concentric ellipses from Center 2
+        ctx.strokeStyle = `hsla(${(hue + 120) % 360}, 90%, 65%, 0.5)`;
+        ctx.beginPath();
+        for (let r = 12; r < maxR; r += 10) {
+          const rx = r * 0.85 + Math.cos(t * 0.8 + r * 0.015) * 12;
+          const ry = r + Math.sin(t * 0.5 + r * 0.015) * 12;
+          ctx.moveTo(cx2 + rx, cy2);
+          ctx.ellipse(cx2, cy2, Math.max(1, rx), Math.max(1, ry), -t * 0.2, 0, Math.PI * 2);
+        }
+        ctx.stroke();
+
+        // Pattern 3: Radiating spokes from Center 3 generating optical interference
+        const numSpokes = 80;
+        ctx.strokeStyle = `hsla(${(hue + 240) % 360}, 80%, 60%, 0.25)`;
+        ctx.beginPath();
+        for (let i = 0; i < numSpokes; i++) {
+          const angle = (i / numSpokes) * Math.PI * 2 + t * 0.08;
+          ctx.moveTo(cx3, cy3);
+          ctx.lineTo(cx3 + Math.cos(angle) * maxR, cy3 + Math.sin(angle) * maxR);
+        }
+        ctx.stroke();
+
+        animationFrameId = requestAnimationFrame(draw);
+      };
+      draw();
     }
 
     return () => cancelAnimationFrame(animationFrameId);
@@ -18382,7 +18445,7 @@ function SettingsApp(props: any) {
                         Select Theme
                       </label>
                       <div className="grid grid-cols-1 gap-3">
-                        {['Matrix Rain', 'Starfield', 'Floating Bubbles'].map(opt => (
+                        {['Matrix Rain', 'Starfield', 'Floating Bubbles', 'Classic Moiré'].map(opt => (
                           <button 
                             key={opt} 
                             onClick={() => {
