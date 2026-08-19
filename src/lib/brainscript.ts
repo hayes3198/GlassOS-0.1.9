@@ -1,3 +1,5 @@
+import { WasmIsolateVM } from './WasmIsolateVM';
+
 export interface BrainscriptContext {
   print: (message: string) => void;
   notify: (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
@@ -556,9 +558,14 @@ export class BrainscriptInterpreter {
           }
         }
 
-        const evaluated = eval(processed);
-        if (evaluated === Infinity || isNaN(evaluated)) return 0;
-        return evaluated;
+        const isolateRes = WasmIsolateVM.evaluateSandboxed(processed, this.variables, { cycleCap: 10000, timeoutMs: 100 });
+        if (isolateRes.success && typeof isolateRes.value === 'number' && !isNaN(isolateRes.value) && isFinite(isolateRes.value)) {
+          return isolateRes.value;
+        }
+        if (isolateRes.success && isolateRes.value !== undefined) {
+          return isolateRes.value;
+        }
+        return 0;
       } catch (e) {
         // Fall back to string parsing if eval fails
       }

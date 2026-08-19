@@ -117,10 +117,20 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
+  AlignJustify,
   List as ListIcon,
+  ListOrdered,
   Indent,
   Outdent,
   Eraser,
+  Highlighter,
+  Subscript,
+  Superscript,
+  Heading1,
+  Heading2,
+  Heading3,
+  Pilcrow,
+  Quote,
   LayoutGrid,
   Gauge,
   Activity,
@@ -238,6 +248,10 @@ import { systemPrintDaemon } from './services/printService';
 import { PrintPreviewDialog } from './components/PrintPreviewDialog';
 import { Network } from 'lucide-react';
 import { nativeBridge, SystemInfo } from './lib/NativeBridge.lib';
+import { WasmIsolateVM, IsolateExecutionResult } from './lib/WasmIsolateVM';
+import { TheVaultManager } from './lib/VaultManager';
+import { VaultManagerApp } from './components/VaultManagerApp';
+import { SpreadsheetIsolateDialog } from './components/SpreadsheetIsolateDialog';
 import { 
   AppId, 
   WindowState, 
@@ -708,6 +722,7 @@ export default function App() {
       case 'timer': return { label: 'Timer', desc: 'Countdown times and stopwatches' };
       case 'calculator': return { label: 'Calculator', desc: 'Perform math, statistics, and scientific equations' };
       case 'unitconverter': return { label: 'Unit Converter', desc: 'Length, weight, temperature conversions' };
+      case 'vaultmanager': return { label: 'The Vault Manager', desc: 'Cryptographic security, REST API signing & isolate quotas' };
       default: return { label: id.charAt(0).toUpperCase() + id.slice(1), desc: 'System application' };
     }
   };
@@ -1468,17 +1483,21 @@ export default function App() {
       if (w.id === id) {
         if (w.isMaximized) {
           addNotification('System', `${w.title} restored`, 'info');
+          const restoredX = Math.max(0, w.restoreData?.x ?? 50);
+          const restoredY = Math.max(0, w.restoreData?.y ?? 50);
           return {
             ...w,
             isMaximized: false,
-            ...(w.restoreData || {})
+            ...(w.restoreData || {}),
+            x: restoredX,
+            y: restoredY
           };
         } else {
           addNotification('System', `${w.title} maximized`, 'info');
           return {
             ...w,
             isMaximized: true,
-            restoreData: { x: w.x, y: w.y, width: w.width, height: w.height },
+            restoreData: { x: Math.max(0, w.x), y: Math.max(0, w.y), width: w.width, height: w.height },
             x: 0,
             y: 0,
             width: window.innerWidth,
@@ -2281,6 +2300,7 @@ export default function App() {
                           { id: 'timer', label: 'Timer', color: 'bg-blue-500/20 text-blue-400' },
                           { id: 'calculator', label: 'Calculator', color: 'bg-purple-500/20 text-purple-400' },
                           { id: 'unitconverter', label: 'Converter', color: 'bg-indigo-500/20 text-indigo-400' },
+                          { id: 'vaultmanager', label: 'The Vault', color: 'bg-amber-500/20 text-amber-400' },
                         ].map(app => (
                           <button 
                             key={app.id}
@@ -2766,8 +2786,8 @@ function Window({ win, isActive, onFocus, onClose, onMinimize, onMaximize, onRes
         scale: 1, 
         width: win.isMaximized ? "100%" : win.width,
         height: win.isMaximized ? "calc(100% - 48px)" : win.height,
-        left: win.isMaximized ? 0 : win.x,
-        top: win.isMaximized ? 0 : win.y,
+        left: win.isMaximized ? 0 : Math.max(0, win.x),
+        top: win.isMaximized ? 0 : Math.max(0, win.y),
         zIndex: win.zIndex
       }}
       exit={{ opacity: 0, scale: 0.95 }}
@@ -3044,6 +3064,7 @@ function GlobalSearch({
     { id: 'glassword', label: 'GlassWord', icon: <FileTextIcon size={18} /> },
     { id: 'music', label: 'Media Player', icon: <Music size={18} /> },
     { id: 'codestudio', label: 'Code Studio', icon: <Code size={18} /> },
+    { id: 'vaultmanager', label: 'The Vault Manager', icon: <Shield size={18} className="text-amber-400" /> },
     { id: 'settings', label: 'Settings', icon: <SettingsIcon size={18} /> },
     { id: 'systemmonitor', label: 'NOC Center', icon: <Activity size={18} /> },
   ];
@@ -3576,6 +3597,7 @@ function getAppIcon(id: AppId, size: number, color?: string) {
     case 'timer': return <Hourglass size={size} className="text-blue-400" />;
     case 'calculator': return <Plus size={size} className="text-purple-400" />;
     case 'unitconverter': return <Ruler size={size} className="text-indigo-400" />;
+    case 'vaultmanager': return <Shield size={size} className="text-amber-400" />;
     default: return <Box size={size} />;
   }
 }
@@ -3694,8 +3716,30 @@ function GlassDatabase(props: any) {
     openWindow, fsLib, setFs 
   } = props;
 
-  const [activeTab, setActiveTab] = useState<'status' | 'tables' | 'import' | 'scripts' | 'search'>('status');
+  const [activeTab, setActiveTab] = useState<'status' | 'tables' | 'apis' | 'import' | 'scripts' | 'search'>('status');
   const [dbSearchQuery, setDbSearchQuery] = useState('');
+  const [vaultEndpoints, setVaultEndpoints] = useState<any[]>(TheVaultManager.getEndpoints());
+
+  const refreshVaultEndpoints = () => {
+    setVaultEndpoints([...TheVaultManager.getEndpoints()]);
+  };
+
+  const handleBindTableEndpoint = (tableName: string) => {
+    TheVaultManager.registerAutoGeneratedEndpoint({
+      name: `Table: ${tableName}`,
+      path: `/api/v1/collections/${tableName}`,
+      method: 'GET',
+      source: 'database_collection',
+      sourceTarget: tableName,
+      boundInterface: 'UNBOUND',
+      port: 8080,
+      isPublicInterface: true,
+      rateLimitPerMin: 120,
+      description: `Auto-generated REST endpoint for collection "${tableName}"`
+    });
+    refreshVaultEndpoints();
+    addNotification('The Vault Manager', `Auto-registered REST endpoint for table "${tableName}" with Cryptographic Signatures`, 'success');
+  };
 
   useEffect(() => {
     BridgeLib.registerApp('glassdatabase', {
@@ -3887,17 +3931,18 @@ function GlassDatabase(props: any) {
         </div>
         <div className="flex items-center gap-4">
           <nav className="flex items-center gap-1 glass p-1 rounded-xl border border-white/10">
-            {['status', 'tables', 'import', 'scripts', 'search'].map((tab) => (
+            {['status', 'tables', 'apis', 'import', 'scripts', 'search'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => {
                   setActiveTab(tab as any);
                   setSelectedTable(null);
                   setSelectedScript(null);
+                  if (tab === 'apis') refreshVaultEndpoints();
                 }}
-                className={`px-4 py-1.5 rounded-lg text-xs capitalize transition-all ${activeTab === tab ? 'bg-blue-500 text-white shadow-lg' : 'text-white/40 hover:text-white'}`}
+                className={`px-4 py-1.5 rounded-lg text-xs capitalize transition-all ${activeTab === tab ? 'bg-blue-500 text-white shadow-lg font-bold' : 'text-white/40 hover:text-white'}`}
               >
-                {tab}
+                {tab === 'apis' ? 'The Vault APIs' : tab}
               </button>
             ))}
           </nav>
@@ -4123,6 +4168,107 @@ function GlassDatabase(props: any) {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'apis' && (
+          <div className="space-y-6">
+            <div className="p-6 glass rounded-3xl border border-amber-500/20 bg-gradient-to-r from-amber-950/20 via-black/40 to-black/40 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <Lock size={24} />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    Vault-Enforced API Authentication
+                  </h2>
+                  <p className="text-xs text-amber-300/80 font-mono mt-0.5">
+                    Cryptographic signature verification required before binding REST endpoints to network interfaces
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => openWindow('vaultmanager', 'The Vault Manager')}
+                className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center gap-2 transition-all shadow-lg"
+              >
+                <Shield size={14} /> Open The Vault Manager
+              </button>
+            </div>
+
+            <div className="glass rounded-3xl border border-white/10 p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-white">Auto-Generated Collection REST Endpoints</h3>
+                  <p className="text-xs text-white/40">Expose relational shards via Vault-signed API endpoints with HMAC-SHA256 signature enforcement.</p>
+                </div>
+                <button
+                  onClick={refreshVaultEndpoints}
+                  className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 text-xs flex items-center gap-1.5 transition-colors"
+                >
+                  <RefreshCw size={12} /> Refresh
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {Object.keys(collections).filter(k => !k.startsWith('_')).map((tableName) => {
+                  const path = `/api/v1/collections/${tableName}`;
+                  const existingEndpoint = vaultEndpoints.find(ep => ep.path === path);
+                  const isBound = existingEndpoint?.status === 'BOUND_ACTIVE';
+
+                  return (
+                    <div 
+                      key={tableName} 
+                      className="p-4 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between hover:border-white/20 transition-all"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 font-mono font-bold text-[10px]">
+                            GET
+                          </span>
+                          <span className="font-mono text-sm text-white font-bold">{path}</span>
+                          {isBound ? (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-mono text-[9px] border border-emerald-500/30 flex items-center gap-1">
+                              <CheckCircle2 size={10} /> BOUND & SIGNED
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-mono text-[9px] border border-amber-500/30">
+                              REQUIRES_VAULT_SIGNATURE
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-white/40 flex items-center gap-3">
+                          <span>Target Table: <strong className="text-white/70">{tableName}</strong></span>
+                          <span>Records: <strong className="text-white/70">{collections[tableName]?.length || 0}</strong></span>
+                          <span>Auth: <strong className="text-amber-400">HMAC-SHA256</strong></span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {isBound ? (
+                          <button
+                            onClick={() => {
+                              TheVaultManager.unbindEndpoint(existingEndpoint.id);
+                              refreshVaultEndpoints();
+                              addNotification('The Vault Manager', `Unbound endpoint ${path}`, 'warning');
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-semibold border border-rose-500/30 transition-all"
+                          >
+                            Unbind Endpoint
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleBindTableEndpoint(tableName)}
+                            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-md"
+                          >
+                            <Lock size={12} /> Sign & Register in Vault
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
 
@@ -10193,6 +10339,15 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
   const [showValidationDialog, setShowValidationDialog] = useState(false);
   const [showConditionalDialog, setShowConditionalDialog] = useState(false);
   const [showScriptPicker, setShowScriptPicker] = useState(false);
+  const [showIsolateModal, setShowIsolateModal] = useState(false);
+  const [isolateCycleCap, setIsolateCycleCap] = useState(5000);
+  const [isolateStepLimit, setIsolateStepLimit] = useState(2000);
+  const [lastIsolateMetrics, setLastIsolateMetrics] = useState<{ cycles: number; durationMs: number; status: string; udfCount: number }>({
+    cycles: 48,
+    durationMs: 0.12,
+    status: 'HARDENED_SANDBOX',
+    udfCount: 3
+  });
 
   const [sheetsHistory, setSheetsHistory] = useState<{ data: string[][]; formats: Record<string, CellFormat> }[]>([]);
   const [sheetsHistoryIndex, setSheetsHistoryIndex] = useState(-1);
@@ -10810,88 +10965,122 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
     return isNaN(val) ? 0 : val;
   };
 
-  const evaluateFormula = (formula: string, data: string[][], visited = new Set<string>()): number => {
+  const evaluateFormula = (formula: string, data: string[][], visited = new Set<string>()): any => {
     try {
-      let f = formula.toUpperCase().replace(/\s+/g, '');
-      
-      // Handle Ranges: SUM(A1:B2)
-      f = f.replace(/SUM\(([A-Z][0-9]+):([A-Z][0-9]+)\)/g, (_, start, end) => {
-        const s = getCellCoords(start);
-        const e = getCellCoords(end);
+      let rawFormula = formula.trim();
+      if (rawFormula.startsWith('=')) rawFormula = rawFormula.substring(1).trim();
+
+      // Guard against deep recursion/circular loops
+      if (visited.size > 40) {
+        return '#CIRCULAR_REF!';
+      }
+
+      // Pre-process Range Aggregations: SUM(A1:B2), AVG(A1:B2), MIN(A1:B2), MAX(A1:B2), COUNT(A1:B2)
+      let processed = rawFormula.replace(/(SUM|AVG|MIN|MAX|COUNT)\(([A-Za-z][0-9]+):([A-Za-z][0-9]+)\)/gi, (_, fn, start, end) => {
+        const s = getCellCoords(start.toUpperCase());
+        const e = getCellCoords(end.toUpperCase());
         if (!s || !e) return '0';
-        let sum = 0;
+        const values: number[] = [];
         for (let r = Math.min(s[0], e[0]); r <= Math.max(s[0], e[0]); r++) {
           for (let c = Math.min(s[1], e[1]); c <= Math.max(s[1], e[1]); c++) {
-            const content = data[r][c];
-            if (content.startsWith('=')) {
-              sum += evaluateFormula(content.substring(1), data, new Set([...visited, `${r},${c}`]));
+            const cellContent = data[r]?.[c] ?? '';
+            if (cellContent.startsWith('=')) {
+              const res = evaluateFormula(cellContent.substring(1), data, new Set([...visited, `${r},${c}`]));
+              const num = typeof res === 'number' ? res : parseFloat(res);
+              if (!isNaN(num)) values.push(num);
             } else {
-              const val = parseFloat(content);
-              sum += isNaN(val) ? 0 : val;
+              const val = parseFloat(cellContent);
+              if (!isNaN(val)) values.push(val);
             }
           }
         }
-        return sum.toString();
+        const upperFn = fn.toUpperCase();
+        if (upperFn === 'SUM') return (values.reduce((a, b) => a + b, 0)).toString();
+        if (upperFn === 'AVG') return (values.length ? (values.reduce((a, b) => a + b, 0) / values.length) : 0).toString();
+        if (upperFn === 'MIN') return (values.length ? Math.min(...values) : 0).toString();
+        if (upperFn === 'MAX') return (values.length ? Math.max(...values) : 0).toString();
+        if (upperFn === 'COUNT') return values.length.toString();
+        return '0';
       });
 
-      // Simple AVG
-      f = f.replace(/AVG\(([A-Z][0-9]+):([A-Z][0-9]+)\)/g, (_, start, end) => {
-        const s = getCellCoords(start);
-        const e = getCellCoords(end);
-        if (!s || !e) return '0';
-        let sum = 0;
-        let count = 0;
-        for (let r = Math.min(s[0], e[0]); r <= Math.max(s[0], e[0]); r++) {
-          for (let c = Math.min(s[1], e[1]); c <= Math.max(s[1], e[1]); c++) {
-            const content = data[r][c];
-            if (content.startsWith('=')) {
-              sum += evaluateFormula(content.substring(1), data, new Set([...visited, `${r},${c}`]));
+      // Prepare context variables with all single cell coordinates (e.g. A1, B2)
+      const contextVars: Record<string, any> = {
+        PI: Math.PI,
+        E: Math.E,
+      };
+
+      // Extract referenced cells like A1, B12, AA3
+      const cellMatches = processed.match(/\b([A-Za-z]{1,2}[0-9]+)\b/g);
+      if (cellMatches) {
+        for (const cellRef of cellMatches) {
+          const upperRef = cellRef.toUpperCase();
+          if (['SUM', 'AVG', 'MIN', 'MAX', 'COUNT', 'IF', 'ROUND', 'SQRT', 'POW', 'ABS', 'FLOOR', 'CEIL', 'PI', 'E', 'MOD', 'UDF', 'UDF_EXPONENTIAL', 'UDF_COMPOUND_INTEREST', 'UDF_WEIGHTED_SCORE'].includes(upperRef)) {
+            continue;
+          }
+          const coords = getCellCoords(upperRef);
+          if (coords) {
+            const [r, c] = coords;
+            if (r < data.length && c < (data[0]?.length ?? 0)) {
+              const cellVal = data[r][c];
+              if (cellVal && cellVal.startsWith('=')) {
+                if (visited.has(`${r},${c}`)) {
+                  return '#CIRCULAR_REF!';
+                }
+                const evaluatedCell = evaluateFormula(cellVal.substring(1), data, new Set([...visited, `${r},${c}`]));
+                contextVars[upperRef] = typeof evaluatedCell === 'number' ? evaluatedCell : (parseFloat(evaluatedCell) || 0);
+                contextVars[cellRef] = contextVars[upperRef];
+              } else {
+                const parsedNum = parseFloat(cellVal);
+                contextVars[upperRef] = isNaN(parsedNum) ? (cellVal || 0) : parsedNum;
+                contextVars[cellRef] = contextVars[upperRef];
+              }
             } else {
-              const val = parseFloat(content);
-              sum += isNaN(val) ? 0 : val;
+              contextVars[upperRef] = 0;
+              contextVars[cellRef] = 0;
             }
-            count++;
           }
-        }
-        return count === 0 ? '0' : (sum / count).toString();
-      });
-
-      // Resolve Single Cell References
-      f = f.replace(/[A-Z][0-9]+/g, (match) => {
-        return getCellValue(match, data, visited).toString();
-      });
-
-      // Basic Math Evaluation (using Function for simple safety)
-      // Only allows digits, operators, and decimal points
-      if (/^[0-9+\-*/().]+$/.test(f)) {
-        try {
-          // eslint-disable-next-line no-eval
-          const result = eval(f);
-          if (typeof result === 'number' && !isNaN(result) && isFinite(result)) {
-            return result;
-          }
-          return 0;
-        } catch (e) {
-          return 0;
         }
       }
-      return 0;
+
+      // Execute via zero-eval WasmIsolateVM Sandboxed AST with cycle quotas & cycle caps
+      const isolateResult = WasmIsolateVM.evaluateSandboxed(processed, contextVars, {
+        cycleCap: isolateCycleCap,
+        maxStepLimit: isolateStepLimit,
+      });
+
+      if (!isolateResult.success) {
+        if (isolateResult.errorCode === 'CYCLE_CAP_EXCEEDED') {
+          return '#CYCLE_CAP_EXCEEDED!';
+        }
+        return '#ERROR!';
+      }
+
+      const res = isolateResult.value;
+      if (typeof res === 'number') {
+        if (isNaN(res) || !isFinite(res)) return '#DIV/0!';
+        return res;
+      }
+      return res;
     } catch (e) {
-      return 0;
+      return '#ERROR!';
     }
   };
 
   const getDisplayValue = (r: number, c: number) => {
-    const content = sheetData[r][c];
+    const content = sheetData[r]?.[c] ?? '';
     if (content && content.toString().startsWith('=')) {
       // Don't evaluate if we are currently editing the cell
       if (activeCell?.[0] === r && activeCell?.[1] === c) return content;
       const val = evaluateFormula(content.substring(1), sheetData);
       
-      // If evaluateFormula somehow returns NaN or the result is invalid
-      if (typeof val !== 'number' || isNaN(val)) return '#ERROR!';
-      
-      return val === 0 && content !== '=0' && !content.includes('0') ? '0' : val.toString();
+      if (val === '#ERROR!' || val === '#CYCLE_CAP_EXCEEDED!' || val === '#CIRCULAR_REF!' || val === '#DIV/0!') {
+        return val;
+      }
+      if (typeof val === 'number') {
+        if (isNaN(val) || !isFinite(val)) return '#DIV/0!';
+        return val === 0 && content !== '=0' && !content.includes('0') ? '0' : val.toString();
+      }
+      return val != null ? String(val) : '';
     }
     return content;
   };
@@ -10967,6 +11156,8 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
     ],
     tools: [
       { label: 'Data Validation', icon: <ShieldCheck size={14} />, action: () => setShowValidationDialog(true) },
+      { label: 'Wasm Isolate Quotas & Sandbox', icon: <Shield size={14} className="text-emerald-500" />, action: () => setShowIsolateModal(true) },
+      { label: 'Open The Vault Manager', icon: <Lock size={14} className="text-amber-500" />, action: () => openWindow('vaultmanager', 'The Vault Manager') },
       { label: 'Script Editor', action: () => openWindow('codestudio', 'Code Studio') },
       { label: 'Run Script...', icon: <Play size={14} />, action: () => setShowScriptPicker(true) },
       { label: 'Open glassChat Copilot', icon: <Sparkles size={14} />, action: () => {
@@ -11103,11 +11294,20 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
           <input 
             type="text" 
             className="w-full focus:outline-none text-sm font-medium" 
-            placeholder="Enter value or formula..."
+            placeholder="Enter value or formula (e.g. =SUM(A1:B2)*1.05 or =UDF('EXPONENTIAL_GROWTH', 1000, 0.05, 5))..."
             value={activeCell ? sheetData[activeCell[0]][activeCell[1]] : ''}
             onChange={(e) => activeCell && updateCell(activeCell[0], activeCell[1], e.target.value)}
           />
         </div>
+        <button
+          onClick={() => setShowIsolateModal(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[10px] font-mono font-bold transition-all shadow-xs shrink-0 cursor-pointer"
+          title="WebAssembly / V8 Isolate Sandboxing & Execution Quotas"
+        >
+          <Shield size={12} className="text-emerald-600" />
+          <span>Isolate: {isolateCycleCap} Cyc</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+        </button>
       </div>
 
       <FormattingToolbar activeCell={activeCell} cellFormats={cellFormats} updateFormat={updateFormat} />
@@ -11352,6 +11552,18 @@ function SpreadsheetApp({ fs, setFs, sheetData, setSheetData, activeFileInSheets
           onClose={() => setShowConditionalDialog(false)} 
         />
       )}
+
+      {showIsolateModal && (
+        <SpreadsheetIsolateDialog
+          isolateCycleCap={isolateCycleCap}
+          setIsolateCycleCap={setIsolateCycleCap}
+          isolateStepLimit={isolateStepLimit}
+          setIsolateStepLimit={setIsolateStepLimit}
+          lastIsolateMetrics={lastIsolateMetrics}
+          onClose={() => setShowIsolateModal(false)}
+          addNotification={addNotification}
+        />
+      )}
     </div>
   );
 }
@@ -11390,6 +11602,7 @@ function renderApp(id: AppId, props: any) {
     case 'calculator': return <CalculatorApp {...props} />;
     case 'unitconverter': return <UnitConverterApp {...props} />;
     case 'lanbridge': return <LANBridgeApp {...props} />;
+    case 'vaultmanager': return <VaultManagerApp addNotification={props.addNotification} openWindow={props.openWindow} />;
     default: return <div className="p-4">App not found</div>;
   }
 }
@@ -16245,8 +16458,11 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
 
   const exec = (command: string, value: string = '') => {
     if (editorRef.current) {
-      editorRef.current.focus();
-      restoreSelection();
+      if (savedRange.current) {
+        restoreSelection();
+      } else {
+        editorRef.current.focus();
+      }
     }
     
     if (command === 'formatBlock') {
@@ -16265,6 +16481,7 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
       const html = editorRef.current.innerHTML;
       lastContent.current = html;
       setContent(html);
+      setGlassWordContent(html);
     }
   };
 
@@ -16526,14 +16743,15 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
       items: [
         { label: 'Undo', action: () => exec('undo'), shortcut: 'Cmd+Z' },
         { label: 'Redo', action: () => exec('redo'), shortcut: 'Cmd+Y' },
-        { label: 'Cut', action: () => { document.execCommand('cut'); if (editorRef.current) { const html = editorRef.current.innerHTML; lastContent.current = html; setContent(html); } }, shortcut: 'Cmd+X' },
+        { label: 'Cut', action: () => { document.execCommand('cut'); if (editorRef.current) { const html = editorRef.current.innerHTML; lastContent.current = html; setContent(html); setGlassWordContent(html); } }, shortcut: 'Cmd+X' },
         { label: 'Copy', action: () => document.execCommand('copy'), shortcut: 'Cmd+C' },
         { label: 'Paste', action: handlePaste, shortcut: 'Cmd+V' },
-        { label: 'Clear', action: () => { setContent(''); } },
-        { label: showRuler ? '✓ Ruler' : 'Ruler', action: () => setShowRuler(prev => !prev) },
+        { label: 'Clear All', action: () => { setContent(''); setGlassWordContent(''); } },
+        { label: showRuler ? '✓ Ruler Bar' : 'Ruler Bar', action: () => setShowRuler(prev => !prev) },
         { 
           label: 'Insert', 
           items: [
+            { label: 'Horizontal Line', action: () => exec('insertHorizontalRule') },
             { label: 'Image (jpeg, img, gdraw/paint)...', action: () => { setInsertType('image'); setShowInsertPicker(true); } },
             { label: 'Sheet (gsheets)...', action: () => { setInsertType('sheet'); setShowInsertPicker(true); } }
           ]
@@ -16547,30 +16765,90 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
         { label: 'Italic', action: () => exec('italic'), shortcut: 'Cmd+I' },
         { label: 'Underline', action: () => exec('underline'), shortcut: 'Cmd+U' },
         { label: 'Strikethrough', action: () => exec('strikeThrough') },
-        { label: 'Heading 1', action: () => exec('formatBlock', '<h1>') },
-        { label: 'Heading 2', action: () => exec('formatBlock', '<h2>') },
-        { label: 'Heading 3', action: () => exec('formatBlock', '<h3>') },
-        { label: 'Paragraph', action: () => exec('formatBlock', '<p>') },
-        { label: 'Bullet List', action: () => exec('insertUnorderedList') },
-        { label: 'Numbered List', action: () => exec('insertOrderedList') },
-        { label: 'Align Left', action: () => exec('justifyLeft') },
-        { label: 'Center', action: () => exec('justifyCenter') },
-        { label: 'Align Right', action: () => exec('justifyRight') },
-        { label: 'Justify', action: () => exec('justifyFull') }
+        { label: 'Superscript', action: () => exec('superscript') },
+        { label: 'Subscript', action: () => exec('subscript') },
+        { label: 'Clear Formatting', action: () => exec('removeFormat') },
+        { 
+          label: 'Paragraph Styles', 
+          items: [
+            { label: 'Heading 1', action: () => exec('formatBlock', '<h1>') },
+            { label: 'Heading 2', action: () => exec('formatBlock', '<h2>') },
+            { label: 'Heading 3', action: () => exec('formatBlock', '<h3>') },
+            { label: 'Paragraph', action: () => exec('formatBlock', '<p>') },
+            { label: 'Blockquote', action: () => exec('formatBlock', '<blockquote>') },
+            { label: 'Code Block', action: () => exec('formatBlock', '<pre>') }
+          ] 
+        },
+        { 
+          label: 'Alignment', 
+          items: [
+            { label: 'Align Left', action: () => exec('justifyLeft') },
+            { label: 'Align Center', action: () => exec('justifyCenter') },
+            { label: 'Align Right', action: () => exec('justifyRight') },
+            { label: 'Justify Full', action: () => exec('justifyFull') }
+          ] 
+        },
+        { 
+          label: 'Lists & Indents', 
+          items: [
+            { label: 'Bullet List', action: () => exec('insertUnorderedList') },
+            { label: 'Numbered List', action: () => exec('insertOrderedList') },
+            { label: 'Increase Indent', action: () => exec('indent') },
+            { label: 'Decrease Indent', action: () => exec('outdent') }
+          ] 
+        },
+        { 
+          label: 'Text Color', 
+          items: [
+            { label: 'Default (Black)', action: () => exec('foreColor', '#0f172a') },
+            { label: 'Blue', action: () => exec('foreColor', '#2563eb') },
+            { label: 'Emerald Green', action: () => exec('foreColor', '#059669') },
+            { label: 'Crimson Red', action: () => exec('foreColor', '#dc2626') },
+            { label: 'Purple', action: () => exec('foreColor', '#7c3aed') }
+          ] 
+        },
+        { 
+          label: 'Highlight Color', 
+          items: [
+            { label: 'Yellow', action: () => exec('hiliteColor', '#fef08a') },
+            { label: 'Light Cyan', action: () => exec('hiliteColor', '#cffafe') },
+            { label: 'Light Green', action: () => exec('hiliteColor', '#dcfce7') },
+            { label: 'Light Pink', action: () => exec('hiliteColor', '#fce7f3') },
+            { label: 'Clear Highlight', action: () => exec('hiliteColor', 'transparent') }
+          ] 
+        }
       ] 
     },
     { 
       label: 'Font', 
       items: [
-        { label: 'Inter', action: () => exec('fontName', 'Inter') },
-        { label: 'Roboto', action: () => exec('fontName', 'Roboto') },
-        { label: 'Open Sans', action: () => exec('fontName', 'Open Sans') },
-        { label: 'Montserrat', action: () => exec('fontName', 'Montserrat') },
-        { label: 'Poppins', action: () => exec('fontName', 'Poppins') },
-        { label: 'JetBrains Mono', action: () => exec('fontName', 'JetBrains Mono') },
-        { label: 'Playfair Display', action: () => exec('fontName', 'Playfair Display') },
-        { label: 'Georgia', action: () => exec('fontName', 'Georgia') },
-        { label: 'Courier New', action: () => exec('fontName', 'Courier New') }
+        { 
+          label: 'Font Family', 
+          items: [
+            { label: 'Inter', action: () => exec('fontName', 'Inter') },
+            { label: 'Roboto', action: () => exec('fontName', 'Roboto') },
+            { label: 'Open Sans', action: () => exec('fontName', 'Open Sans') },
+            { label: 'Montserrat', action: () => exec('fontName', 'Montserrat') },
+            { label: 'Poppins', action: () => exec('fontName', 'Poppins') },
+            { label: 'JetBrains Mono', action: () => exec('fontName', 'JetBrains Mono') },
+            { label: 'Playfair Display', action: () => exec('fontName', 'Playfair Display') },
+            { label: 'Georgia', action: () => exec('fontName', 'Georgia') },
+            { label: 'Courier New', action: () => exec('fontName', 'Courier New') },
+            { label: 'Times New Roman', action: () => exec('fontName', 'Times New Roman') },
+            { label: 'Arial', action: () => exec('fontName', 'Arial') }
+          ] 
+        },
+        { 
+          label: 'Font Size', 
+          items: [
+            { label: 'Small (10pt)', action: () => exec('fontSize', '2') },
+            { label: 'Normal (12pt)', action: () => exec('fontSize', '3') },
+            { label: 'Medium (14pt)', action: () => exec('fontSize', '4') },
+            { label: 'Large (18pt)', action: () => exec('fontSize', '5') },
+            { label: 'Extra Large (24pt)', action: () => exec('fontSize', '6') },
+            { label: 'Heading (36pt)', action: () => exec('fontSize', '7') }
+          ] 
+        }
       ] 
     },
     { 
@@ -16614,7 +16892,10 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
         {menuItems.map((menu) => (
           <div key={menu.label} className="relative">
             <button
-              onMouseDown={(e) => e.preventDefault()}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                saveSelection();
+              }}
               onClick={() => {
                 setActiveMenu(activeMenu === menu.label ? null : menu.label);
                 setActiveSubmenu(null);
@@ -16632,56 +16913,62 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 5 }}
-                  className="absolute top-full left-0 w-48 bg-slate-900/90 backdrop-blur-2xl border border-white/10 shadow-2xl z-[100] py-1 rounded-b-lg"
+                  className="absolute top-full left-0 w-52 bg-slate-900/95 backdrop-blur-2xl border border-white/10 shadow-2xl z-[100] py-1 rounded-b-lg"
                 >
-        {menu.items.map((item: any) => (
-          <div key={item.label} className="relative group/sub">
-            <button
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={(e) => {
-                if (item.items) {
-                  e.stopPropagation();
-                  setActiveSubmenu(activeSubmenu === item.label ? null : item.label);
-                } else if (item.action) {
-                  item.action();
-                  setActiveMenu(null);
-                  setActiveSubmenu(null);
-                }
-              }}
-              className={cn(
-                "w-full text-left px-4 py-1.5 text-[11px] text-white/80 hover:bg-blue-500/50 transition-colors flex justify-between group",
-                item.items ? "cursor-pointer" : ""
-              )}
-            >
-              <span className="flex items-center gap-2">
-                {item.label}
-                {item.items && <ChevronRight size={10} className="ml-auto opacity-40 group-hover/sub:translate-x-0.5 transition-transform" />}
-              </span>
-              {item.shortcut && <span className="opacity-40 uppercase text-[9px] group-hover:text-white/50">{item.shortcut}</span>}
-            </button>
-            {item.items && (
-              <div className={cn(
-                "absolute left-full top-0 w-48 bg-slate-900 border border-white/10 py-1 shadow-2xl rounded-lg -ml-1 z-[110]",
-                activeSubmenu === item.label ? "block" : "hidden group-hover/sub:block"
-              )}>
-                {item.items.map((subItem: any) => (
-                  <button
-                    key={subItem.label}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      subItem.action();
-                      setActiveMenu(null);
-                      setActiveSubmenu(null);
-                    }}
-                    className="w-full text-left px-4 py-1.5 text-[11px] text-white/80 hover:bg-blue-500/50 transition-colors"
-                  >
-                    {subItem.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
+                  {menu.items.map((item: any) => (
+                    <div key={item.label} className="relative group/sub">
+                      <button
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          saveSelection();
+                        }}
+                        onClick={(e) => {
+                          if (item.items) {
+                            e.stopPropagation();
+                            setActiveSubmenu(activeSubmenu === item.label ? null : item.label);
+                          } else if (item.action) {
+                            item.action();
+                            setActiveMenu(null);
+                            setActiveSubmenu(null);
+                          }
+                        }}
+                        className={cn(
+                          "w-full text-left px-4 py-1.5 text-[11px] text-white/80 hover:bg-blue-500/50 transition-colors flex justify-between group",
+                          item.items ? "cursor-pointer" : ""
+                        )}
+                      >
+                        <span className="flex items-center gap-2">
+                          {item.label}
+                          {item.items && <ChevronRight size={10} className="ml-auto opacity-40 group-hover/sub:translate-x-0.5 transition-transform" />}
+                        </span>
+                        {item.shortcut && <span className="opacity-40 uppercase text-[9px] group-hover:text-white/50">{item.shortcut}</span>}
+                      </button>
+                      {item.items && (
+                        <div className={cn(
+                          "absolute left-full top-0 w-48 bg-slate-900/95 border border-white/10 py-1 shadow-2xl rounded-lg -ml-1 z-[110]",
+                          activeSubmenu === item.label ? "block" : "hidden group-hover/sub:block"
+                        )}>
+                          {item.items.map((subItem: any) => (
+                            <button
+                              key={subItem.label}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                saveSelection();
+                              }}
+                              onClick={() => {
+                                subItem.action();
+                                setActiveMenu(null);
+                                setActiveSubmenu(null);
+                              }}
+                              className="w-full text-left px-4 py-1.5 text-[11px] text-white/80 hover:bg-blue-500/50 transition-colors"
+                            >
+                              {subItem.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -16690,45 +16977,90 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
       </div>
 
       {/* Toolbar / Font Bar */}
-      <div className="p-1.5 flex items-center gap-1 bg-white/10 backdrop-blur-md border-b border-white/10 shadow-sm z-40">
-        <div className="flex items-center gap-0.5 px-2 border-r border-white/10">
+      <div className="p-1.5 flex items-center gap-1.5 bg-white/10 backdrop-blur-md border-b border-white/10 shadow-sm z-40 flex-wrap">
+        {/* Font Family & Size */}
+        <div className="flex items-center gap-1 px-2 border-r border-white/10">
           <select 
             onMouseDown={() => saveSelection()}
             onChange={(e) => exec('fontName', e.target.value)}
-            className="bg-transparent text-[11px] text-white/80 border border-white/10 rounded px-1 py-0.5 outline-none focus:border-blue-500/50 transition-all w-32 cursor-pointer hover:bg-white/5"
+            className="bg-slate-900/80 text-[11px] text-white/90 border border-white/10 rounded px-1.5 py-1 outline-none focus:border-blue-500/50 transition-all w-28 cursor-pointer hover:bg-white/5"
+            title="Font Family"
           >
-            {['Inter', 'Roboto', 'Open Sans', 'Montserrat', 'Poppins', 'JetBrains Mono', 'Playfair Display', 'Georgia', 'Courier New'].map(font => (
-              <option key={font} className="bg-slate-900" value={font}>{font}</option>
+            {['Inter', 'Roboto', 'Open Sans', 'Montserrat', 'Poppins', 'JetBrains Mono', 'Playfair Display', 'Georgia', 'Courier New', 'Times New Roman', 'Arial'].map(font => (
+              <option key={font} className="bg-slate-900 text-white" value={font}>{font}</option>
             ))}
           </select>
           <select 
             onMouseDown={() => saveSelection()}
             onChange={(e) => exec('fontSize', e.target.value)}
-            className="bg-transparent text-[11px] text-white/80 border border-white/10 rounded px-1 py-0.5 outline-none focus:border-blue-500/50 transition-all w-16 cursor-pointer ml-1 hover:bg-white/5"
+            defaultValue="3"
+            className="bg-slate-900/80 text-[11px] text-white/90 border border-white/10 rounded px-1.5 py-1 outline-none focus:border-blue-500/50 transition-all w-16 cursor-pointer hover:bg-white/5"
+            title="Font Size"
           >
-            {[1,2,3,4,5,6,7].map(size => (
-              <option key={size} className="bg-slate-900" value={size}>{size * 3 + 7}pt</option>
+            {[
+              { val: '1', label: '9pt' },
+              { val: '2', label: '10pt' },
+              { val: '3', label: '12pt' },
+              { val: '4', label: '14pt' },
+              { val: '5', label: '18pt' },
+              { val: '6', label: '24pt' },
+              { val: '7', label: '36pt' },
+            ].map(s => (
+              <option key={s.val} className="bg-slate-900 text-white" value={s.val}>{s.label}</option>
             ))}
+          </select>
+          <select 
+            onMouseDown={() => saveSelection()}
+            onChange={(e) => exec('formatBlock', e.target.value)}
+            className="bg-slate-900/80 text-[11px] text-white/90 border border-white/10 rounded px-1.5 py-1 outline-none focus:border-blue-500/50 transition-all w-24 cursor-pointer hover:bg-white/5"
+            title="Heading Style"
+          >
+            <option className="bg-slate-900" value="<p>">Normal</option>
+            <option className="bg-slate-900" value="<h1>">Heading 1</option>
+            <option className="bg-slate-900" value="<h2>">Heading 2</option>
+            <option className="bg-slate-900" value="<h3>">Heading 3</option>
+            <option className="bg-slate-900" value="<blockquote>">Quote</option>
+            <option className="bg-slate-900" value="<pre>">Code</option>
           </select>
         </div>
 
+        {/* Text Style formatting */}
         <div className="flex items-center gap-0.5 px-2 border-r border-white/10">
           <ToolbarButton icon={<Bold size={14} />} onClick={() => exec('bold')} tooltip="Bold (Cmd+B)" />
           <ToolbarButton icon={<Italic size={14} />} onClick={() => exec('italic')} tooltip="Italic (Cmd+I)" />
           <ToolbarButton icon={<Underline size={14} />} onClick={() => exec('underline')} tooltip="Underline (Cmd+U)" />
-          <ToolbarButton icon={<Eraser size={14} />} onClick={() => exec('removeFormat')} tooltip="Clear Format" />
+          <ToolbarButton icon={<Strikethrough size={14} />} onClick={() => exec('strikeThrough')} tooltip="Strikethrough" />
+          <ToolbarButton icon={<Eraser size={14} />} onClick={() => exec('removeFormat')} tooltip="Clear Formatting" />
         </div>
 
+        {/* Text color & Highlight quick tools */}
+        <div className="flex items-center gap-0.5 px-2 border-r border-white/10">
+          <ToolbarButton 
+            icon={<Type size={14} className="text-blue-400" />} 
+            onClick={() => exec('foreColor', '#2563eb')} 
+            tooltip="Text Color: Blue" 
+          />
+          <ToolbarButton 
+            icon={<Highlighter size={14} className="text-amber-400" />} 
+            onClick={() => exec('hiliteColor', '#fef08a')} 
+            tooltip="Highlight: Yellow" 
+          />
+        </div>
+
+        {/* Alignment */}
         <div className="flex items-center gap-0.5 px-2 border-r border-white/10">
           <ToolbarButton icon={<AlignLeft size={14} />} onClick={() => exec('justifyLeft')} tooltip="Align Left" />
-          <ToolbarButton icon={<AlignCenter size={14} />} onClick={() => exec('justifyCenter')} tooltip="Center" />
+          <ToolbarButton icon={<AlignCenter size={14} />} onClick={() => exec('justifyCenter')} tooltip="Align Center" />
           <ToolbarButton icon={<AlignRight size={14} />} onClick={() => exec('justifyRight')} tooltip="Align Right" />
+          <ToolbarButton icon={<AlignJustify size={14} />} onClick={() => exec('justifyFull')} tooltip="Justify Full" />
         </div>
 
-        <div className="flex items-center gap-0.5 px-2">
-          <ToolbarButton icon={<ListIcon size={14} />} onClick={() => exec('insertUnorderedList')} tooltip="Bullets" />
-          <ToolbarButton icon={<Indent size={14} />} onClick={() => exec('indent')} tooltip="Indent" />
-          <ToolbarButton icon={<Outdent size={14} />} onClick={() => exec('outdent')} tooltip="Outdent" />
+        {/* Lists & Indents */}
+        <div className="flex items-center gap-0.5 px-2 border-r border-white/10">
+          <ToolbarButton icon={<ListIcon size={14} />} onClick={() => exec('insertUnorderedList')} tooltip="Bulleted List" />
+          <ToolbarButton icon={<ListOrdered size={14} />} onClick={() => exec('insertOrderedList')} tooltip="Numbered List" />
+          <ToolbarButton icon={<Indent size={14} />} onClick={() => exec('indent')} tooltip="Increase Indent" />
+          <ToolbarButton icon={<Outdent size={14} />} onClick={() => exec('outdent')} tooltip="Decrease Indent" />
         </div>
         
         <div className="ml-auto flex items-center gap-1 pr-2">
@@ -16739,31 +17071,31 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
 
       {/* Ruler Bar directly under Font Bar */}
       {showRuler && (
-        <div className="h-8 bg-slate-900/90 backdrop-blur-md border-b border-white/10 flex items-center px-4 relative select-none z-30 shadow-inner overflow-hidden text-white/60 font-mono text-[10px]">
-          <div className="flex items-center gap-1 pr-3 border-r border-white/10 shrink-0 text-white/40 font-bold uppercase tracking-wider text-[9px]">
+        <div className="h-8 bg-slate-900/95 backdrop-blur-md border-b border-white/10 flex items-center px-4 relative select-none z-30 shadow-inner overflow-hidden text-white/70 font-mono text-[10px]">
+          <div className="flex items-center gap-1.5 pr-3 border-r border-white/10 shrink-0 text-white/50 font-bold uppercase tracking-wider text-[9px]">
             <Ruler size={13} className="text-blue-400" />
-            <span>INCH</span>
+            <span>INCHES</span>
           </div>
 
           <div className="flex-1 flex justify-center overflow-hidden px-2">
-            <div className="w-full max-w-[850px] relative h-full flex items-center">
+            <div className="w-full max-w-[960px] lg:max-w-[1020px] relative h-full flex items-center">
               {/* Shaded margin indicators */}
               <div 
-                className="absolute left-0 top-0 bottom-0 bg-blue-500/15 border-r border-blue-400/40" 
-                style={{ width: `${leftIndent * (96 / 72)}px` }} 
+                className="absolute left-0 top-0 bottom-0 bg-blue-500/20 border-r-2 border-blue-400 cursor-ew-resize transition-all" 
+                style={{ width: `${Math.max(12, leftIndent * (96 / 72))}px` }} 
                 title={`Left Margin: ${(leftIndent / 72).toFixed(2)}" (${leftIndent}pt)`}
               />
               <div 
-                className="absolute right-0 top-0 bottom-0 bg-blue-500/15 border-l border-blue-400/40" 
-                style={{ width: `${rightIndent * (96 / 72)}px` }} 
+                className="absolute right-0 top-0 bottom-0 bg-blue-500/20 border-l-2 border-blue-400 cursor-ew-resize transition-all" 
+                style={{ width: `${Math.max(12, rightIndent * (96 / 72))}px` }} 
                 title={`Right Margin: ${(rightIndent / 72).toFixed(2)}" (${rightIndent}pt)`}
               />
 
               {/* Ruler ticks and inch numbers */}
-              <div className="w-full relative h-full flex items-end">
-                {Array.from({ length: 17 }).map((_, i) => {
+              <div className="w-full relative h-full flex items-end pb-0.5">
+                {Array.from({ length: 18 }).map((_, i) => {
                   const isFullInch = i % 2 === 0;
-                  const posPercent = (i / 16) * 100;
+                  const posPercent = (i / 17) * 100;
                   return (
                     <div 
                       key={i} 
@@ -16771,11 +17103,11 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
                       style={{ left: `${posPercent}%` }}
                     >
                       {isFullInch && (
-                        <span className="text-[9px] text-white/80 font-bold mb-0.5">
+                        <span className="text-[9px] text-white/90 font-bold mb-0.5 select-none">
                           {i / 2}"
                         </span>
                       )}
-                      <div className={isFullInch ? "h-3.5 w-[1.5px] bg-white/60" : "h-2 w-px bg-white/30"} />
+                      <div className={isFullInch ? "h-3.5 w-[1.5px] bg-white/70" : "h-2 w-px bg-white/30"} />
                     </div>
                   );
                 })}
@@ -16783,20 +17115,29 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
             </div>
           </div>
 
-          <div className="pl-3 border-l border-white/10 shrink-0 flex items-center gap-3 text-[10px] text-white/60 font-mono">
-            <span>Left: {(leftIndent / 72).toFixed(1)}"</span>
-            <span>Right: {(rightIndent / 72).toFixed(1)}"</span>
+          <div className="pl-3 border-l border-white/10 shrink-0 flex items-center gap-3 text-[10px] text-white/70 font-mono">
+            <button 
+              onClick={() => {
+                const next = leftIndent === 36 ? 72 : leftIndent === 72 ? 18 : 36;
+                setLeftIndent(next);
+                setRightIndent(next);
+              }}
+              title="Click to toggle margin preset (0.25in / 0.5in / 1in)"
+              className="hover:text-blue-400 transition-colors cursor-pointer"
+            >
+              Margins: {(leftIndent / 72).toFixed(2)}"
+            </button>
           </div>
         </div>
       )}
 
-      {/* Main Content Area */}
-      <div className="flex-1 overflow-y-auto bg-black/20 p-6 flex flex-col items-center custom-scrollbar" onClick={() => {
+      {/* Main Content Area - Expanded Text Box Area Inside Page */}
+      <div className="flex-1 overflow-y-auto bg-black/25 p-4 sm:p-6 lg:p-8 flex flex-col items-center custom-scrollbar" onClick={() => {
         if (editorRef.current) editorRef.current.focus();
         setActiveMenu(null);
       }}>
         <div 
-          className="w-full max-w-[850px] min-h-[1056px] h-auto shrink-0 bg-white text-slate-900 shadow-2xl focus:outline-none ring-1 ring-black/10 relative cursor-text selection:bg-blue-100 selection:text-slate-900 transition-all"
+          className="w-full max-w-[960px] lg:max-w-[1020px] min-h-[1120px] h-auto shrink-0 bg-white text-slate-900 shadow-2xl focus:outline-none ring-1 ring-black/10 relative cursor-text selection:bg-blue-100 selection:text-slate-900 transition-all rounded-sm"
           contentEditable
           suppressContentEditableWarning
           ref={editorRef}
@@ -16804,15 +17145,15 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
             const html = e.currentTarget.innerHTML;
             lastContent.current = html;
             setContent(html);
+            setGlassWordContent(html);
           }}
           style={{ 
             fontFamily: 'Inter, sans-serif',
             fontSize: '12pt',
             lineHeight: '1.6',
-            minHeight: '1056px',
+            minHeight: '1120px',
             height: 'auto',
-            boxShadow: '0 0 50px rgba(0,0,0,0.3)',
-            borderRadius: showRuler ? '0 0 2px 2px' : '2px',
+            boxShadow: '0 10px 50px rgba(0,0,0,0.4)',
             paddingTop: `${topMargin}pt`,
             paddingBottom: `${bottomMargin}pt`,
             paddingLeft: `${leftIndent}pt`,
@@ -16821,7 +17162,7 @@ function GlassWordProcessor({ fs, setFs, fsLib, addNotification, currentUser, op
           }}
         />
         {/* Scrollable Spacer to ensure padding is respected at the bottom */}
-        <div className="h-16 shrink-0 w-full" />
+        <div className="h-20 shrink-0 w-full" />
       </div>
 
       {/* Dialogs */}

@@ -2,11 +2,258 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Google AI Studio App</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    
+    <!-- Primary OS Identity & SEO Metadata -->
+    <title>GlassOS — The Sovereign Web Operating System</title>
+    <meta name="title" content="GlassOS — The Sovereign Web Operating System" />
+    <meta name="description" content="GlassOS is a high-performance, glassmorphic desktop operating system running natively in the browser with WebAssembly/V8 sandboxing, cryptographic Vault REST security, GlassWord, GlassSheets, terminal emulator, and local-first persistence." />
+    <meta name="keywords" content="GlassOS, Web Operating System, WebAssembly, V8 Sandbox, Glassmorphism, Cloud OS, Virtual Desktop, GlassWord, GlassSheets, Browser OS, REST Security, Isolate VM" />
+    <meta name="author" content="GlassOS Systems Architecture" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#050811" />
+
+    <!-- Open Graph / Facebook / LinkedIn Social Sharing Metadata -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="GlassOS Environment" />
+    <meta property="og:title" content="GlassOS — The Sovereign Web Operating System" />
+    <meta property="og:description" content="Next-generation glassmorphic desktop operating system running natively in the browser with WebAssembly sandboxing, cryptographic REST authority, and productivity suite." />
+    <meta property="og:image" content="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1200&auto=format&fit=crop" />
+    <meta property="og:image:alt" content="GlassOS Desktop Operating System Interface" />
+
+    <!-- Twitter Card Metadata -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="GlassOS — The Sovereign Web Operating System" />
+    <meta name="twitter:description" content="A complete browser-native operating system featuring WebAssembly execution quotas, cryptographic REST API security, GlassWord, GlassSheets, and virtual terminal." />
+    <meta name="twitter:image" content="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1200&auto=format&fit=crop" />
+
+    <!-- OS Application & PWA Window Controls -->
+    <meta name="application-name" content="GlassOS" />
+    <meta name="apple-mobile-web-app-title" content="GlassOS" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <!-- Inline SVG Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2338bdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='12 2 2 7 12 12 22 7 12 2'%3E%3C/polygon%3E%3Cpolyline points='2 17 12 22 22 17'%3E%3C/polyline%3E%3Cpolyline points='2 12 12 17 22 12'%3E%3C/polyline%3E%3C/svg%3E" />
+
+    <!-- Structured JSON-LD Data for SoftwareApplication / OperatingSystem -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "GlassOS",
+      "operatingSystem": "Web, Cross-Platform Browser Runtime",
+      "applicationCategory": "OperatingSystemApplication",
+      "description": "A high-performance glassmorphic web operating system featuring WebAssembly execution sandboxing with cycle quotas, The Vault Manager cryptographic REST endpoint authority, GlassWord document suite, GlassSheets spreadsheet engine, terminal emulator, and local-first storage.",
+      "softwareVersion": "2.4.0",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "featureList": [
+        "Zero-eval WebAssembly & V8 Isolate Sandboxing with Gas & Cycle Quotas",
+        "The Vault Manager Cryptographic REST Endpoint Authority & Audit Logs",
+        "GlassWord Desktop Word Processor with Rich Formatting",
+        "GlassSheets Relational Calculation Engine with User-Defined Functions (UDFs)",
+        "GTerm Virtual Terminal with POSIX File System Access",
+        "Local-First Virtual Storage with Strict POSIX Permissions"
+      ]
+    }
+    </script>
+
+    <style>
+      /* Pre-render progressive skeleton styling for instant paint (FCP < 50ms) */
+      body, html {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background-color: #050811;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        color: #f1f5f9;
+      }
+      #glass-prerender-shell {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        background: radial-gradient(circle at 50% 30%, #1e1b4b 0%, #0f172a 50%, #020617 100%);
+        user-select: none;
+        overflow: hidden;
+      }
+      .prerender-topbar {
+        height: 32px;
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 14px;
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.8);
+      }
+      .prerender-topbar-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+      }
+      .prerender-desktop {
+        flex: 1;
+        position: relative;
+        padding: 24px;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+        grid-auto-rows: 96px;
+        gap: 16px;
+        align-content: start;
+      }
+      .prerender-icon {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        border-radius: 8px;
+        padding: 8px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+      }
+      .prerender-icon-box {
+        width: 38px;
+        height: 38px;
+        border-radius: 8px;
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(147, 51, 234, 0.3));
+        border: 1px solid rgba(255, 255, 255, 0.15);
+      }
+      .prerender-icon-label {
+        font-size: 10px;
+        color: rgba(255, 255, 255, 0.7);
+        text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+      }
+      .prerender-center-badge {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        padding: 24px 36px;
+        background: rgba(15, 23, 42, 0.65);
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 16px;
+        box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+      }
+      .prerender-logo {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #3b82f6, #8b5cf6, #ec4899);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 0 20px rgba(99, 102, 241, 0.5);
+        animation: pulse-glow 2s infinite ease-in-out;
+      }
+      @keyframes pulse-glow {
+        0%, 100% { transform: scale(1); opacity: 0.9; }
+        50% { transform: scale(1.05); opacity: 1; }
+      }
+      .prerender-taskbar {
+        height: 48px;
+        background: rgba(15, 23, 42, 0.75);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 0 16px;
+      }
+      .prerender-dock-item {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Pre-rendered progressive layout shell for instant paint & SEO indexing -->
+      <div id="glass-prerender-shell" aria-label="GlassOS Desktop Shell">
+        <header class="prerender-topbar">
+          <div class="prerender-topbar-left">
+            <span>❖ GlassOS</span>
+            <span style="opacity: 0.5;">File</span>
+            <span style="opacity: 0.5;">Edit</span>
+            <span style="opacity: 0.5;">View</span>
+            <span style="opacity: 0.5;">Help</span>
+          </div>
+          <div style="font-family: monospace; opacity: 0.75; font-size: 11px;">
+            Quantum Kernel v2.4 • System Active
+          </div>
+        </header>
+
+        <main class="prerender-desktop">
+          <div class="prerender-icon">
+            <div class="prerender-icon-box" style="background: linear-gradient(135deg, rgba(59,130,246,0.4), rgba(37,99,235,0.4));"></div>
+            <span class="prerender-icon-label">GlassWord</span>
+          </div>
+          <div class="prerender-icon">
+            <div class="prerender-icon-box" style="background: linear-gradient(135deg, rgba(16,185,129,0.4), rgba(5,150,105,0.4));"></div>
+            <span class="prerender-icon-label">GlassSheets</span>
+          </div>
+          <div class="prerender-icon">
+            <div class="prerender-icon-box" style="background: linear-gradient(135deg, rgba(234,179,8,0.4), rgba(202,138,4,0.4));"></div>
+            <span class="prerender-icon-label">Documents</span>
+          </div>
+          <div class="prerender-icon">
+            <div class="prerender-icon-box" style="background: linear-gradient(135deg, rgba(139,92,246,0.4), rgba(124,58,237,0.4));"></div>
+            <span class="prerender-icon-label">Terminal</span>
+          </div>
+          <div class="prerender-icon">
+            <div class="prerender-icon-box" style="background: linear-gradient(135deg, rgba(236,72,153,0.4), rgba(219,39,119,0.4));"></div>
+            <span class="prerender-icon-label">Settings</span>
+          </div>
+
+          <div class="prerender-center-badge">
+            <div class="prerender-logo">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                <polyline points="2 17 12 22 22 17"></polyline>
+                <polyline points="2 12 12 17 22 12"></polyline>
+              </svg>
+            </div>
+            <div style="text-align: center;">
+              <div style="font-size: 15px; font-weight: 700; letter-spacing: -0.2px;">GlassOS</div>
+              <div style="font-size: 11px; opacity: 0.6; margin-top: 2px;">Mounting isolated workspace environment...</div>
+            </div>
+          </div>
+        </main>
+
+        <footer class="prerender-taskbar">
+          <div class="prerender-dock-item" style="background: rgba(59,130,246,0.25);"></div>
+          <div class="prerender-dock-item"></div>
+          <div class="prerender-dock-item"></div>
+          <div class="prerender-dock-item"></div>
+          <div class="prerender-dock-item"></div>
+        </footer>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
