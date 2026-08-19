@@ -1,6 +1,0 @@
-{
-  "name": "GlassOS",
-  "description": "A sleek glassmorphism OS with WebAssembly/V8 script sandboxing, execution quotas, Vault-enforced REST API authentication, terminal, browser, IDE, and robust persistence.",
-  "requestFramePermissions": ["camera", "microphone"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
