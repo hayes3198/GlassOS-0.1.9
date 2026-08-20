@@ -18,7 +18,7 @@ export const TEMPLATES: DocumentTemplate[] = [
     name: "Letterhead",
     category: "Professional",
     description: "Corporate company correspondence with an elegant modern glass header.",
-    suggestedMargins: { left: 72, right: 72, top: 54, bottom: 54 },
+    suggestedMargins: { left: 10, right: 10, top: 15, bottom: 10 },
     content: `<div style="font-family: 'Inter', sans-serif; color: #1e293b;">
   <div style="border-bottom: 2px solid #3b82f6; padding-bottom: 12px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: flex-end;">
     <div>
