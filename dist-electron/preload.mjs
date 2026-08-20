@@ -1,1 +1,0 @@
-"use strict";const n=require("electron");n.contextBridge.exposeInMainWorld("electronAPI",{send:(e,i)=>{["toMain"].includes(e)&&n.ipcRenderer.send(e,i)},receive:(e,i)=>{["fromMain","main-process-message"].includes(e)&&n.ipcRenderer.on(e,(t,...r)=>i(...r))},executeCommand:e=>n.ipcRenderer.invoke("execute-command",e),getSystemInfo:()=>n.ipcRenderer.invoke("get-system-info")});
